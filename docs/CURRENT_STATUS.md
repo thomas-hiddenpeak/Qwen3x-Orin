@@ -86,27 +86,24 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-Current isolated source retains the GDN graphs, Gate/Up input ring, weight-major
-BF16 draft, fixed 0.4 lookahead, corrected softmax, exact short Attention and
-lazy accepted-tail KV batching. Zero-draft singleton rounds now use the native
-scalar Decode transaction, retaining complete snapshots and original commits.
-M2..4 and the ordinary non-MTP service remain unchanged. The profile is
-`q3x.sm87.admission.mtp-single-tail-api.v98`; measured server ELF is
-`916c60ab734c5f2f297ad72cc5904fa2f875891faadd160eb602777d95fbfa6f`.
+Current isolated source retains the GDN graphs, Gate/Up input ring, fixed 0.4
+lookahead, corrected softmax, exact short Attention, lazy accepted-tail KV
+batching and native singleton transaction. Private draft Gate/Up/Down now use
+fixed group128 INT8 weights decoded directly into BF16 MMA registers. FC,
+complete Attention and draft-cache construction retain original BF16 weights.
+Target arithmetic/state and the ordinary non-MTP service are unchanged.
+The profile is `q3x.sm87.admission.mtp-mlp-register-api.v101`; measured server
+ELF is `6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09`.
 
-The [singleton direction](metadata/qwen36-27b-mtp-single-tail-direction-2026-10-14.json)
-passes ten complete M1..4 prefixes, fifteen state/cache transactions and all
-bounded failure/cancel checks. Both draft lengths pass eight API/lifecycle
-requests. Complete responses, generated IDs, acceptance and semantic work
-match v94. `scalar_verify_rows` records the new path; physical direct GDN rows
-and copy-elision exclude scalar snapshots. Four d2 P65-equivalent requests
-improve Decode by 0.68%–0.90%, with one scalar tail each. No-tail long/d3
-observations are effectively unchanged. The preceding
-[accepted-tail](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
-and [short Attention](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
-checks retain their scope. No device arithmetic changes in this composition.
-These dependencies remain bounded through the next complete verifier architecture
-API return or archival, not mirrored architecture selection or production.
+The [register direction](metadata/qwen36-27b-mtp-mlp-register-direction-2026-10-14.json)
+passes exhaustive decoder/full-projection/Graph checks and original-weight FP64
+hidden maximum 1.369%, within the private 2% bound. Ten complete target prefixes,
+fifteen transactions, failure recovery and all sixteen d2/d3 API/lifecycle
+requests pass. Target IDs and responses match v98/non-MTP; private acceptance
+changes are explicitly recorded. The additional 271,564,800 packed bytes retain
+the startup 8-GiB free reserve and require no request allocation. This dependency
+is bounded through the next complete MTP architecture API return or archival;
+there is no mirrored selection or production promotion yet.
 
 The corrected non-MTP denominator remains the
 [fresh paired softmax record](metadata/qwen36-27b-softmax-sync-2026-10-14.json),
@@ -122,31 +119,33 @@ unchanged Prefill implementation.
 | 65 / 16 | non-MTP | 0.895 | 72.60 | 0.914 | 9.591 | 2.478 |
 | 8192 / 256 | non-MTP | 16.803 | 487.52 | 16.825 | 9.222 | 44.480 |
 | 40000 / 256 | non-MTP | 90.109 | 443.91 | 90.144 | 7.872 | 122.542 |
-| 65 / 16 | d2 | 0.892 | 72.83 | 0.911 | 13.714 | 2.005 |
-| 8192 / 256 | d2 | 17.340 | 472.44 | 17.363 | 15.178 | 34.163 |
-| 40000 / 256 | d2 | 92.787 | 431.10 | 92.822 | 11.561 | 114.880 |
-| 65 / 16 | d3 | 0.892 | 72.88 | 0.911 | 12.730 | 2.089 |
-| 8192 / 256 | d3 | 17.289 | 473.84 | 17.311 | 14.204 | 35.264 |
-| 40000 / 256 | d3 | 92.538 | 432.25 | 92.574 | 10.877 | 116.019 |
+| 65 / 16 | d2 | 0.892 | 72.83 | 0.911 | 13.968 | 1.985 |
+| 8192 / 256 | d2 | 17.299 | 473.56 | 17.321 | 15.407 | 33.872 |
+| 40000 / 256 | d2 | 92.722 | 431.39 | 92.757 | 11.620 | 114.704 |
+| 65 / 16 | d3 | 0.892 | 72.87 | 0.911 | 13.513 | 2.020 |
+| 8192 / 256 | d3 | 17.371 | 471.59 | 17.393 | 14.452 | 35.038 |
+| 40000 / 256 | d3 | 92.818 | 430.95 | 92.853 | 10.954 | 116.134 |
 
-D2 reaches 1.430x/1.646x/1.469x non-MTP Decode at P65/8K/40K; d3 reaches 1.327x/1.540x/1.382x.
+D2 reaches 1.456x/1.671x/1.476x non-MTP Decode at P65/8K/40K; d3 reaches 1.409x/1.567x/1.392x.
 **The full 1.5x–3x objective remains unmet.** D2 still needs approximately
-0.051 seconds removed from short Decode and 0.460 seconds from 40K Decode.
-D3 remains slower than d2. Product targets and numerical contracts remain intact;
-the ordinary installed production service remains non-MTP.
+0.031 seconds removed from short Decode and 0.348 seconds from 40K Decode.
+Product targets and numerical contracts remain intact; the ordinary installed
+production service remains non-MTP.
 
-The later [private INT8 MLP direction](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json)
+The preceding [shared-tile private INT8 MLP direction](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json)
 passes independent original-weight FP64 and complete target-state admission,
 but regresses P65/8K Decode by 1.09%/1.45% with unchanged acceptance. It is
 removed before 40K/d3 qualification. BF16 Attention protects the fixed draft
 numerical boundary, but this packed consumer does not improve whole-API fitness.
-The retained v98 implementation and metrics above remain current.
+That rejected shared-tile consumer remains removed; the new register consumer
+above is a distinct composition.
 
 The subsequent [invariant-divisor direction](metadata/qwen36-27b-mtp-softmax-reciprocal-rejection-2026-10-14.json)
 passes exhaustive division, full softmax/Graph, P513 state and eight d2 API
 checks, but is removed for neutral whole-request performance: 8K/40K Decode
 changes only +0.0346%/+0.0507%. D3 and further profiling are not run. This
-closes that arithmetic-hoisting path without changing the retained v98 metrics.
+closes that arithmetic-hoisting path; its v98 comparator is preserved in the
+dated record.
 
 ### Preceding NV live-reduction direction
 

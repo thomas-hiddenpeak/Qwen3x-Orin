@@ -88,6 +88,111 @@ __global__ void draft_weight_major(const std::uint16_t* weights,
     }
   }
 }
+__device__ __forceinline__ std::uint16_t bf16_bits(float value) {
+  const unsigned bits = __float_as_uint(value);
+  return static_cast<std::uint16_t>((bits + 0x7fffU + ((bits >> 16) & 1)) >> 16);
+}
+// Startup-only fixed group128 quantizer. Independent host payload hashes
+// authenticate every produced byte before any draft consumer becomes ready.
+__global__ void pack_mlp_int8(const std::uint16_t* weights, std::uint8_t* codes,
+    std::uint16_t* scales) {
+  __shared__ float maxima[128];
+  const unsigned i = blockIdx.x * 128 + threadIdx.x;
+  const float value = __uint_as_float(unsigned(weights[i]) << 16);
+  maxima[threadIdx.x] = fabsf(value);
+  __syncthreads();
+  for (unsigned stride = 64; stride; stride >>= 1) {
+    if (threadIdx.x < stride) maxima[threadIdx.x] = fmaxf(maxima[threadIdx.x], maxima[threadIdx.x + stride]);
+    __syncthreads();
+  }
+  auto bits = bf16_bits(__fdiv_rn(maxima[0], 127.0F));
+  if (bits == 0) bits = 0x3f80U;
+  const float scale = __uint_as_float(unsigned(bits) << 16);
+  const int q = max(-127, min(127, __float2int_rn(__fdiv_rn(value, scale))));
+  codes[i] = static_cast<std::uint8_t>(q + 128);
+  if (threadIdx.x == 0) scales[blockIdx.x] = bits;
+}
+__device__ __forceinline__ unsigned packed_offset(unsigned row, unsigned col) {
+  return row * 128 + (col ^ ((row & 7U) * 16));
+}
+// Stored U8B128 integers fit BF16 exactly. The FP32 bias construction removes
+// scalar integer conversion and RNE bit manipulation; only scaled publication
+// rounds, once, before the unchanged BF16 MMA consumer.
+__device__ __forceinline__ unsigned scaled_int8_pair(unsigned pair, unsigned scale) {
+  const float a = __fadd_rn(__uint_as_float(0x4b000000U | (pair & 255U)), -8388736.0f);
+  const float b = __fadd_rn(__uint_as_float(0x4b000000U | (pair >> 8)), -8388736.0f);
+  const unsigned values = __byte_perm(__float_as_uint(a), __float_as_uint(b), 0x7632);
+  unsigned result;
+  asm("fma.rn.bf16x2 %0, %1, %2, %3;" : "=r"(result)
+      : "r"(values), "r"(scale), "r"(0x80008000U));
+  return result;
+}
+__device__ __forceinline__ void stage_int8(std::uint8_t* packed, std::uint16_t* x,
+    const std::uint8_t* codes, const std::uint16_t* input, unsigned k, unsigned tile) {
+  for (unsigned i = threadIdx.x; i < 64 * 8; i += 128) {
+    const unsigned row = i / 8, col = (i % 8) * 16;
+    copy16(reinterpret_cast<std::uint16_t*>(packed + packed_offset(row, col)),
+        reinterpret_cast<const std::uint16_t*>(codes + (blockIdx.x * 64 + row) * k + tile * 128 + col));
+  }
+  const unsigned row = threadIdx.x / 16, col = (threadIdx.x % 16) * 8;
+  copy16(x + swizzled(row, col), row == 0 ? input + tile * 128 + col : input, row == 0 ? 16 : 0);
+  asm volatile("cp.async.commit_group;" ::: "memory");
+}
+__global__ void draft_mlp_int8(const std::uint8_t* codes, const std::uint16_t* scales,
+    const std::uint16_t* input, unsigned count, unsigned n, unsigned k,
+    std::uint16_t* output) {
+  __shared__ __align__(16) std::uint8_t packed[2][64 * 128];
+  __shared__ __align__(16) std::uint16_t x[2][8 * 128];
+  const unsigned lane = threadIdx.x % 32, warp = threadIdx.x / 32;
+  const unsigned wr = (warp % 4) * 16 + lane / 4;
+  const unsigned xr = (warp / 4) * 8 + lane / 4;
+  const unsigned pair = (lane % 4) * 2;
+  float c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+  stage_int8(packed[0], x[0], codes, input, k, 0);
+  stage_int8(packed[1], x[1], codes, input, k, 1);
+  asm volatile("cp.async.wait_group 1;" ::: "memory");
+  __syncthreads();
+  for (unsigned tile = 0; tile < k / 128; ++tile) {
+    const unsigned b = tile & 1;
+    const unsigned raw0 = scales[(blockIdx.x * 64 + wr) * (k / 128) + tile];
+    const unsigned raw1 = scales[(blockIdx.x * 64 + wr + 8) * (k / 128) + tile];
+    const unsigned scale0 = raw0 | (raw0 << 16), scale1 = raw1 | (raw1 << 16);
+    #pragma unroll
+    for (unsigned step = 0; step < 8; ++step) {
+      const unsigned q = step * 16 + pair;
+      const unsigned a0 = scaled_int8_pair(*reinterpret_cast<const std::uint16_t*>(packed[b] + packed_offset(wr, q)), scale0);
+      const unsigned a1 = scaled_int8_pair(*reinterpret_cast<const std::uint16_t*>(packed[b] + packed_offset(wr + 8, q)), scale1);
+      const unsigned a2 = scaled_int8_pair(*reinterpret_cast<const std::uint16_t*>(packed[b] + packed_offset(wr, q + 8)), scale0);
+      const unsigned a3 = scaled_int8_pair(*reinterpret_cast<const std::uint16_t*>(packed[b] + packed_offset(wr + 8, q + 8)), scale1);
+      const unsigned b0 = *reinterpret_cast<const unsigned*>(x[b] + swizzled(xr, q));
+      const unsigned b1 = *reinterpret_cast<const unsigned*>(x[b] + swizzled(xr, q + 8));
+      asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+          "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};"
+          : "+f"(c0), "+f"(c1), "+f"(c2), "+f"(c3)
+          : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
+    }
+    __syncthreads();
+    if (tile + 2 < k / 128) {
+      stage_int8(packed[b], x[b], codes, input, k, tile + 2);
+      asm volatile("cp.async.wait_group 1;" ::: "memory");
+    } else {
+      asm volatile("cp.async.wait_group 0;" ::: "memory");
+    }
+    __syncthreads();
+  }
+  const float results[4] = {c0, c1, c2, c3};
+  #pragma unroll
+  for (unsigned i = 0; i < 4; ++i) {
+    const unsigned token = (warp / 4) * 8 + pair + (i & 1);
+    const unsigned row = blockIdx.x * 64 + wr + (i >= 2 ? 8 : 0);
+    if (token < count) {
+      const unsigned bits = __float_as_uint(results[i]);
+      const unsigned rounded = (bits & 0x7fffffffU) > 0x7f800000U ?
+          (bits >> 16) | 0x40U : (bits + 0x7fffU + ((bits >> 16) & 1)) >> 16;
+      output[token * n + row] = static_cast<std::uint16_t>(rounded);
+    }
+  }
+}
 __global__ void draft_confidence(const std::uint16_t* logits, unsigned n, float* output) {
   __shared__ float reduction[256];
   float maximum = -CUDART_INF_F;
@@ -122,6 +227,29 @@ bool overlap(const void* a, std::size_t na, const void* b, std::size_t nb) {
   const auto max = std::numeric_limits<std::uintptr_t>::max();
   return x > max - na || y > max - nb || (x < y + nb && y < x + na);
 }
+}
+int launch_mtp_pack_mlp_int8(const std::uint16_t* weights, std::uint8_t* codes,
+    std::uint16_t* scales, unsigned rows, unsigned columns) noexcept {
+  if (!weights || !codes || !scales || !((rows == 5120 && columns == 17408) ||
+      (rows == 17408 && columns == 5120))) return cudaErrorInvalidValue;
+  pack_mlp_int8<<<rows * (columns / 128), 128>>>(weights, codes, scales);
+  return cudaGetLastError();
+}
+int launch_mtp_mlp_int8(const std::uint8_t* codes, const std::uint16_t* scales,
+    const std::uint16_t* input, unsigned rows, unsigned columns,
+    std::uint16_t* output, void* stream) noexcept {
+  if (!codes || !scales || !input || !output || !((rows == 5120 && columns == 17408) ||
+      (rows == 17408 && columns == 5120)) ||
+      ((reinterpret_cast<std::uintptr_t>(codes) | reinterpret_cast<std::uintptr_t>(scales) |
+        reinterpret_cast<std::uintptr_t>(input) | reinterpret_cast<std::uintptr_t>(output)) & 15U))
+    return cudaErrorInvalidValue;
+  const std::size_t nc = std::size_t(rows) * columns, ns = nc / 64;
+  if (overlap(codes, nc, scales, ns) || overlap(codes, nc, input, 2ULL * columns) ||
+      overlap(codes, nc, output, 2ULL * rows) || overlap(scales, ns, input, 2ULL * columns) ||
+      overlap(scales, ns, output, 2ULL * rows) || overlap(input, 2ULL * columns, output, 2ULL * rows))
+    return cudaErrorInvalidValue;
+  draft_mlp_int8<<<rows / 64, 128, 0, static_cast<cudaStream_t>(stream)>>>(codes, scales, input, 1, rows, columns, output);
+  return cudaGetLastError();
 }
 int launch_mtp_draft_confidence(const std::uint16_t* logits, unsigned count,
     float* output, void* stream) noexcept {

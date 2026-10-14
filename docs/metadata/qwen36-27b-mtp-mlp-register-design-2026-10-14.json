@@ -1,0 +1,36 @@
+{
+  "work_package_id": "WP-MTP-MLP-REGISTER-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v100",
+  "source_parent": "5175195",
+  "decision_unit": "architecture_candidate direction",
+  "product_constraint": "50%\u2013200% complete realAPI Decode uplift d2/d3; exact target state/full logits/output, private original-FP64 hidden/K/V max-row L2<=0.02; joint Prefill/TTFT/Decode/total.",
+  "budget": "Current d2 short/40K gaps0.051/0.460s. Prior shared-decoder INT8 increases private draft time13.937/232.690ms short/8K; private matrix family node trace0.964s at40K. No arithmetic addition of local gains or hardware-bound claim.",
+  "prior": "Fixed BF16 FC/Attention plus group128 INT8 MLP passes native numerical checks; shared decoded-tile consumer failed API and stays removed. Quantizer and packed hashes unchanged.",
+  "composition": "M1 Gate/Up/Down only: async two packed K128 tiles, direct packed-pair decode into MMA A registers, two row scales per thread/tile reused across all8K16 steps. Remove the64x128 decoded BF16 shared tile and its publication barrier. Input C8 publication unchanged. Fixed128threads,M64C8K128, ascendingK16 MMA and same BF16 weight/output rounding. Startup retains originalBF16 plus271564800packed bytes under8GiBreserve. No request allocation/fallback.",
+  "layout_proof": "Packed byte offset=row*128+(col XOR ((row&7)*16)). Producer16-byte chunks remain aligned; pair loads are2-byte aligned. For wr=warp*16+lane/4, four lanes read two bank words; eight rows use disjoint four-bank groups. wr+8 has same permutation in separate instruction. No decoded shared consumer remains.",
+  "converter": "q=s-128 from exact FP32 bit bias0x4b000000 minus8388736. q exactly fitsBF16; PRMT high halves forms two BF16 values, then fma.rn.bf16x2 with duplicated BF16scale and -0 rounds q*scale once. Freeze actual scale range/hash beforeGPU; exhaustive all65536byte pairs for every actual scale bit and full synthetic projections against prior admitted shared decoder.",
+  "reference": "Pinned vendored Marlin U8B128 FP32 bias construction and existing native BF16x2 product; original native implementation, no source import/dependency.",
+  "resource_gate": {
+    "threads": 128,
+    "max_registers": 96,
+    "max_shared_bytes": 20480,
+    "spills": 0,
+    "stack_bytes": 0,
+    "minimum_cta_capacity_per_sm": 5
+  },
+  "gates": [
+    "T0 resources and exact producer/consumer address coverage",
+    "GPU exhaustive converter across actual scale catalog plus full Gate/Up/Down shape outputs/guards and Graph replay against prior shared decoder; no component timing",
+    "NativeP65 whole-layer FP64 <=0.02, complete target prefix/logit/cache/failure checks; compare native hidden capture against prior admittedINT8",
+    "Immediate d2 P65/8K/40K API vsv98; short>3% slowdown or nonpositive8K/40K stops; useful full direction unlocks d3/lifecycle"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "parameter_scan": false
+  },
+  "profile": "q3x.sm87.admission.mtp-mlp-register-api.v101",
+  "artifact_root": ".q3x-work/mtp-mlp-register-20261014",
+  "production_changed": false
+}

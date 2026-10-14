@@ -124,13 +124,48 @@ Weights::Weights(const std::filesystem::path& directory) {
           before.st_ctim.tv_nsec == after.st_ctim.tv_nsec,
           "MTP shard changed during authentication");
     check(hash.finalize().hex() == identity.sha256, "MTP full shard SHA256 mismatch");
+    packed_mlp_ = allocate(271564800);
+    constexpr const char* expected[] = {"1d1a3ab0a7fd08a0aad5ded869cd05abb47b3b658d402516c1ed973b4ea393bc",
+      "00bdaa0628e322d6e09fc7e3d1ad219856867ba6c98375e7405d20a295a508d1",
+      "e3997b0acd067b267ef7872782564fe580fa4c3d22e4f45b0fa22d588da25447",
+      "1fbbd6a6fd377fe6598fdd068014dae20c8e8449696572bf7faf3692ff0f4688",
+      "c1c153608e99bd124c78e736f3fa9422ceeca006548d0c62ab64af4969705e11",
+      "2a5506a1cf3e959a1ab4f2cf6e398f5d4a8cec06f96db918cc1b96335e705814"};
+    for (std::size_t i = 2; i <= 4; ++i) {
+      const auto& spec = model::mtp_detail::kTensorSpecs[i];
+      auto* codes = const_cast<std::uint8_t*>(mlp_codes(i));
+      auto* scales = const_cast<std::uint16_t*>(mlp_scales(i));
+      cuda_check(static_cast<cudaError_t>(launch_mtp_pack_mlp_int8(tensor(i), codes, scales, spec.rows, spec.columns)));
+      cuda_check(cudaDeviceSynchronize());
+      for (unsigned part = 0; part < 2; ++part) {
+        const auto* source = part == 0 ? codes : reinterpret_cast<const std::uint8_t*>(scales);
+        const std::size_t bytes = part == 0 ? 89128960 : 1392640;
+        core::Sha256 packed_hash;
+        for (std::size_t offset = 0; offset < bytes; offset += chunk.size()) {
+          const auto size = std::min(chunk.size(), bytes - offset);
+          cuda_check(cudaMemcpy(chunk.data(), source + offset, size, cudaMemcpyDeviceToHost));
+          check(packed_hash.update(chunk.data(), size), "MTP packed hash update");
+        }
+        check(packed_hash.finalize().hex() == expected[(i - 2) * 2 + part], "MTP packed MLP payload mismatch");
+      }
+    }
   } catch (...) {
+    if (packed_mlp_) cudaFree(packed_mlp_);
+    packed_mlp_ = nullptr;
     if (arena_) cudaFree(arena_);
     arena_ = nullptr;
     throw;
   }
 }
-Weights::~Weights() { if (arena_) cudaFree(arena_); }
+Weights::~Weights() { if (packed_mlp_) cudaFree(packed_mlp_); if (arena_) cudaFree(arena_); }
+const std::uint8_t* Weights::mlp_codes(std::size_t index) const noexcept {
+  return packed_mlp_ && index >= 2 && index <= 4 ?
+      static_cast<const std::uint8_t*>(packed_mlp_) + (index - 2) * 90521600ULL : nullptr;
+}
+const std::uint16_t* Weights::mlp_scales(std::size_t index) const noexcept {
+  const auto* codes = mlp_codes(index);
+  return codes ? reinterpret_cast<const std::uint16_t*>(codes + 89128960ULL) : nullptr;
+}
 const std::uint16_t* Weights::tensor(std::size_t index) const noexcept {
   if (index >= offsets_.size() || arena_ == nullptr) return nullptr;
   return reinterpret_cast<const std::uint16_t*>(static_cast<const char*>(arena_) + offsets_[index]);
@@ -222,6 +257,9 @@ struct Draft::Impl {
   }
   bool project(std::size_t index, const std::uint16_t* input, std::uint16_t* output) noexcept {
     const auto& spec = model::mtp_detail::kTensorSpecs[index];
+    if (index >= 2 && index <= 4)
+      return call(launch_mtp_mlp_int8(weights.mlp_codes(index), weights.mlp_scales(index),
+          input, spec.rows, spec.columns, output, stream));
     return call(launch_mtp_prefill_projection(weights.tensor(index), input,
         1, spec.rows, spec.columns, output, stream));
   }

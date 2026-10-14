@@ -1,0 +1,1507 @@
+{
+  "work_package_id": "WP-MTP-MLP-REGISTER-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v100",
+  "source_parent": "5175195",
+  "decision": "retain_bounded_private_mlp_register_dependency",
+  "profile": "q3x.sm87.admission.mtp-mlp-register-api.v101",
+  "server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+  "oracle_sha256": "ad713826c4fb8142d4ac516d34f589730b03dcbb8ff3e36c2da74c32247777a0",
+  "design": "docs/metadata/qwen36-27b-mtp-mlp-register-design-2026-10-14.json",
+  "model": {
+    "independent_original_weight_fp64": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.013687553141055709,
+        "max_absolute_error": 0.671875,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0018966317489639915,
+        "max_absolute_error": 0.046875,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0013001843549924304,
+        "max_absolute_error": 0.125,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.0
+    },
+    "prior_capture_identity": {
+      "prompt.u32": true,
+      "target-hidden.bf16": true,
+      "target-residual.bf16": true,
+      "draft-prefill-hidden.bf16": true,
+      "draft-prefill-k.bf16": true,
+      "draft-prefill-v.bf16": true
+    },
+    "row_count_cases": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "local_admission": {
+    "pair_scale_cases": 44171264,
+    "actual_unique_scales": 674,
+    "mismatches": 0,
+    "full_projection_guard_cases": 8,
+    "graph_replays": 24,
+    "layout": {
+      "producer_bytes": 8192,
+      "consumer_bytes": 8192,
+      "each_byte_owned_exactly_once": true,
+      "producer_16byte_aligned": true,
+      "max_distinct_words_per_bank_per_fragment_instruction": 1
+    },
+    "resources": {
+      "registers": 80,
+      "shared_bytes": 20480,
+      "stack_bytes": 0,
+      "spills": 0,
+      "minimum_static_cta_capacity": 5
+    },
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "authority": "Correctness/resource admission only; no synthetic performance claim."
+  },
+  "api": {
+    "2": {
+      "complete_output_and_usage_equal_nonmtp_and_v98": true,
+      "all_generated_ids_equal_v98": true,
+      "private_acceptance_changes_allowed_and_reported": true,
+      "physical_counters_match_actual_verifier_work": true,
+      "completed_requests": 8,
+      "server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.892459876,
+          "prefill_tps": 72.83240596913961,
+          "ttft_s": 0.9110910020026495,
+          "decode_tps": 13.96839569085758,
+          "elapsed_s": 1.9848345889986376,
+          "incumbent_decode_tps": 13.71420234447416,
+          "decode_delta_percent": 1.85350441825618,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              5.720173,
+              5.419103
+            ],
+            "draft_ms": [
+              113.70279100000002,
+              96.585497
+            ],
+            "verify_ms": [
+              961.9702279999999,
+              959.5971870000001
+            ],
+            "reconcile_ms": [
+              17.694861,
+              17.314887
+            ]
+          },
+          "nonmtp_decode_tps": 9.5909277067,
+          "speedup_ratio": 1.4564175769044303
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.298781458999997,
+          "prefill_tps": 473.5593671390054,
+          "ttft_s": 17.32099896199361,
+          "decode_tps": 15.406742861030079,
+          "elapsed_s": 33.872473741997965,
+          "incumbent_decode_tps": 15.178137822601878,
+          "decode_delta_percent": 1.506146808653841,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              569.836999,
+              531.398831
+            ],
+            "draft_ms": [
+              1788.107268,
+              1539.310869
+            ],
+            "verify_ms": [
+              14713.099902000005,
+              14710.987177999996
+            ],
+            "reconcile_ms": [
+              294.782817,
+              295.933348
+            ]
+          },
+          "nonmtp_decode_tps": 9.22190062825,
+          "speedup_ratio": 1.6706689306360212
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.722456052,
+          "prefill_tps": 431.3949576310561,
+          "ttft_s": 92.7571130139986,
+          "decode_tps": 11.61985161872719,
+          "elapsed_s": 114.70385263900243,
+          "incumbent_decode_tps": 11.561150827937299,
+          "decode_delta_percent": 0.5077417608638113,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "rounds": [
+              105,
+              106
+            ],
+            "proposed": [
+              200,
+              201
+            ],
+            "accepted": [
+              150,
+              149
+            ],
+            "verified_rows": [
+              305,
+              307
+            ],
+            "accepted_by_position": [
+              [
+                86,
+                64,
+                0
+              ],
+              [
+                86,
+                63,
+                0
+              ]
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                10,
+                95,
+                0
+              ],
+              [
+                0,
+                11,
+                95,
+                0
+              ]
+            ],
+            "draft_ordered_attention_steps": [
+              200,
+              201
+            ],
+            "entry_hidden_snapshots": [
+              105,
+              106
+            ],
+            "direct_gdn_state_rows": [
+              14640,
+              14736
+            ],
+            "seed_kv_reuses": [
+              105,
+              106
+            ],
+            "tail_kv_batches": [
+              64,
+              63
+            ],
+            "tail_kv_rows": [
+              128,
+              126
+            ],
+            "state_copy_bytes_elided": [
+              31315768320,
+              31545706496
+            ],
+            "draft_initialization_ms": [
+              2775.255395,
+              2605.064143
+            ],
+            "draft_ms": [
+              2146.851504,
+              1887.0303519999993
+            ],
+            "verify_ms": [
+              19610.511502999994,
+              19758.140648000008
+            ],
+            "reconcile_ms": [
+              294.17899000000006,
+              294.75297400000017
+            ]
+          },
+          "nonmtp_decode_tps": 7.87155238794,
+          "speedup_ratio": 1.476182974597229
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8885069529999999,
+          "prefill_tps": 73.15643370097521,
+          "ttft_s": null,
+          "decode_tps": 13.995238394442962,
+          "elapsed_s": 1.9789712940037134,
+          "incumbent_decode_tps": 13.778751336172594,
+          "decode_delta_percent": 1.5711660148916229,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              5.511683,
+              5.321048
+            ],
+            "draft_ms": [
+              111.53309300000001,
+              95.396874
+            ],
+            "verify_ms": [
+              959.6697710000001,
+              958.9024770000001
+            ],
+            "reconcile_ms": [
+              17.225852999999997,
+              17.286135
+            ]
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.8232283719999999,
+          "prefill_tps": 6.073648783329348,
+          "ttft_s": 0.8533635049971053,
+          "decode_tps": 15.949242738620526,
+          "elapsed_s": 1.7938395719975233,
+          "incumbent_decode_tps": 15.698175048009885,
+          "decode_delta_percent": 1.5993431710552342,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              2.019888,
+              2.005141
+            ],
+            "draft_ms": [
+              101.89225,
+              87.212948
+            ],
+            "verify_ms": [
+              835.2749550000001,
+              834.874732
+            ],
+            "reconcile_ms": [
+              18.062635999999998,
+              18.087232
+            ]
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.827612124,
+          "prefill_tps": 24.165909874950067,
+          "ttft_s": 0.8457275469991146,
+          "decode_tps": 6.281128882169477,
+          "elapsed_s": 1.004729314998258,
+          "incumbent_decode_tps": 6.174242888713878,
+          "decode_delta_percent": 1.7311595183755912,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              2.711713,
+              2.648988
+            ],
+            "draft_ms": [
+              18.538073,
+              15.881799
+            ],
+            "verify_ms": [
+              142.520411,
+              142.411769
+            ],
+            "reconcile_ms": [
+              0.862004,
+              0.870857
+            ]
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888657561,
+          "prefill_tps": 73.14403528717627,
+          "ttft_s": 1.1559524980038987,
+          "decode_tps": 13.99348893594862,
+          "elapsed_s": 2.2278508610033896,
+          "incumbent_decode_tps": 13.772578178183025,
+          "decode_delta_percent": 1.6039898623740445,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              5.508803,
+              5.319
+            ],
+            "draft_ms": [
+              111.54321999999999,
+              95.476524
+            ],
+            "verify_ms": [
+              959.9592069999999,
+              958.873975
+            ],
+            "reconcile_ms": [
+              17.290487999999996,
+              17.25807
+            ]
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.894206248,
+          "prefill_tps": 72.69016532302288,
+          "ttft_s": 1.0705991400027415,
+          "decode_tps": 13.945780804984906,
+          "elapsed_s": 2.1460903270053677,
+          "incumbent_decode_tps": 13.77821472844474,
+          "decode_delta_percent": 1.2161668245322943,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11042562048,
+              10553311232
+            ],
+            "draft_initialization_ms": [
+              5.521987,
+              5.258008
+            ],
+            "draft_ms": [
+              111.55652400000001,
+              96.23038499999998
+            ],
+            "verify_ms": [
+              959.5630770000001,
+              961.149763
+            ],
+            "reconcile_ms": [
+              17.254424,
+              17.777753999999998
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 74.843
+      }
+    },
+    "3": {
+      "complete_output_and_usage_equal_nonmtp_and_v98": true,
+      "all_generated_ids_equal_v98": true,
+      "private_acceptance_changes_allowed_and_reported": true,
+      "physical_counters_match_actual_verifier_work": true,
+      "completed_requests": 8,
+      "server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.892024211,
+          "prefill_tps": 72.86797734686151,
+          "ttft_s": 0.9105818410025677,
+          "decode_tps": 13.513492074540952,
+          "elapsed_s": 2.020487570000114,
+          "incumbent_decode_tps": 12.729515984298347,
+          "decode_delta_percent": 6.158726625659816,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "proposed": [
+              16,
+              15
+            ],
+            "verified_rows": [
+              22,
+              21
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                0,
+                2,
+                4
+              ],
+              [
+                0,
+                0,
+                3,
+                3
+              ]
+            ],
+            "direct_gdn_state_rows": [
+              1056,
+              1008
+            ],
+            "state_copy_bytes_elided": [
+              2134603776,
+              2059106304
+            ],
+            "draft_initialization_ms": [
+              5.583798,
+              5.480792
+            ],
+            "draft_ms": [
+              151.144676,
+              120.96805
+            ],
+            "verify_ms": [
+              1010.380114,
+              972.1654739999999
+            ],
+            "reconcile_ms": [
+              16.503192000000002,
+              16.544265
+            ]
+          },
+          "nonmtp_decode_tps": 9.5909277067,
+          "speedup_ratio": 1.4089869601561837
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.371052638,
+          "prefill_tps": 471.5891529842937,
+          "ttft_s": 17.39298620599584,
+          "decode_tps": 14.452218047757729,
+          "elapsed_s": 35.03764657799911,
+          "incumbent_decode_tps": 14.203860669743792,
+          "decode_delta_percent": 1.748520235367934,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "draft_initialization_ms": [
+              551.07846,
+              555.882987
+            ],
+            "draft_ms": [
+              2175.5744640000007,
+              1861.4688970000007
+            ],
+            "verify_ms": [
+              15487.386125999996,
+              15491.470059999996
+            ],
+            "reconcile_ms": [
+              285.31561699999975,
+              286.81624300000004
+            ]
+          },
+          "nonmtp_decode_tps": 9.22190062825,
+          "speedup_ratio": 1.5671626306062532
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.818092857,
+          "prefill_tps": 430.95046201418853,
+          "ttft_s": 92.8534607939946,
+          "decode_tps": 10.9542579591432,
+          "elapsed_s": 116.13367524199566,
+          "incumbent_decode_tps": 10.876948551268129,
+          "decode_delta_percent": 0.7107637542889567,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "rounds": [
+              89,
+              90
+            ],
+            "proposed": [
+              244,
+              245
+            ],
+            "accepted": [
+              166,
+              165
+            ],
+            "verified_rows": [
+              333,
+              335
+            ],
+            "accepted_by_position": [
+              [
+                73,
+                52,
+                41
+              ],
+              [
+                73,
+                51,
+                41
+              ]
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                5,
+                13,
+                71
+              ],
+              [
+                0,
+                6,
+                13,
+                71
+              ]
+            ],
+            "draft_ordered_attention_steps": [
+              244,
+              245
+            ],
+            "entry_hidden_snapshots": [
+              89,
+              90
+            ],
+            "direct_gdn_state_rows": [
+              15984,
+              16080
+            ],
+            "seed_kv_reuses": [
+              89,
+              90
+            ],
+            "tail_kv_batches": [
+              52,
+              51
+            ],
+            "tail_kv_rows": [
+              145,
+              143
+            ],
+            "state_copy_bytes_elided": [
+              32166605824,
+              32396544000
+            ],
+            "draft_initialization_ms": [
+              2689.121506,
+              2706.042017
+            ],
+            "draft_ms": [
+              2631.302553,
+              2304.4107860000004
+            ],
+            "verify_ms": [
+              20523.490163999995,
+              20682.774630000004
+            ],
+            "reconcile_ms": [
+              284.5216890000001,
+              286.56528400000013
+            ]
+          },
+          "nonmtp_decode_tps": 7.87155238794,
+          "speedup_ratio": 1.391626126496498
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8887484880000001,
+          "prefill_tps": 73.1365519915236,
+          "ttft_s": null,
+          "decode_tps": 13.54345290232426,
+          "elapsed_s": 2.0151312369998777,
+          "incumbent_decode_tps": 12.752598248161467,
+          "decode_delta_percent": 6.201517830115999,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "proposed": [
+              16,
+              15
+            ],
+            "verified_rows": [
+              22,
+              21
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                0,
+                2,
+                4
+              ],
+              [
+                0,
+                0,
+                3,
+                3
+              ]
+            ],
+            "direct_gdn_state_rows": [
+              1056,
+              1008
+            ],
+            "state_copy_bytes_elided": [
+              2134603776,
+              2059106304
+            ],
+            "draft_initialization_ms": [
+              5.378172,
+              5.375892
+            ],
+            "draft_ms": [
+              149.79524800000002,
+              119.669444
+            ],
+            "verify_ms": [
+              1009.7206350000001,
+              971.180322
+            ],
+            "reconcile_ms": [
+              16.486331,
+              16.502719
+            ]
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.822555365,
+          "prefill_tps": 6.078618185172252,
+          "ttft_s": 0.8544399609963875,
+          "decode_tps": 15.91641616712349,
+          "elapsed_s": 1.7967906900012167,
+          "incumbent_decode_tps": 15.639451488528117,
+          "decode_delta_percent": 1.7709360126762386,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "draft_initialization_ms": [
+              2.028066,
+              2.011667
+            ],
+            "draft_ms": [
+              111.986085,
+              95.37909499999999
+            ],
+            "verify_ms": [
+              829.519366,
+              829.334951
+            ],
+            "reconcile_ms": [
+              17.339724,
+              17.413062
+            ]
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.8268964600000002,
+          "prefill_tps": 24.18682503490219,
+          "ttft_s": 0.8450354189990321,
+          "decode_tps": 4.84598511901674,
+          "elapsed_s": 1.0513780180044705,
+          "incumbent_decode_tps": 4.756042644923206,
+          "decode_delta_percent": 1.8911200089751556,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "draft_initialization_ms": [
+              2.683726,
+              2.676762
+            ],
+            "draft_ms": [
+              28.039713,
+              23.879847
+            ],
+            "verify_ms": [
+              181.30567,
+              181.552696
+            ],
+            "reconcile_ms": [
+              0.866319,
+              0.872232
+            ]
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8887972470000001,
+          "prefill_tps": 73.13253975459264,
+          "ttft_s": 1.1586911790000158,
+          "decode_tps": 13.542675945877095,
+          "elapsed_s": 2.266218917000515,
+          "incumbent_decode_tps": 12.74758922309221,
+          "decode_delta_percent": 6.2371536207378675,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "proposed": [
+              16,
+              15
+            ],
+            "verified_rows": [
+              22,
+              21
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                0,
+                2,
+                4
+              ],
+              [
+                0,
+                0,
+                3,
+                3
+              ]
+            ],
+            "direct_gdn_state_rows": [
+              1056,
+              1008
+            ],
+            "state_copy_bytes_elided": [
+              2134603776,
+              2059106304
+            ],
+            "draft_initialization_ms": [
+              5.384029,
+              5.400244
+            ],
+            "draft_ms": [
+              149.788485,
+              119.678979
+            ],
+            "verify_ms": [
+              1010.094865,
+              971.0546780000001
+            ],
+            "reconcile_ms": [
+              16.484219,
+              16.546111
+            ]
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8887539430000001,
+          "prefill_tps": 73.13610309349704,
+          "ttft_s": 1.0653987509940634,
+          "decode_tps": 13.544792735224771,
+          "elapsed_s": 2.172715695996885,
+          "incumbent_decode_tps": 12.7504838719376,
+          "decode_delta_percent": 6.229637018210399,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-single-tail-v98",
+              "multirow-mlp-register-v101"
+            ],
+            "startup_free_bytes": [
+              11061936128,
+              10655690752
+            ],
+            "proposed": [
+              16,
+              15
+            ],
+            "verified_rows": [
+              22,
+              21
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                0,
+                2,
+                4
+              ],
+              [
+                0,
+                0,
+                3,
+                3
+              ]
+            ],
+            "direct_gdn_state_rows": [
+              1056,
+              1008
+            ],
+            "state_copy_bytes_elided": [
+              2134603776,
+              2059106304
+            ],
+            "draft_initialization_ms": [
+              5.359452,
+              5.374836
+            ],
+            "draft_ms": [
+              149.76738899999998,
+              119.80598700000002
+            ],
+            "verify_ms": [
+              1009.8670009999998,
+              970.7765240000001
+            ],
+            "reconcile_ms": [
+              16.487132,
+              16.52608
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.0
+      }
+    }
+  },
+  "metrics": {
+    "2": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.892459876,
+        "prefill_tps": 72.83240596913961,
+        "ttft_s": 0.9110910020026495,
+        "decode_tps": 13.96839569085758,
+        "elapsed_s": 1.9848345889986376,
+        "incumbent_decode_tps": 13.71420234447416,
+        "decode_delta_percent": 1.85350441825618,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            10553311232
+          ],
+          "draft_initialization_ms": [
+            5.720173,
+            5.419103
+          ],
+          "draft_ms": [
+            113.70279100000002,
+            96.585497
+          ],
+          "verify_ms": [
+            961.9702279999999,
+            959.5971870000001
+          ],
+          "reconcile_ms": [
+            17.694861,
+            17.314887
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.4564175769044303
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.298781458999997,
+        "prefill_tps": 473.5593671390054,
+        "ttft_s": 17.32099896199361,
+        "decode_tps": 15.406742861030079,
+        "elapsed_s": 33.872473741997965,
+        "incumbent_decode_tps": 15.178137822601878,
+        "decode_delta_percent": 1.506146808653841,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            10553311232
+          ],
+          "draft_initialization_ms": [
+            569.836999,
+            531.398831
+          ],
+          "draft_ms": [
+            1788.107268,
+            1539.310869
+          ],
+          "verify_ms": [
+            14713.099902000005,
+            14710.987177999996
+          ],
+          "reconcile_ms": [
+            294.782817,
+            295.933348
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.6706689306360212
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.722456052,
+        "prefill_tps": 431.3949576310561,
+        "ttft_s": 92.7571130139986,
+        "decode_tps": 11.61985161872719,
+        "elapsed_s": 114.70385263900243,
+        "incumbent_decode_tps": 11.561150827937299,
+        "decode_delta_percent": 0.5077417608638113,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            10553311232
+          ],
+          "rounds": [
+            105,
+            106
+          ],
+          "proposed": [
+            200,
+            201
+          ],
+          "accepted": [
+            150,
+            149
+          ],
+          "verified_rows": [
+            305,
+            307
+          ],
+          "accepted_by_position": [
+            [
+              86,
+              64,
+              0
+            ],
+            [
+              86,
+              63,
+              0
+            ]
+          ],
+          "proposal_histogram": [
+            [
+              0,
+              10,
+              95,
+              0
+            ],
+            [
+              0,
+              11,
+              95,
+              0
+            ]
+          ],
+          "draft_ordered_attention_steps": [
+            200,
+            201
+          ],
+          "entry_hidden_snapshots": [
+            105,
+            106
+          ],
+          "direct_gdn_state_rows": [
+            14640,
+            14736
+          ],
+          "seed_kv_reuses": [
+            105,
+            106
+          ],
+          "tail_kv_batches": [
+            64,
+            63
+          ],
+          "tail_kv_rows": [
+            128,
+            126
+          ],
+          "state_copy_bytes_elided": [
+            31315768320,
+            31545706496
+          ],
+          "draft_initialization_ms": [
+            2775.255395,
+            2605.064143
+          ],
+          "draft_ms": [
+            2146.851504,
+            1887.0303519999993
+          ],
+          "verify_ms": [
+            19610.511502999994,
+            19758.140648000008
+          ],
+          "reconcile_ms": [
+            294.17899000000006,
+            294.75297400000017
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.476182974597229
+      }
+    ],
+    "3": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.892024211,
+        "prefill_tps": 72.86797734686151,
+        "ttft_s": 0.9105818410025677,
+        "decode_tps": 13.513492074540952,
+        "elapsed_s": 2.020487570000114,
+        "incumbent_decode_tps": 12.729515984298347,
+        "decode_delta_percent": 6.158726625659816,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11061936128,
+            10655690752
+          ],
+          "proposed": [
+            16,
+            15
+          ],
+          "verified_rows": [
+            22,
+            21
+          ],
+          "proposal_histogram": [
+            [
+              0,
+              0,
+              2,
+              4
+            ],
+            [
+              0,
+              0,
+              3,
+              3
+            ]
+          ],
+          "direct_gdn_state_rows": [
+            1056,
+            1008
+          ],
+          "state_copy_bytes_elided": [
+            2134603776,
+            2059106304
+          ],
+          "draft_initialization_ms": [
+            5.583798,
+            5.480792
+          ],
+          "draft_ms": [
+            151.144676,
+            120.96805
+          ],
+          "verify_ms": [
+            1010.380114,
+            972.1654739999999
+          ],
+          "reconcile_ms": [
+            16.503192000000002,
+            16.544265
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.4089869601561837
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.371052638,
+        "prefill_tps": 471.5891529842937,
+        "ttft_s": 17.39298620599584,
+        "decode_tps": 14.452218047757729,
+        "elapsed_s": 35.03764657799911,
+        "incumbent_decode_tps": 14.203860669743792,
+        "decode_delta_percent": 1.748520235367934,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11061936128,
+            10655690752
+          ],
+          "draft_initialization_ms": [
+            551.07846,
+            555.882987
+          ],
+          "draft_ms": [
+            2175.5744640000007,
+            1861.4688970000007
+          ],
+          "verify_ms": [
+            15487.386125999996,
+            15491.470059999996
+          ],
+          "reconcile_ms": [
+            285.31561699999975,
+            286.81624300000004
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.5671626306062532
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.818092857,
+        "prefill_tps": 430.95046201418853,
+        "ttft_s": 92.8534607939946,
+        "decode_tps": 10.9542579591432,
+        "elapsed_s": 116.13367524199566,
+        "incumbent_decode_tps": 10.876948551268129,
+        "decode_delta_percent": 0.7107637542889567,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-register-v101"
+          ],
+          "startup_free_bytes": [
+            11061936128,
+            10655690752
+          ],
+          "rounds": [
+            89,
+            90
+          ],
+          "proposed": [
+            244,
+            245
+          ],
+          "accepted": [
+            166,
+            165
+          ],
+          "verified_rows": [
+            333,
+            335
+          ],
+          "accepted_by_position": [
+            [
+              73,
+              52,
+              41
+            ],
+            [
+              73,
+              51,
+              41
+            ]
+          ],
+          "proposal_histogram": [
+            [
+              0,
+              5,
+              13,
+              71
+            ],
+            [
+              0,
+              6,
+              13,
+              71
+            ]
+          ],
+          "draft_ordered_attention_steps": [
+            244,
+            245
+          ],
+          "entry_hidden_snapshots": [
+            89,
+            90
+          ],
+          "direct_gdn_state_rows": [
+            15984,
+            16080
+          ],
+          "seed_kv_reuses": [
+            89,
+            90
+          ],
+          "tail_kv_batches": [
+            52,
+            51
+          ],
+          "tail_kv_rows": [
+            145,
+            143
+          ],
+          "state_copy_bytes_elided": [
+            32166605824,
+            32396544000
+          ],
+          "draft_initialization_ms": [
+            2689.121506,
+            2706.042017
+          ],
+          "draft_ms": [
+            2631.302553,
+            2304.4107860000004
+          ],
+          "verify_ms": [
+            20523.490163999995,
+            20682.774630000004
+          ],
+          "reconcile_ms": [
+            284.5216890000001,
+            286.56528400000013
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.391626126496498
+      }
+    ]
+  },
+  "remaining_d2_decode_budget_seconds": {
+    "p65": 0.03120073633373277,
+    "p8192": -1.8831831276623099,
+    "p40000": 0.34844630132330323
+  },
+  "decision_reason": "Direct register consumption removes the unshared decoded BF16 tile and publication barrier. The fixed INT8 MLP composition returns positive whole-API direction; private acceptance may change and its full work delta is reported. Local byte reduction alone did not select this implementation.",
+  "scope": "One fresh process per draft policy; direction evidence, not mirrored/statistical architecture selection or release. Retained as a bounded development dependency through the next complete MTP architecture API return or archival. No further local geometry/format/profile scan.",
+  "numerical": "Target full state and logits remain scalar-exact. Only private MLP weights change under independently assessed original-weight FP64 max-row relative L2<=0.02. Original BF16 FC/Attention/cache construction remain. Native P65 captures match prior admitted INT8 byte-for-byte; six full packed payload hashes authenticated at startup.",
+  "memory": "Original BF16 weights retained; additional271564800bytes, no request-time allocation, startup free reserve>=8GiB.",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-mlp-register-20261014",
+  "hygiene": {
+    "gpu_device_fd_audit": {
+      "complete": true,
+      "holders": [],
+      "ignored_process_exit_races": [
+        {
+          "fd": "3",
+          "identity_after_error": "same",
+          "kind": "descriptor_closed",
+          "pid": 85790,
+          "stage": "fd_target"
+        }
+      ],
+      "inaccessible_fds": [],
+      "inaccessible_processes": [],
+      "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+      "scanned_fds": 1030,
+      "scanned_processes": 286
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "registered_worktrees": 47,
+    "remaining_api_key_files": [],
+    "remaining_tmp_files": [],
+    "cached_builds_equal_measured_elf": true,
+    "source_equal_frozen_candidate": true,
+    "production_changed": false
+  },
+  "host_checks": {
+    "ctest": {
+      "build": ".q3x-work/build/orin-whole-core-exact-decode-admission",
+      "tests": [
+        "whole_core_exact_decode_plan",
+        "mtp_control",
+        "mtp_weights"
+      ],
+      "passed": 3,
+      "failed": 0
+    },
+    "document_unit_tests": {
+      "command": "python3 -B -m unittest tests.test_document_control",
+      "passed": 7,
+      "failed": 0
+    }
+  },
+  "document_validation": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1495\nerrors: 0\n",
+  "environment": {
+    "preflight_gpu_ownership": "complete, no foreign holders before all four device processes",
+    "cache_drop_rc": {
+      "synthetic": 0,
+      "oracle-p65": 0,
+      "d2": 0,
+      "d3": 0
+    },
+    "decision_class": "ordinary engineering direction; single fresh process per policy",
+    "thermal_max_c": {
+      "synthetic": null,
+      "oracle-p65": 68.0,
+      "d2": 74.843,
+      "d3": 76.0
+    },
+    "synthetic_telemetry_note": "Short correctness-only process ended without a temperature sample; preflight present, no timing authority."
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-mlp-register-20261014/artifact-manifest.json",
+    "files": 162,
+    "bytes": 52387193,
+    "sha256": "a88e99ec8edaba82ef4a32839aea2a6311b7845de3c281119894a00f40dcfd8f"
+  }
+}

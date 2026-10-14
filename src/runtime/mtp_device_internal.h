@@ -18,7 +18,10 @@ class Weights {
   Weights(const Weights&) = delete;
   Weights& operator=(const Weights&) = delete;
   const std::uint16_t* tensor(std::size_t index) const noexcept;
+  const std::uint8_t* mlp_codes(std::size_t index) const noexcept;
+  const std::uint16_t* mlp_scales(std::size_t index) const noexcept;
  private:
+  void* packed_mlp_ = nullptr;
   void* arena_ = nullptr;
   std::array<std::uint64_t, 15> offsets_{};
 };

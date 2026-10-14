@@ -563,3 +563,8 @@ registers one error-attributed precision partition before any native execution.
 - [Invariant softmax divisor design](metadata/qwen36-27b-mtp-softmax-reciprocal-design-2026-10-14.json): bounded exact division dataflow/API composition; no production authority.
 
 - [Invariant softmax divisor rejection](metadata/qwen36-27b-mtp-softmax-reciprocal-rejection-2026-10-14.json): frozen exact-numerical and neutral complete-d2 API direction; removed, no production authority.
+
+- [Private MLP register-consumer design](metadata/qwen36-27b-mtp-mlp-register-design-2026-10-14.json): bounded native composition of admitted quantizer and direct register ownership; no production authority.
+
+The [private MLP register direction](metadata/qwen36-27b-mtp-mlp-register-direction-2026-10-14.json)
+records numerical admission and joint d2/d3 API direction; bounded development retention only.

@@ -25,6 +25,34 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 private MLP register consumption — API return complete
+
+`WP-MTP-MLP-REGISTER-20261014` / `AC-MTP-GREEDY-v100` owns one
+[register-consumer composition](metadata/qwen36-27b-mtp-mlp-register-design-2026-10-14.json).
+The prior INT8 MLP passed accuracy but lost API performance. M1 has no second
+token warp group to reuse its decoded shared tile. Decode fixed packed bytes
+directly into MMA A registers, reuse two scales per K128 tile, and remove that
+intermediate and barrier. Preserve original BF16 FC/Attention, quantizer,
+startup hashes, rounding and ascending MMA. One M64C8K128/128-thread executor
+must use at most 96 registers, 20 KiB shared and no stack/spills. Exhaustive actual
+scale/pair checks, complete projection/Graph and P65 native FP64/state gates
+return immediately to d2 API; useful direction unlocks d3. Short >3% slowdown
+or nonpositive 8K/40K closes. One correctness repair; no format/geometry/profile
+scan. The full 1.5x–3x objective and production boundary remain; v98 is the frozen comparator.
+
+The [complete API return](metadata/qwen36-27b-mtp-mlp-register-direction-2026-10-14.json)
+passes 44,171,264 decoder cases, eight full projection/guard cases and 24 Graph
+replays. The consumer uses 80 registers, 20 KiB shared and no spills/stack.
+Native original-weight FP64 hidden maximum is 0.013687553141055709; ten complete
+prefixes, fifteen transactions and bounded failure/cancel checks pass. Both
+policies complete eight API/lifecycle requests with identical target IDs and
+responses. Private acceptance changes are reported rather than hidden.
+Retain the register consumer as a development dependency through the next
+complete MTP architecture API return or archival. No format/geometry/profile
+scan follows. Current Status owns joint metrics and remaining gaps; this is
+single-process direction evidence, with no production promotion or full-goal claim.
+
+
 ## 2026-10-14 invariant softmax divisor — closed neutral
 
 `WP-MTP-SOFTMAX-RECIPROCAL-20261014` / `AC-MTP-GREEDY-v99` owns one
