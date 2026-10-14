@@ -154,6 +154,13 @@ is removed at its declared long stop before d3; only long-capture and independen
 recursive numerical tools remain. Current runtime and joint metrics above stay
 v101. No full-goal or production claim follows.
 
+The subsequent [certified QK executor](metadata/qwen36-27b-mtp-qk-certified-api-rejection-2026-10-14.json)
+preserves complete numerical/state/output checks but lowers 8K Decode by 0.654%
+versus v101. It is removed at the declared 8K stop before 40K/d3/lifecycle tests.
+The complete-product arithmetic proof remains valid; it does not select this
+executor. Current runtime, joint metrics and unmet full objective above remain
+unchanged. No production switch or further certificate/parameter scan follows.
+
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not

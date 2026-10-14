@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 certified QK execution — closed negative
+
+`WP-MTP-QK-CERTIFIED-API-20261014` selects one
+[certificate/executor composition](metadata/qwen36-27b-mtp-qk-certified-api-design-2026-10-14.json).
+Bind the proved complete-product domain to startup-owned per-layer flags.
+Check existing KV once, then every appended or overwritten range before QK;
+request initialization and abort invalidate certificates. Sticky invalid flags
+may conservatively disable acceleration after rejection but never enable it.
+Queries are checked outside the position loop. Preserve original arithmetic
+when either certificate fails. Complete Attention/Graph and current full-state
+prefix checks return immediately to d2 API, then d3 only for useful direction.
+One executor and one correctness repair; no parameter/profile scan. Short
+slowdown above 3% or nonpositive 8K/40K closes. v101 remains incumbent; this
+long-only candidate has no claim on the short gap or production selection.
+
+The [completed API screen](metadata/qwen36-27b-mtp-qk-certified-api-rejection-2026-10-14.json)
+passes 90 complete Attention cases, 270 Graph replays and certificate lifecycle
+controls, ten complete prefixes at both P513 and P8192, 15 state transactions,
+four failure recoveries and eight initialization-cancel checks. Kernel usage
+is 93 registers and zero stack/local memory. Both completed API outputs and
+all acceptance/work counters match v101. P65/8K Decode is 13.926/15.306 token/s,
+changing -0.304%/-0.654%; 8K verification adds 116.169 ms. Prefill is 0.899/17.309 s
+(72.29/473.27 token/s), TTFT 0.918/17.331 s, total 1.995/33.992 s. Unchanged short,
+draft and Prefill variation is not attributed to this edit. The declared 8K
+stop closes before 40K, d3 or API lifecycle qualification; server cleanup exits 0.
+Remove all runtime/identity changes and restore v101. No certificate, compiler,
+guard, geometry or profiler scan follows. Mathematical equivalence survives;
+this executor does not improve complete API performance.
+
 ## 2026-10-14 QK complete product domain — arithmetic prerequisite
 
 `WP-MTP-QK-EXACT-PAIR-DOMAIN-20261014` owns one

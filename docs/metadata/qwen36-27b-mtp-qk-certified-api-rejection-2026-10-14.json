@@ -1,0 +1,180 @@
+{
+  "work_package_id": "WP-MTP-QK-CERTIFIED-API-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v104",
+  "source_parent": "adfe6f5",
+  "status": "closed_without_retention",
+  "decision_unit": "architecture_candidate",
+  "decision": "Remove certificate/exact-pair executor at declared nonpositive8K stop. Mathematical proof and numerical state admission do not yield complete API improvement. No certificate/compiler/guard/geometry/profiler scan.",
+  "artifact_root": ".q3x-work/mtp-qk-certified-api-20261014",
+  "candidate_profile": "q3x.sm87.admission.mtp-qk-certified-api.v103",
+  "source_identity_sha256": "a389f1d0c734a6cfb1e3fc9a2f77e7cbe1456e15d37139d592e0bfd9d4236379",
+  "server_sha256": "25a956a5157903669cd8b803e98e7125163dedd68b68b94e48b4d1ed70917c22",
+  "oracle_sha256": "dc154b40e25f6bf96a6efde06d49fa4d1fc43fc33770ef827b67ef50d000e1dc",
+  "numerical": {
+    "status": "numerical_admission_complete_api_rejected",
+    "synthetic_full_cases": 90,
+    "graph_replays": 270,
+    "certificate_lifecycle": "pass",
+    "p513_complete_prefixes": 10,
+    "p513_transactions": 15,
+    "p513_failure_recoveries": 4,
+    "p513_init_cancels": 8,
+    "p8192_complete_prefixes": 10,
+    "resources": {
+      "qk_regs": 93,
+      "stack": 0,
+      "local": 0,
+      "shared_m2_m3_m4": [
+        10240,
+        13312,
+        16384
+      ],
+      "startup_certificate_payload_bytes": 64
+    },
+    "cleanup": {
+      "synthetic": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 59.937
+      },
+      "p513": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.375
+      },
+      "p8192": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 77.5
+      }
+    },
+    "source_identity_sha256": "a389f1d0c734a6cfb1e3fc9a2f77e7cbe1456e15d37139d592e0bfd9d4236379"
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v101": true,
+    "all_generated_ids_equal_v101": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 2,
+    "server_sha256": "25a956a5157903669cd8b803e98e7125163dedd68b68b94e48b4d1ed70917c22",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8992021520000001,
+        "prefill_tps": 72.28630386996672,
+        "ttft_s": 0.9179493440024089,
+        "decode_tps": 13.92587375306972,
+        "elapsed_s": 1.9949961410020478,
+        "incumbent_decode_tps": 13.96839569085758,
+        "decode_delta_percent": -0.30441532964083917,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-qk-certified-v103"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10751860736
+          ],
+          "draft_initialization_ms": [
+            5.419103,
+            5.425255
+          ],
+          "draft_ms": [
+            96.585497,
+            97.16237299999999
+          ],
+          "verify_ms": [
+            959.5971870000001,
+            961.7505860000001
+          ],
+          "reconcile_ms": [
+            17.314887,
+            17.75214
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.309264879999997,
+        "prefill_tps": 473.27255413749265,
+        "ttft_s": 17.33146670900169,
+        "decode_tps": 15.305967037371905,
+        "elapsed_s": 33.99190924799768,
+        "incumbent_decode_tps": 15.406742861030079,
+        "decode_delta_percent": -0.6541020679528331,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-qk-certified-v103"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10751860736
+          ],
+          "draft_initialization_ms": [
+            531.398831,
+            549.565906
+          ],
+          "draft_ms": [
+            1539.310869,
+            1533.2573320000004
+          ],
+          "verify_ms": [
+            14710.987177999996,
+            14827.156025
+          ],
+          "reconcile_ms": [
+            295.933348,
+            294.91948799999983
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.343
+    },
+    "all_acceptance_and_work_equal_v101": true
+  },
+  "causal_limit": "Source/resource facts show93 rather than79 QK registers and added certificate launches. No matched profiler separates these costs. Unchanged short, private draft and Prefill variation is not attributed to the changed long QK executor.",
+  "early_stop": "After two completed responses, driver SIGINT during inter-request sleep. Driver-2, server0, errors[]. No40K,d3 or API lifecycle panel.",
+  "restoration": {
+    "server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "oracle_sha256": "54c23063f754ea71cbd9030dd572cc921553d8fa2d4cc698518ca2eff7a4b995",
+    "fresh_restored_server_sha256": "3c9130cbd69d04caf4a98a961080fa190b0882d9b6a2a0b67680ef171dc346ef",
+    "production_changed": false
+  },
+  "hygiene": {
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "gpu_handle_audit_returncode": 1,
+    "gpu_handles_output": "",
+    "worktrees": 47,
+    "build_tmp_files": [],
+    "remaining_api_keys": []
+  },
+  "production_changed": false,
+  "goal_achieved": false,
+  "retained_implementation": "v101 private register MLP; joint metrics unchanged in CURRENT_STATUS.md",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-qk-certified-api-20261014/artifact-manifest.json",
+    "sha256": "2effecad37ac599cb76cd201c01d23751f1101467961b668e85bf5b5820cf9df",
+    "files": 126,
+    "bytes": 107587201
+  },
+  "validation": {
+    "restored_host_tests": 3,
+    "document_unit_tests": 7,
+    "document_control": "86 registered;1515 local links;zero errors",
+    "diff_check": "pass"
+  }
+}

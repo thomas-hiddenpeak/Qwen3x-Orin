@@ -1,0 +1,31 @@
+{
+  "work_package_id": "WP-MTP-QK-CERTIFIED-API-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v104",
+  "source_parent": "adfe6f5",
+  "decision_unit": "architecture_candidate",
+  "profile": "q3x.sm87.admission.mtp-qk-certified-api.v103",
+  "product_constraint": "MTP1.5x\u20133x real API committed Decode; configured2/3; exact target full-state/logits/output; joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "short_gap_s": 0.0312007363,
+    "40k_gap_s": 0.3484463013,
+    "older_instrumented_qk_family_s": 2.143195136,
+    "scope": "Long QK opportunity only; no guarantee of closing long gap and short path unchanged"
+  },
+  "mechanism": "Cache complete-domain key certificate per16fullAttentionlayers. Scan prompt prefix once at first long verifier use; scan every appended/overwritten speculative range before consumption. Queries guarded once perwarp outside position loop. Replace only original first-level product pairs with proven exact FMA under both predicates. Original arithmetic otherwise.",
+  "ownership": "64startup-owned GPU bytes, no request allocation. Invalid flag is sticky within request: rejected invalid speculative keys may conservatively disable acceleration but cannot enable it. Track certified prefix end on host; scan from min(entry_position,certified_end) through appended end. initialize_whole_core_prefill and abort invalidate all host certificates; constructor starts invalid. Only whole-core initialized owners enable caching; Legacy route original. Same target stream orders clear/scan/consume.",
+  "equivalence": "Complete domain proven by WP-MTP-QK-EXACT-PAIR-DOMAIN; retain all higher sums/trees/scale/BF16/softmax/PV and full state. No model-dependent assumption or probability tolerance.",
+  "reference_translation": "Existing FlashInfer-derived grouped QK independent-position ownership unchanged; native immutable-operand producer certificate separates domain validation from repeated consumers. No third-party source or ISA addition.",
+  "bounds": {
+    "executors": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profilers": 0
+  },
+  "gates": [
+    "Static no-spill kernel and bounded memory; full synthetic Attention/Graph with certificate enabled, excluded domain fallback and certificate overwrite/reset checks.",
+    "P513 complete scalar-prefix/full-state/logit and transactions, current P8192 prefix comparison.",
+    "Immediate d2 P65/8K/40K API vs frozenv101; short slowdown>3% or nonpositive8K/40K stops; useful complete direction unlocks d3. No continued parameter scan."
+  ],
+  "expiry": "This complete API return or rejection; ordinary installed non-MTP untouched",
+  "artifact_root": ".q3x-work/mtp-qk-certified-api-20261014"
+}
