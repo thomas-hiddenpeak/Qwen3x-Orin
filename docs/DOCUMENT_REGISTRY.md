@@ -580,3 +580,10 @@ updates the existing MTP/Roadmap scope without Markdown path or class changes.
 
 The [private W8A8 numerical rejection](metadata/qwen36-27b-mtp-private-w8a8-rejection-2026-10-14.json)
 closes that host-only package before runtime changes; no path/class changes.
+
+The [softmax warp-tree design](metadata/qwen36-27b-mtp-softmax-warp-tree-design-2026-10-14.json)
+scopes a local dependency check in existing documents; no Markdown paths/classes change.
+
+The [softmax warp-tree rejection](metadata/qwen36-27b-mtp-softmax-warp-tree-rejection-2026-10-14.json)
+records exact numerical checks and a nonpositive historical real-payload local
+comparison; no runtime retention or Markdown path/class changes.

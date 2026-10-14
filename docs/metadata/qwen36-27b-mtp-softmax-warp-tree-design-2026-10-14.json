@@ -1,0 +1,27 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-WARP-TREE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v108",
+  "source_parent": "e82d9bb",
+  "decision_unit": "local_mutation",
+  "product_constraint": "Complete same-request MTP d2/d3 Decode gain 50%\u2013200%, exact target state/output; joint Prefill/TTFT/Decode/total.",
+  "budget": "v101 d2 short/40K gaps31.201/348.446ms. Old full-path softmax514.803ms is family opportunity only; a partial contribution cannot alone select goal completion.",
+  "mechanism": "Keep current aligned softmax FP32 expressions, per-lane sequence loops, max/add operand trees, two expf evaluations, division and lifetime barrier. Only d16/8/4/2/1 reductions move from shared memory and CTA barriers to first-warp registers/shuffles, then CTA publication barrier. Fixed256threads, grid and stride unchanged.",
+  "lineage": "v29 combined exponent materialization and warp reduction; neutral API rejected that composition. This separately tests synchronization scope without exponent caching or probability-layout change, on corrected barrier baseline. Not a tuning scan or resurrection of v29.",
+  "numerics": "Live-lane additions/max inputs retain identical operand order; all32lanes participate in each shuffle, only lane<d updates. Lane0 writes root, allCTA waits before root read. Preserve extra barrier after maximum read before denominator overwrite.",
+  "gates": [
+    "T0 zero spill, <=baseline registers+8, shared1024B.",
+    "72 complete synthetic/guards/special-values cases with216Graph replays; root synccheck and racecheck.",
+    "Four authenticated historical P40000 Q/K layers3/23/43/63 produce exact current-QK raw scores. Compare individual24head softmax groups with fullbitwise outputs. This M1 row-family comparator is not actual M2..4 API qualification. Six B-C-C-B rounds128 repetitions perblock; aggregate >=5% faster and no layer >3%slower required before runtime composition.",
+    "If positive, current completeAttention/P513state and P8192prefix checks then immediate d2 API P65/8K/40K. Short>3%slowdown/nonpositive8K/40K closes; d3 only useful full direction."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scan": false,
+    "profiles": 0
+  },
+  "composition_deadline": "Next native/API milestone or archive; T2 is dependency only.",
+  "artifact_root": ".q3x-work/mtp-softmax-warp-tree-20261014",
+  "runtime_changed": false,
+  "production_changed": false
+}

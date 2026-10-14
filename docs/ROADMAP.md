@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 softmax warp tree — closed without local gain
+
+`WP-MTP-SOFTMAX-WARP-TREE-20261014` selects one
+[exact synchronization-scope change](metadata/qwen36-27b-mtp-softmax-warp-tree-design-2026-10-14.json).
+Preserve the current aligned softmax expressions, operand trees and lifetime
+barrier; move only the final five reduction stages to the first warp. The
+older negative composition also cached exponentials, so it did not separately
+select this component. One fixed implementation passes full numerical/Graph
+and race/synchronization checks, then one mirrored four-layer historical real
+QK-score comparator. Its single-row groups are local evidence, not M2..4 API
+qualification. Require at least 5% aggregate saving and no role regression above
+3% before composition. Any retained dependency must return through current
+numerical/state checks and d2 API in the next milestone; useful full direction
+unlocks d3. No parameter/profile scan or production change. v101 stays current.
+
+The [completed local check](metadata/qwen36-27b-mtp-softmax-warp-tree-rejection-2026-10-14.json)
+preserves all 72 complete probability/guard cases and 216 Graph replays, with
+zero root racecheck and synccheck errors. Registers fall from 30 to 25; shared
+storage remains 1,024 bytes, with no stack or spills. The mirrored four-layer
+real-payload comparison has no useful gain: aggregate baseline/candidate times
+are 0.575585/0.577330 ms, a 0.3031% increase rather than the required 5% saving.
+This small difference is not a statistically established regression. All 96
+blocks preserve first/last complete outputs. These historical single-row groups
+are local evidence, not actual M2..4 API timings. Close before runtime or API
+composition; no further variant or profiler run. v101 and the full unmet
+objective remain unchanged.
+
 ## 2026-10-14 private W8A8 representation — closed at numerical gate
 
 `WP-MTP-PRIVATE-W8A8-FEASIBILITY-20261014` selects one

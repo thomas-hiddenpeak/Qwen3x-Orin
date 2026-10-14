@@ -1,0 +1,383 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-WARP-TREE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v108",
+  "source_parent": "e82d9bb",
+  "decision_unit": "local_mutation",
+  "status": "closed_without_runtime_composition",
+  "decision": "No local gain; aggregate time changes +0.3031%, below required5% saving. This small difference is not a statistically established regression. Do not integrate or launch API qualification. No parameter or profiler scan follows.",
+  "numerical": {
+    "full_cases": 72,
+    "graph_replays": 216,
+    "comparison": "complete FP32 probabilities and padding/outer guards raw-bit equal including signedzero/extreme/nonfinite patterns",
+    "root_synccheck": {
+      "cases": 24,
+      "graph_replays": 72,
+      "errors": 0
+    },
+    "root_racecheck": {
+      "cases": 24,
+      "graph_replays": 72,
+      "errors": 0,
+      "warnings": 0
+    }
+  },
+  "resources": {
+    "baseline_registers": 30,
+    "candidate_registers": 25,
+    "baseline_and_candidate_shared_bytes": 1024,
+    "stack_bytes": 0,
+    "spills_bytes": 0
+  },
+  "real_payload": {
+    "source_parent": "e82d9bb551886bffee1c4a051f7b6a27d07f5458",
+    "inputs": [
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer3.query.bf16",
+        "layer": 3,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 12288,
+        "sha256": "e0acd723f7e000915abfc6c908af17fb6ef5ce4e770723478ed16ea2b6f004a6"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer3.key.bf16",
+        "layer": 3,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 81920000,
+        "sha256": "09db14db10671a1dfecf7b68d04e03fb49c34c82485e2935c924bd371b891aa0"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer23.query.bf16",
+        "layer": 23,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 12288,
+        "sha256": "2b88d6dba1c074cad82d5d56b01e1734a59bf75fb44155361072e0fd5b3ffd66"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer23.key.bf16",
+        "layer": 23,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 81920000,
+        "sha256": "61b1353d132f1a107a70fc96a1988b3ddb8c922609e79fd1f488c722c04311fd"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer43.query.bf16",
+        "layer": 43,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 12288,
+        "sha256": "e339b8e7846b579118036a3eaa7e5dfdb5e9f512b366518f9335a905b8324343"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer43.key.bf16",
+        "layer": 43,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 81920000,
+        "sha256": "664ebd74fc910d49db08db156b0f2b0da171cdc29dea683d3d754ebba8dafde0"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer63.query.bf16",
+        "layer": 63,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 12288,
+        "sha256": "a6be9cb259c96ba0dfffad2683d70d703d0f1314767770c94c02fd1ab2e5d41a"
+      },
+      {
+        "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer63.key.bf16",
+        "layer": 63,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "dtype": "BF16",
+        "bytes": 81920000,
+        "sha256": "be1de009f295347b19eb8ecf987827875a844519999773c3eff5812ca7e8fa04"
+      }
+    ],
+    "model_identity": {
+      "command": [
+        ".q3x-work/build/fused-decode-admission/q3x_fused_decode_model_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        ".q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/request-body.json",
+        ".q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json",
+        "40000",
+        "fused",
+        ".q3x-work/decode-qualification-20260927/tokens-p40000.txt"
+      ],
+      "sha256": "767c732184fe28e91785195fae7a142c63fa8998ee385f3a36ceeaef247d8cf6",
+      "git": "c0318ddba4177fdd3ae7af63809932f87c15358d",
+      "dirty_diff_sha256": "071ab3795b3243381359674f5c65851822fd084964be741197e7842b9e20889f",
+      "loading": "LAZY"
+    },
+    "capture": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json",
+    "source_sha256": {
+      "candidate-softmax.cuh": "08f0f89ccaf70ec8d1f238588162df9433d2f4b27a39c4bd3c6fca94c8400fd8",
+      "consumer-test.cu": "0769c575d41518aabc5c559488cdb80f16f89226ed5e0d32510c06d872f5b956",
+      "qk.cuh": "a84f8d0996ce4be6300992690420f30e7650fd5ba4f11771c3ad82038d22e790",
+      "baseline-softmax.cuh": "196b3972e621ec6b6eca63e0b6a03fde8fbb602d20baaae6733d5fe3475d634a",
+      "real-test.cu": "9ed70c5f32d7615a1cb19b08a30f9851a1733778f0f5d5ef1c66e6c5d70919f8"
+    },
+    "binary_sha256": "e36cc4a73943b4dc059cab7303c2c7875d68fd4aefce0e18921b113825a2351e",
+    "scope": "Historical real Legacy P40000 QK-generated scores; individual24head row-family comparator, not current fullMTP/API qualification"
+  },
+  "local_timing": {
+    "layers": [
+      {
+        "layer": 3,
+        "baseline_ms": 0.1435814575,
+        "candidate_ms": 0.14415458341666668,
+        "speedup": 0.9960242268883668,
+        "rounds": [
+          {
+            "round": 0,
+            "baseline_ms": 0.143367618,
+            "candidate_ms": 0.1437006295,
+            "candidate_over_baseline": 1.0023227804482322
+          },
+          {
+            "round": 1,
+            "baseline_ms": 0.143606499,
+            "candidate_ms": 0.1443961265,
+            "candidate_over_baseline": 1.0054985498950155
+          },
+          {
+            "round": 2,
+            "baseline_ms": 0.1433661285,
+            "candidate_ms": 0.1444027495,
+            "candidate_over_baseline": 1.0072305851517782
+          },
+          {
+            "round": 3,
+            "baseline_ms": 0.1438092515,
+            "candidate_ms": 0.143896751,
+            "candidate_over_baseline": 1.0006084413838978
+          },
+          {
+            "round": 4,
+            "baseline_ms": 0.143458754,
+            "candidate_ms": 0.1443037465,
+            "candidate_over_baseline": 1.0058901424725883
+          },
+          {
+            "round": 5,
+            "baseline_ms": 0.143880494,
+            "candidate_ms": 0.1442274975,
+            "candidate_over_baseline": 1.002411748044179
+          }
+        ]
+      },
+      {
+        "layer": 23,
+        "baseline_ms": 0.14397489416666664,
+        "candidate_ms": 0.14450900016666665,
+        "speedup": 0.9963039949111543,
+        "rounds": [
+          {
+            "round": 0,
+            "baseline_ms": 0.14410949499999998,
+            "candidate_ms": 0.14405813099999998,
+            "candidate_over_baseline": 0.9996435765734937
+          },
+          {
+            "round": 1,
+            "baseline_ms": 0.143934496,
+            "candidate_ms": 0.144510619,
+            "candidate_over_baseline": 1.0040026749390223
+          },
+          {
+            "round": 2,
+            "baseline_ms": 0.1441148745,
+            "candidate_ms": 0.14474574499999998,
+            "candidate_over_baseline": 1.0043775529915893
+          },
+          {
+            "round": 3,
+            "baseline_ms": 0.1440648735,
+            "candidate_ms": 0.14476075049999998,
+            "candidate_over_baseline": 1.0048303030648202
+          },
+          {
+            "round": 4,
+            "baseline_ms": 0.14397525049999998,
+            "candidate_ms": 0.14423575249999998,
+            "candidate_over_baseline": 1.0018093526428697
+          },
+          {
+            "round": 5,
+            "baseline_ms": 0.14365037549999998,
+            "candidate_ms": 0.14474300299999998,
+            "candidate_over_baseline": 1.0076061583284897
+          }
+        ]
+      },
+      {
+        "layer": 43,
+        "baseline_ms": 0.14388701925,
+        "candidate_ms": 0.14419468866666665,
+        "speedup": 0.9978662916123222,
+        "rounds": [
+          {
+            "round": 0,
+            "baseline_ms": 0.143467873,
+            "candidate_ms": 0.1439951285,
+            "candidate_over_baseline": 1.0036750771373046
+          },
+          {
+            "round": 1,
+            "baseline_ms": 0.1439723745,
+            "candidate_ms": 0.144084625,
+            "candidate_over_baseline": 1.0007796669353397
+          },
+          {
+            "round": 2,
+            "baseline_ms": 0.143742494,
+            "candidate_ms": 0.14431037749999998,
+            "candidate_over_baseline": 1.003950700201431
+          },
+          {
+            "round": 3,
+            "baseline_ms": 0.1441727505,
+            "candidate_ms": 0.1446497515,
+            "candidate_over_baseline": 1.0033085378363507
+          },
+          {
+            "round": 4,
+            "baseline_ms": 0.1438952535,
+            "candidate_ms": 0.14421013,
+            "candidate_over_baseline": 1.0021882340962693
+          },
+          {
+            "round": 5,
+            "baseline_ms": 0.14407136999999998,
+            "candidate_ms": 0.1439181195,
+            "candidate_over_baseline": 0.9989362876191156
+          }
+        ]
+      },
+      {
+        "layer": 63,
+        "baseline_ms": 0.14414154241666666,
+        "candidate_ms": 0.14447137575,
+        "speedup": 0.9977169641278693,
+        "rounds": [
+          {
+            "round": 0,
+            "baseline_ms": 0.14401212349999998,
+            "candidate_ms": 0.144367501,
+            "candidate_over_baseline": 1.0024676915482051
+          },
+          {
+            "round": 1,
+            "baseline_ms": 0.1443097515,
+            "candidate_ms": 0.1446164995,
+            "candidate_over_baseline": 1.0021256221205537
+          },
+          {
+            "round": 2,
+            "baseline_ms": 0.14422337699999999,
+            "candidate_ms": 0.144649252,
+            "candidate_over_baseline": 1.0029528846769413
+          },
+          {
+            "round": 3,
+            "baseline_ms": 0.143980004,
+            "candidate_ms": 0.144117251,
+            "candidate_over_baseline": 1.000953236534151
+          },
+          {
+            "round": 4,
+            "baseline_ms": 0.144289002,
+            "candidate_ms": 0.14471674699999998,
+            "candidate_over_baseline": 1.0029645017573825
+          },
+          {
+            "round": 5,
+            "baseline_ms": 0.1440349965,
+            "candidate_ms": 0.14436100400000001,
+            "candidate_over_baseline": 1.0022633908975032
+          }
+        ]
+      }
+    ],
+    "aggregate_baseline_ms": 0.5755849133333333,
+    "aggregate_candidate_ms": 0.577329648,
+    "aggregate_fraction_saved": -0.003031237661464292,
+    "pass": false,
+    "timed_kernel_calls": 12288,
+    "complete_checks": 192,
+    "scope": "Historical single-row24head groups; no actual multi-rowMTP or current API performance authority"
+  },
+  "cleanup": {
+    "synthetic-final": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "synccheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "racecheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.843
+    },
+    "real": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.843
+    }
+  },
+  "authority": [
+    "Historical real Legacy P40000 Q/K from four layers. Current exact QK computes scores before local timing. Fixed one-row24head groups; no claim of current fullMTP M2..4 or API qualification.",
+    "All96timed blocks check first and last full probabilities against baseline, in addition to4initial complete comparisons.128replicas perblock rotate beyondL2; copies are outside event interval.",
+    "No runtime/default/artifact changed; currentv101 complete Prefill/TTFT/Decode/total metrics remain authoritative.",
+    "Arithmetic equivalence and smaller resources do not prove faster API or hardware ceiling. Full50%\u2013200% objective remains unmet."
+  ],
+  "artifact_root": ".q3x-work/mtp-softmax-warp-tree-20261014",
+  "manifest_sha256": "777751c72f4d087f3ed637abebc452e76bacee707989543e6cd6188d73d6aed5",
+  "artifact_files": 51,
+  "artifact_bytes": 2405442,
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_complete": false
+}
