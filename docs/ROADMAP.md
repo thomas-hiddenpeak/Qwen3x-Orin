@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 lossless draft register consumption — closed at static gate
+
+`WP-MTP-LOSSLESS-REGISTER-20261014` selects one
+[compact-register executor](metadata/qwen36-27b-mtp-lossless-register-design-2026-10-14.json)
+for original BF16 FC/Q/K/V/O; retained INT8 MLP stays fixed. Preserve the old
+lossless packet format but reconstruct pairs directly in MMA registers after
+compact async staging, removing the rejected decoded shared tile and separate
+producer warps. The fixed 128-thread M64C8K128 executor must use at most 96
+registers, 37,376 shared bytes and no stack/spills. A failed static gate closes
+before GPU with no resource scan. Full words/output/Graph admission and one
+five-matrix real-weight comparison must improve aggregate time by at least 5%
+without a role regressing above 3%. Otherwise close before runtime. A positive
+dependency must return through startup ownership, current state checks and d2
+API in the next implementation milestone; d3 requires useful whole direction.
+No format, geometry or profile scan, target reduction change or production
+promotion is selected. v101 and the full objective remain unchanged.
+
+The [static compilation](metadata/qwen36-27b-mtp-lossless-register-rejection-2026-10-14.json)
+uses 168 registers, exceeding the declared 96-register limit. Shared storage
+is 37,376 bytes, with zero stack and spills. Register capacity permits at most
+three 128-thread CTAs, whereas the shared-storage bound permits four; these
+are static limits, not measured occupancy. Close before any GPU process,
+numerical admission, real-weight timing or runtime/API integration. Keep only
+the prototype and resource evidence. No register-cap, unroll, geometry, format
+or profiler variants follow. v101 and its complete joint API metrics remain
+unchanged; this result neither completes the goal nor establishes a hardware
+limit.
+
 ## 2026-10-14 stable-address state publication — closed negative
 
 `WP-MTP-STATE-VMM-FEASIBILITY-20261014` owns one

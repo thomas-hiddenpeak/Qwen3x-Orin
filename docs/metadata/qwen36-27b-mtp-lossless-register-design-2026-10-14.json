@@ -1,0 +1,153 @@
+{
+  "work_package_id": "WP-MTP-LOSSLESS-REGISTER-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v106",
+  "decision_unit": "local_mutation",
+  "source_parent": "995aafa",
+  "product_constraint": "MTP1.5x\u20133x real API Decode with exact target state/output and joint Prefill/TTFT/Decode/total",
+  "incumbent": "v101; private original BF16 FC/Q/K/V/O and registerINT8 MLP",
+  "scope": "Five original BF16 M1 projections only; retain current INT8 MLP and original batched cache/Prefill",
+  "mechanism": "Keep existing lossless256-word packet format. Async stage compact raw/compressed half-packets into two bounded byte buffers, then reconstruct exact BF16 pairs directly in original MMA registers. Remove the old256-thread producer/consumer decoded BF16 shared tile and named barriers; use128 cooperative threads, originalM64C8K128 ascending K16 MMA. Eight-byte source alignment requires cp.async8, explicitly charged to this design.",
+  "lineage": "Closed lossless shared-decoder executor lost8.737% short API. Retained INT8 MLP subsequently benefited from direct-register consumption. This transfers that ownership distinction to remaining original BF16 matrices, not a format/geometry scan or revival of the old executor.",
+  "budget": {
+    "remaining_short_s": 0.0312007363,
+    "remaining_40k_s": 0.3484463013,
+    "older_all_private_matrix_seconds": 0.964466432,
+    "original_five_bytes": 314572800,
+    "packed_five_bytes": 247170856,
+    "scope": "All-private family includes MLP and reconciliation, so it overstates affected opportunity. No proportional bandwidth speed prediction or full-goal closure claim."
+  },
+  "resource_gate": {
+    "threads": 128,
+    "max_registers": 96,
+    "max_shared_bytes": 37376,
+    "stack_spills": 0
+  },
+  "format": "Unchanged8-byte header,256sign/mantissa bytes+128exponent-delta bytes or512rawBF16bytes;8-byte offsets and alignment; max-min exponent<=15 compressed predicate",
+  "gates": [
+    "Static gate first; failure closes before GPU without resource tuning.",
+    "Full original BF16 word decode, full original-MMA output/guards and3Graph replays per selected matrix. Real checkpoint weights; deterministic finite inputs allowed because dense consumer is activation-independent.",
+    "One same-binary three mirroredB-C-C-B rounds over all five matrices. Require aggregate candidate time <=95% incumbent and no individual role >3% regression; otherwise close before runtime.",
+    "A positive dependency must compose startup ownership/hashes, exact current target/draft state and immediate d2 P65/8K/40K API in the next implementation milestone; no standalone retention or production claim. Useful complete direction unlocks d3."
+  ],
+  "bounds": {
+    "executors": 1,
+    "correctness_repairs": 1,
+    "format_geometry_profile_scans": 0
+  },
+  "expiry": "Static/local decision followed by one native owner/API composition or rejection",
+  "artifact_root": ".q3x-work/mtp-lossless-register-20261014",
+  "matrices": [
+    {
+      "tensor": "mtp.fc.weight",
+      "shape": [
+        5120,
+        10240
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 59416,
+      "source_bytes": 104857600,
+      "source_sha256": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "roundtrip_sha256": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "packets": 204800,
+      "compressed_packets": 200240,
+      "raw_packets": 4560,
+      "compressed_fraction": 0.977734375,
+      "headers_payload_alignment_bytes": 80865280,
+      "offset_table_bytes": 1638408,
+      "total_resident_bytes": 82503688,
+      "saving_fraction": 0.21318351745605468
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.k_proj.weight",
+      "shape": [
+        1024,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 639711768,
+      "source_bytes": 10485760,
+      "source_sha256": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "roundtrip_sha256": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "packets": 20480,
+      "compressed_packets": 20126,
+      "raw_packets": 354,
+      "compressed_fraction": 0.98271484375,
+      "headers_payload_alignment_bytes": 8073472,
+      "offset_table_bytes": 163848,
+      "total_resident_bytes": 8237320,
+      "saving_fraction": 0.21442794799804688
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.o_proj.weight",
+      "shape": [
+        5120,
+        6144
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 650197528,
+      "source_bytes": 62914560,
+      "source_sha256": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "roundtrip_sha256": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "packets": 122880,
+      "compressed_packets": 120672,
+      "raw_packets": 2208,
+      "compressed_fraction": 0.98203125,
+      "headers_payload_alignment_bytes": 48451584,
+      "offset_table_bytes": 983048,
+      "total_resident_bytes": 49434632,
+      "saving_fraction": 0.2142576853434245
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.q_proj.weight",
+      "shape": [
+        12288,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 713112600,
+      "source_bytes": 125829120,
+      "source_sha256": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "roundtrip_sha256": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "packets": 245760,
+      "compressed_packets": 242173,
+      "raw_packets": 3587,
+      "compressed_fraction": 0.9854044596354167,
+      "headers_payload_alignment_bytes": 96797056,
+      "offset_table_bytes": 1966088,
+      "total_resident_bytes": 98763144,
+      "saving_fraction": 0.21510105133056645
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.v_proj.weight",
+      "shape": [
+        1024,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 838941720,
+      "source_bytes": 10485760,
+      "source_sha256": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "roundtrip_sha256": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "packets": 20480,
+      "compressed_packets": 20167,
+      "raw_packets": 313,
+      "compressed_fraction": 0.984716796875,
+      "headers_payload_alignment_bytes": 8068224,
+      "offset_table_bytes": 163848,
+      "total_resident_bytes": 8232072,
+      "saving_fraction": 0.21492843627929692
+    }
+  ],
+  "shard": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors",
+    "file": "model-00003-of-00003.safetensors",
+    "bytes": 1970287640,
+    "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+  },
+  "production_changed": false
+}
