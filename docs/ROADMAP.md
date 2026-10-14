@@ -19,6 +19,36 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 lazy accepted-tail KV composition — API return complete
+
+`WP-MTP-TAIL-KV-20261014` / `AC-MTP-GREEDY-v92` owns one
+[seed-preserving tail composition](metadata/qwen36-27b-mtp-tail-kv-design-2026-10-14.json).
+The closed v34 batch rebuilt the whole prefix before first publication. This
+successor keeps the now-reusable seed and waits until the second commit before
+batching two/three valid target-conditioned tail rows through the current
+weight-major C8 kernel. One-row tails retain scalar append. Prepared future rows
+remain inaccessible until individually committed; cancellation and failure
+invalidate readiness. Original canonical state copies and observer order stay.
+The 344-ms 40K reconciliation interval includes mandatory copies and cannot
+alone close the 515-ms complete-Decode gap. One implementation and one correctness
+repair pass P65 full state/cache/recovery plus explicit lazy-publication checks,
+then return directly to d2 API. Short >3% slowdown or nonpositive 8K closes;
+useful long direction unlocks d3. No batch-size, kernel, stream or profiler scan.
+The complete objective and non-MTP production boundary remain unchanged.
+
+The [complete API return](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
+passes nine full prefixes with explicit lazy-tail assertions, fifteen state/cache
+transactions, four verification-failure recoveries, eight initialization-cancel
+recoveries and all sixteen d2/d3 API/lifecycle requests. Generated IDs, output,
+acceptance, target work and seed reuse match v93. D2 at 8K/40K uses 71/64
+batches for 142/128 tail rows, reducing reconciliation by 57.3/50.0 ms.
+Full Decode improves about 0.45%/0.30%; short direction is also positive.
+Retain this small development dependency through the next complete verifier
+architecture API return or archival, not mirrored selection or production.
+The v93 short path also passes this composition. No further batching, stream,
+kernel or profiler scan follows. [Current Status](CURRENT_STATUS.md) owns the
+paired metrics and remaining gap; the full 1.5x–3x objective is still unmet.
+
 ## 2026-10-14 short multi-row Attention — API return complete
 
 `WP-MTP-SHORT-ATTENTION-20261014` / `AC-MTP-GREEDY-v91` owns one

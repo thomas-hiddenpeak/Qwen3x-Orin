@@ -1,0 +1,36 @@
+{
+  "work_package_id": "WP-MTP-TAIL-KV-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v92",
+  "source_parent": "9e086ee",
+  "profile": "q3x.sm87.admission.mtp-tail-kv-api.v94",
+  "product_constraint": "Real API MTP1.5x\u20133x Decode, maxima2/3, exact complete target state/logits and draft cache; paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "d2_short_gap_seconds": 0.0616987823337,
+    "d2_40k_gap_seconds": 0.5153388903233,
+    "current_reconcile_short_ms": 20.403395,
+    "current_reconcile_40k_ms": 344.095656,
+    "qualification": "Reconciliation includes mandatory canonical state copies. Its complete time is a loose opportunity ceiling, not expected saving; this prerequisite cannot alone close40K gap."
+  },
+  "lineage": {
+    "predecessor": "docs/metadata/qwen36-27b-mtp-batch-reconcile-rejection-2026-10-10.json",
+    "difference": "v34 eagerly rebuilt the entire valid prefix before first publication, before seed-KV reuse and current weight-major C8 draft kernels existed. This composition keeps the existing seed row and delays preparation until second commit. Only two/three remaining accepted rows batch; one-row tails use existing append. No group-size/kernel/stream scan or revival of commit overlap."
+  },
+  "mechanism": "On second target commit, derive maximal contiguous valid tail from verified predictions. If at least2rows, run existing FC/K/V weight-major C8 projection once across them in existing initialization scratch, keep physical future KV logically inaccessible, and publish one prepared row per commit. Seed reuse and original target restoration/synchronization before each observer remain unchanged.",
+  "contracts": [
+    "Only completed immutable target hidden snapshots feed draft cache; no speculative draft hidden substitution.",
+    "Current BF16 MMA order identical for counts1/2/3; existing norm/RoPE arithmetic and full prefix oracle retained.",
+    "Prepared watermarks cleared on rewind/reset/step/append/poison/finish; every failure drains and poisons; no request allocation.",
+    "Early cancellation after first committed output starts no batch. Later cancellation discards future logical access; rows overwrite before next use.",
+    "New witness counters attest batch calls and prepared rows; acceptance and target work stay identical."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "batch_size_or_geometry_scans": 0
+  },
+  "validation": "Build and host checks, full P65 prefix/transaction/cache/failure/cancel admission with explicit lazy-tail watermark assertions, then immediate d2P65/8K/40K API. Short>3percent regression or nonpositive8K stops; neutral whole-path removes, useful long direction unlocks d3. No new arithmetic kernel, therefore no redundant synthetic/MMA/FP64 replay.",
+  "retention_expiry": "One API return selects removal or bounded prerequisite through next complete verifier architecture API return; no production promotion.",
+  "artifact_root": ".q3x-work/mtp-tail-kv-20261014",
+  "production_changed": false
+}

@@ -140,6 +140,7 @@ struct Draft::Impl {
   const Weights& weights;
   const ModelWeights& base;
   std::uint32_t capacity, position = 0;
+  std::uint32_t prepared_begin = 0, prepared_rows = 0, prepared_committed = 0;
   const float* cosines;
   const float* sines;
   void* arena = nullptr;
@@ -215,6 +216,7 @@ struct Draft::Impl {
     if (status == cudaSuccess) return true;
     error = status;
     poisoned = true;
+    prepared_begin = prepared_rows = prepared_committed = 0;
     cudaStreamSynchronize(stream);
     return false;
   }
@@ -257,11 +259,13 @@ std::uint64_t Draft::ordered_attention_steps() const noexcept {
 bool Draft::rewind(std::uint32_t position) noexcept {
   auto& p = *impl_;
   if (p.poisoned || position > p.position) return false;
+  discard_prepared_kv();
   p.position = position;
   return true;
 }
 bool Draft::reset() noexcept {
   auto& p = *impl_;
+  discard_prepared_kv();
   p.ordered_attention_steps = 0;
   if (!p.call(cudaStreamSynchronize(p.stream))) return false;
   if (!p.call(cudaMemsetAsync(p.key, 0, 2048ULL * p.capacity, p.stream)) ||
@@ -281,6 +285,7 @@ bool Draft::initialize_kv(const std::uint32_t* tokens,
     return p.call(cudaErrorInvalidValue);
   for (std::uint32_t i = 0; i < rows; ++i)
     if (tokens[i] >= V) return p.call(cudaErrorInvalidValue);
+  discard_prepared_kv();
   const auto cancelled = [&]() noexcept {
     if (!cancel || !cancel(context)) return false;
     (void)poison();
@@ -325,6 +330,7 @@ bool Draft::append_kv(std::uint32_t token, const std::uint16_t* hidden) noexcept
   if (p.poisoned) return false;
   if (token >= V || !hidden || p.position >= p.capacity)
     return p.call(cudaErrorInvalidValue);
+  discard_prepared_kv();
   auto* key = p.key + 1024ULL * p.position;
   auto* value = p.value + 1024ULL * p.position;
   if (!p.call(launch_embedding_gather_reference_cuda(p.base.embed_tokens().weight,
@@ -340,6 +346,57 @@ bool Draft::append_kv(std::uint32_t token, const std::uint16_t* hidden) noexcept
   ++p.position;
   return true;
 }
+void Draft::discard_prepared_kv() noexcept {
+  impl_->prepared_begin = impl_->prepared_rows = impl_->prepared_committed = 0;
+}
+bool Draft::prepare_kv_prefix(const std::uint32_t* tokens,
+                             const std::uint16_t* const* hidden,
+                             std::uint32_t rows) noexcept {
+  auto& p = *impl_;
+  if (p.poisoned) return false;
+  if (!tokens || !hidden || rows < 1 || rows > 4 || p.prepared_rows ||
+      rows > p.capacity - p.position) return p.call(cudaErrorInvalidValue);
+  for (std::uint32_t row = 0; row < rows; ++row)
+    if (tokens[row] >= V || !hidden[row]) return p.call(cudaErrorInvalidValue);
+  const auto first = p.position;
+  for (std::uint32_t row = 0; row < rows; ++row) {
+    auto* concat = p.prefill_concat + row * 2 * H;
+    if (!p.call(launch_embedding_gather_reference_cuda(p.base.embed_tokens().weight,
+              V, H, tokens[row], concat, p.stream)) ||
+        !p.norm(concat, 13, concat) ||
+        !p.norm(hidden[row], 14, concat + H)) return false;
+  }
+  auto* key = p.key + 1024ULL * first;
+  auto* value = p.value + 1024ULL * first;
+  if (!p.call(launch_mtp_prefill_projection(p.weights.tensor(0), p.prefill_concat,
+              rows, H, 2 * H, p.prefill_fc, p.stream)) ||
+      !p.call(launch_headwise_centered_rms_norm_reference_cuda(p.prefill_fc,
+              p.weights.tensor(1), rows, H, 1.e-6F, p.prefill_norm, p.stream)) ||
+      !p.call(launch_mtp_prefill_projection(p.weights.tensor(7), p.prefill_norm,
+              rows, 1024, H, key, p.stream)) ||
+      !p.call(launch_mtp_prefill_projection(p.weights.tensor(11), p.prefill_norm,
+              rows, 1024, H, value, p.stream)) ||
+      !p.call(launch_headwise_centered_rms_norm_reference_cuda(key,
+              p.weights.tensor(6), rows * 4, 256, 1.e-6F, key, p.stream))) return false;
+  for (std::uint32_t row = 0; row < rows; ++row)
+    if (!p.call(launch_partial_neox_rope_256_64_reference_cuda(key + row * 1024,
+              p.cosines + 32ULL * (first + row), p.sines + 32ULL * (first + row),
+              4, key + row * 1024, p.stream))) return false;
+  if (!p.call(cudaStreamSynchronize(p.stream))) return false;
+  p.prepared_begin = first;
+  p.prepared_rows = rows;
+  p.prepared_committed = 0;
+  return true;
+}
+bool Draft::commit_prepared_kv(std::uint32_t rows) noexcept {
+  auto& p = *impl_;
+  if (p.poisoned || !p.prepared_rows || rows != p.prepared_committed + 1 ||
+      rows > p.prepared_rows || p.position != p.prepared_begin + p.prepared_committed)
+    return false;
+  p.position = p.prepared_begin + rows;
+  p.prepared_committed = rows;
+  return true;
+}
 bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
                  bool with_logits, std::uint32_t& prediction, float* confidence) noexcept {
   auto& p = *impl_;
@@ -347,6 +404,7 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
   if (token >= V || hidden == nullptr || p.position >= p.capacity || (confidence && !with_logits)) {
     return p.call(cudaErrorInvalidValue);
   }
+  discard_prepared_kv();
   auto* key = p.key + 1024ULL * p.position;
   auto* value = p.value + 1024ULL * p.position;
   const auto call = [&](int status) { return p.call(status); };
@@ -400,6 +458,7 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
 
 bool Draft::poison() noexcept {
   auto& p = *impl_;
+  discard_prepared_kv();
   const auto status = cudaStreamSynchronize(p.stream);
   p.poisoned = true;
   if (status != cudaSuccess) p.error = status;
@@ -490,6 +549,8 @@ bool TargetTransaction::initialize_whole_core_prefill(
   target_.committed_request_positions_ = 0;
   seed_cache_valid_ = false;
   entry_snapshots_ = direct_gdn_rows_ = seed_kv_reuses_ = 0;
+  tail_kv_batches_ = tail_kv_rows_ = 0;
+  prepared_tail_rows_ = 0;
   const auto fail = [this]() noexcept { (void)abort(); return false; };
   auto stream = static_cast<cudaStream_t>(target_.stream_);
   // Same independent one-row reduction as the ordinary final-row handoff;
@@ -547,6 +608,8 @@ bool TargetTransaction::begin(std::uint32_t rows) noexcept {
   seed_cache_valid_ = false;
   verified_ = false;
   committed_ = 0;
+  prepared_tail_rows_ = 0;
+  draft_.discard_prepared_kv();
   entry_position_ = state_.current_position();
   rows_ = rows;
   target_.request_reuse_boundary_ = 2;  // kUncertain: never grant prefix reset authority.
@@ -613,6 +676,24 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
   if (!active_ || !verified_ || rows != committed_ + 1 || rows > rows_ ||
       predictions_[rows - 1] != pending ||
       (rows > 1 && inputs_[rows - 1] != predictions_[rows - 2])) return false;
+  // The seed has already been committed/reused. Do not rebuild it, or
+  // prepare future rows before the first observer can cancel.
+  if (multirow_ && rows == 2) {
+    std::uint32_t valid_rows = 1;
+    while (valid_rows < rows_ && inputs_[valid_rows] == predictions_[valid_rows - 1])
+      ++valid_rows;
+    const auto tail = valid_rows - 1;
+    if (tail >= 2) {
+      std::array<const std::uint16_t*, 3> hidden_rows{};
+      for (std::uint32_t i = 0; i < tail; ++i)
+        hidden_rows[i] = reinterpret_cast<const std::uint16_t*>(
+            static_cast<const char*>(snapshots_) + (i + 1) * slot_bytes_ + recurrent_bytes_);
+      if (!draft_.prepare_kv_prefix(inputs_.data() + 1, hidden_rows.data(), tail)) return false;
+      prepared_tail_rows_ = tail;
+      ++tail_kv_batches_;
+      tail_kv_rows_ += tail;
+    }
+  }
   auto* src = static_cast<const char*>(snapshots_) + rows * slot_bytes_;
   auto stream = static_cast<cudaStream_t>(target_.stream_);
   if (cudaMemcpyAsync(static_cast<char*>(state_.arena_data()) + recurrent_offset_, src,
@@ -628,6 +709,8 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
     if (draft_.position() != entry_position_) return false;
     ++seed_kv_reuses_;
     seed_cache_valid_ = false;
+  } else if (prepared_tail_rows_) {
+    if (!draft_.commit_prepared_kv(rows - 1)) return false;
   } else if (!draft_.append_kv(inputs_[rows - 1], previous_hidden)) return false;
   if (!state_.set_sequence_length(entry_position_ + rows)) return false;
   target_.trace_valid_ = false;
@@ -639,6 +722,8 @@ bool TargetTransaction::finish() noexcept {
   if (!active_ || !verified_ || committed_ == 0 ||
       state_.current_position() != entry_position_ + committed_ ||
       draft_.position() + 1 != state_.current_position()) return false;
+  draft_.discard_prepared_kv();
+  prepared_tail_rows_ = 0;
   active_ = false;
   seed_cache_valid_ = false;
   verified_ = false;
@@ -652,6 +737,8 @@ bool TargetTransaction::abort() noexcept {
   target_.retained_prefill_hidden_valid_ = false;
   target_.request_reuse_boundary_ = 2;
   target_.committed_request_positions_ = 0;
+  draft_.discard_prepared_kv();
+  prepared_tail_rows_ = 0;
   active_ = false;
   seed_cache_valid_ = false;
   verified_ = false;

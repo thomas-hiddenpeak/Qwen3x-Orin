@@ -311,6 +311,11 @@ int main(int argc, char** argv) try {
     for (unsigned i = 0; i < count; ++i) {
       require(predictions[i] == expected[i + 1] &&
               transaction.commit_prefix(i + 1, predictions[i]), "multi-row prefix selection");
+      require(draft.position() == prompt.size() + i,
+              "prepared future KV became logically visible");
+      require(transaction.tail_kv_batches() == ((count >= 3 && i >= 1) ? 1U : 0U) &&
+              transaction.tail_kv_rows() == ((count >= 3 && i >= 1) ? count - 1U : 0U),
+              "tail batch must be lazy and exclude the seed");
       prefix_states.push_back(live_state(*request, *target));
       prefix_keys.push_back(read_device(draft.keys(), draft.position() * 2048ULL));
       prefix_values.push_back(read_device(draft.values(), draft.position() * 2048ULL));

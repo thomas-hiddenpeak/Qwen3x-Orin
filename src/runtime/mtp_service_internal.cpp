@@ -144,7 +144,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
 std::string Service::report_json() const {
   const auto& r = report_;
   std::ostringstream out; out << std::setprecision(17) << std::boolalpha;
-  out << "{\"enabled\":true,\"verifier\":\"multirow-short-attention-v93\",\"draft_length\":" << r.draft_length
+  out << "{\"enabled\":true,\"verifier\":\"multirow-tail-kv-v94\",\"draft_length\":" << r.draft_length
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds
@@ -158,6 +158,8 @@ std::string Service::report_json() const {
       << ",\"entry_hidden_snapshots\":" << transaction_.entry_snapshots()
       << ",\"direct_gdn_state_rows\":" << transaction_.direct_gdn_rows()
       << ",\"seed_kv_reuses\":" << transaction_.seed_kv_reuses()
+      << ",\"tail_kv_batches\":" << transaction_.tail_kv_batches()
+      << ",\"tail_kv_rows\":" << transaction_.tail_kv_rows()
       << ",\"state_copy_bytes_elided\":" <<
           (transaction_.entry_snapshots() * 78943232ULL +
            transaction_.direct_gdn_rows() * 1572864ULL)

@@ -25,6 +25,36 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 lazy accepted-tail KV composition — API return complete
+
+`WP-MTP-TAIL-KV-20261014` / `AC-MTP-GREEDY-v92` owns one
+[seed-preserving tail composition](metadata/qwen36-27b-mtp-tail-kv-design-2026-10-14.json).
+The closed v34 batch rebuilt the whole prefix before first publication. This
+successor keeps the now-reusable seed and waits until the second commit before
+batching two/three valid target-conditioned tail rows through the current
+weight-major C8 kernel. One-row tails retain scalar append. Prepared future rows
+remain inaccessible until individually committed; cancellation and failure
+invalidate readiness. Original canonical state copies and observer order stay.
+The 344-ms 40K reconciliation interval includes mandatory copies and cannot
+alone close the 515-ms complete-Decode gap. One implementation and one correctness
+repair pass P65 full state/cache/recovery plus explicit lazy-publication checks,
+then return directly to d2 API. Short >3% slowdown or nonpositive 8K closes;
+useful long direction unlocks d3. No batch-size, kernel, stream or profiler scan.
+The complete objective and non-MTP production boundary remain unchanged.
+
+The [complete API return](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
+passes nine full prefixes with explicit lazy-tail assertions, fifteen state/cache
+transactions, four verification-failure recoveries, eight initialization-cancel
+recoveries and all sixteen d2/d3 API/lifecycle requests. Generated IDs, output,
+acceptance, target work and seed reuse match v93. D2 at 8K/40K uses 71/64
+batches for 142/128 tail rows, reducing reconciliation by 57.3/50.0 ms.
+Full Decode improves about 0.45%/0.30%; short direction is also positive.
+Retain this small development dependency through the next complete verifier
+architecture API return or archival, not mirrored selection or production.
+The v93 short path also passes this composition. No further batching, stream,
+kernel or profiler scan follows. [Current Status](CURRENT_STATUS.md) owns the
+paired metrics and remaining gap; the full 1.5x–3x objective is still unmet.
+
 ## 2026-10-14 short multi-row Attention — API return complete
 
 `WP-MTP-SHORT-ATTENTION-20261014` / `AC-MTP-GREEDY-v91` owns one
@@ -2490,9 +2520,9 @@ full-logit bytes. Restoring logits prevents a rejected later speculative row
 from remaining visible at an earlier accepted boundary. Target KV is append-only
 within a round, so prefix selection preserves its earlier rows and publishes
 only the accepted logical length. The adapter copies the selected recurrent
-and hidden snapshot, rebuilds the target-conditioned draft row unless the
-first-seed reuse proof above applies, and completes both streams before publishing
-that token. It never
+and hidden snapshot, then reuses the proved first seed, publishes one prepared
+accepted-tail cache row, or appends one target-conditioned draft row. Both streams
+complete before publishing that token. It never
 borrows the ordinary engine's successful-request prefix-reset authority.
 Abort drains execution, poisons target and draft, and requires explicit full
 reset. Both owners must outlive the adapter, including destruction/abort.
@@ -2599,8 +2629,8 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 `Q3X_BUILD_MTP_SERVICE_ADMISSION=ON` binds the existing corrected whole-core
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
-production/install, and identifies itself as
-`q3x.sm87.admission.mtp-softmax-sync-api.v86`. The startup-only
+production/install, and uses the isolated profile and measured binary recorded
+in [Current Status](CURRENT_STATUS.md#mtp-development-status). The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

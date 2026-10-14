@@ -43,6 +43,12 @@ class Draft {
   // Append one target-conditioned cache row; no valid draft hidden is produced.
   // The next proposal must begin with the selected target hidden.
   bool append_kv(std::uint32_t token, const std::uint16_t* target_hidden) noexcept;
+  // Physical preparation does not publish a logical cache length.
+  bool prepare_kv_prefix(const std::uint32_t* tokens,
+                         const std::uint16_t* const* hidden,
+                         std::uint32_t rows) noexcept;
+  bool commit_prepared_kv(std::uint32_t rows) noexcept;
+  void discard_prepared_kv() noexcept;
   bool rewind(std::uint32_t position) noexcept;
   bool reset() noexcept;
   bool poison() noexcept;
@@ -82,6 +88,8 @@ class TargetTransaction final : public RoundBackend {
   std::uint64_t entry_snapshots() const noexcept { return entry_snapshots_; }
   std::uint64_t direct_gdn_rows() const noexcept { return direct_gdn_rows_; }
   std::uint64_t seed_kv_reuses() const noexcept { return seed_kv_reuses_; }
+  std::uint64_t tail_kv_batches() const noexcept { return tail_kv_batches_; }
+  std::uint64_t tail_kv_rows() const noexcept { return tail_kv_rows_; }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,
                std::uint32_t* draft) noexcept override;
@@ -115,6 +123,8 @@ class TargetTransaction final : public RoundBackend {
   std::array<std::uint32_t, 4> inputs_{};
   std::array<std::uint32_t, 4> predictions_{};
   std::uint64_t entry_snapshots_ = 0, direct_gdn_rows_ = 0, seed_kv_reuses_ = 0;
+  std::uint64_t tail_kv_batches_ = 0, tail_kv_rows_ = 0;
+  std::uint32_t prepared_tail_rows_ = 0;
   std::uint32_t cached_seed_ = 0;
   bool seed_cache_valid_ = false;
   bool active_ = false;

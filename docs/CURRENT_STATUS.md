@@ -87,45 +87,50 @@ are external. Each row is one observation, with 60-second capacity spacing.
 ## MTP development status
 
 Current isolated source retains the GDN graphs, Gate/Up composition, weight-major
-BF16 draft, fixed 0.4 confidence lookahead and corrected softmax lifetime, adding
-exact fused multi-row Attention only at S65..511. Its profile is
-`q3x.sm87.admission.mtp-short-attention-api.v93`; measured server ELF is
-`11832b386f08394bdc06fca86e34a525267f9fa31966336b7e5d61d8baf529d9`.
-The [short Attention direction](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
-passes 72 full output/guard cases, 216 Graph comparisons, root race/sync checks,
-eighteen full target prefixes, fifteen state/cache transactions and failure
-recovery. Each configured draft length passes all eight API/lifecycle checks.
-All responses, usage, generated IDs and non-timing work match corrected v86.
-The approximately 1% short direction is retained only through the next complete
-verifier architecture API return or archival. It is not mirrored architecture
-selection or production qualification. Long-context kernels are unchanged.
+BF16 draft, fixed 0.4 lookahead, corrected softmax and exact short Attention,
+adding lazy batching of accepted draft-cache tail rows. The seed remains reused;
+first-token publication starts no tail batch, and future prepared rows become
+visible only through individual commits. Its profile is
+`q3x.sm87.admission.mtp-tail-kv-api.v94`; measured server ELF is
+`0e3fdce0fadc8873f74ab4bd57ff420c62706c4b9ebf47c40c0c630235d89f45`.
+
+The [accepted-tail direction](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
+passes nine complete target prefixes with lazy-publication assertions, fifteen
+state/cache transactions and all bounded failure/cancel recovery checks. Both
+draft lengths pass all eight API/lifecycle requests. Complete responses, usage,
+generated IDs, acceptance, target work and seed reuse match v93. New counters
+attest physically prepared tail-cache batches/rows, not committed-token counts.
+The preceding [short Attention checks](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
+retain their scope; no device arithmetic changes in this composition.
+These dependencies remain bounded through the next complete verifier architecture
+API return or archival, not mirrored architecture selection or production.
 
 The corrected non-MTP denominator remains the
 [fresh paired softmax record](metadata/qwen36-27b-softmax-sync-2026-10-14.json),
 ELF `b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614`.
 These 2026-10-14 MTP observations use one fresh process per policy. MTP Prefill
 includes draft initialization; Decode includes the complete controller after
-the first token. TTFT and total are external. The separate installed-patch
-timings above do not replace this denominator. Prefill variation is not
-attributed to the unchanged Prefill implementation.
+the first token. TTFT and total are external. Separate installed-patch timings
+do not replace this denominator. Prefill variation is not attributed to the
+unchanged Prefill implementation.
 
 | P / O | Configuration | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 65 / 16 | non-MTP | 0.895 | 72.60 | 0.914 | 9.591 | 2.478 |
 | 8192 / 256 | non-MTP | 16.803 | 487.52 | 16.825 | 9.222 | 44.480 |
 | 40000 / 256 | non-MTP | 90.109 | 443.91 | 90.144 | 7.872 | 122.542 |
-| 65 / 16 | d2 | 0.892 | 72.84 | 0.911 | 13.583 | 2.015 |
-| 8192 / 256 | d2 | 17.345 | 472.31 | 17.367 | 15.116 | 34.237 |
-| 40000 / 256 | d2 | 92.773 | 431.16 | 92.808 | 11.532 | 114.922 |
-| 65 / 16 | d3 | 0.892 | 72.85 | 0.911 | 12.699 | 2.092 |
-| 8192 / 256 | d3 | 17.289 | 473.83 | 17.311 | 14.156 | 35.325 |
-| 40000 / 256 | d3 | 92.599 | 431.97 | 92.634 | 10.847 | 116.144 |
+| 65 / 16 | d2 | 0.892 | 72.90 | 0.910 | 13.621 | 2.011 |
+| 8192 / 256 | d2 | 17.305 | 473.39 | 17.327 | 15.184 | 34.121 |
+| 40000 / 256 | d2 | 92.685 | 431.57 | 92.720 | 11.566 | 114.768 |
+| 65 / 16 | d3 | 0.891 | 72.96 | 0.909 | 12.728 | 2.088 |
+| 8192 / 256 | d3 | 17.339 | 472.47 | 17.361 | 14.206 | 35.311 |
+| 40000 / 256 | d3 | 92.669 | 431.64 | 92.704 | 10.881 | 116.141 |
 
-D2 reaches 1.416x/1.639x/1.465x non-MTP Decode at P65/8K/40K; d3 reaches 1.324x/1.535x/1.378x.
+D2 reaches 1.420x/1.647x/1.469x non-MTP Decode at P65/8K/40K; d3 reaches 1.327x/1.540x/1.382x.
 **The full 1.5x–3x objective remains unmet.** D2 still needs approximately
-0.062 seconds removed from short Decode and 0.515 seconds from 40K Decode.
-D3 remains slower than d2. No new performance threshold or numerical waiver
-is selected, and the ordinary installed production service remains non-MTP.
+0.059 seconds removed from short Decode and 0.450 seconds from 40K Decode.
+D3 remains slower than d2. Product targets and numerical contracts remain intact;
+the ordinary installed production service remains non-MTP.
 
 ### Preceding NV live-reduction direction
 

@@ -506,3 +506,11 @@ with runtime and current-metric authority retained by their existing owners.
 The [short Attention direction](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
 closes its API return with bounded development retention; it grants no production
 or full-goal completion authority. The tracked Markdown inventory is unchanged.
+
+The [lazy accepted-tail KV design](metadata/qwen36-27b-mtp-tail-kv-design-2026-10-14.json)
+opens one explicitly scoped successor to the closed whole-prefix batching
+experiment, preserving the existing document inventory and production boundary.
+
+The [accepted-tail KV direction](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
+closes its composition with bounded development retention. Numerical and API
+passes do not establish full-goal completion or production qualification.
