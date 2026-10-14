@@ -494,3 +494,7 @@ observations. No Markdown paths or classifications change.
 The private BF16 host assessment completes and selects a bounded planned M1
 composition in the existing MTP SDD and Roadmap. It does not change runtime
 status or Markdown classifications.
+
+The private packed-weight pipeline closes after complete numerical admission
+and negative short API direction. Existing MTP SDD and Roadmap retain the
+rejection with v86 restored; no Markdown paths or classifications change.

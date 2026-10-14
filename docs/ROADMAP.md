@@ -19,7 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-14 private BF16 traffic assessment — complete, composition selected
+## 2026-10-14 private packed-weight pipeline — closed negative
+
+`WP-MTP-DRAFT-PACKED-PIPELINE-20261014` / `AC-MTP-GREEDY-v90` implements the
+[fixed producer/consumer composition](metadata/qwen36-27b-mtp-draft-packed-pipeline-design-2026-10-14.json)
+selected below. Compile/resource admission precedes GPU word/output and race
+checks, full P65 state/cache/recovery, then immediate d2 P65/8K/40K API. Useful
+direction unlocks d3. One implementation, one correctness repair maximum,
+no format/tile/producer-count or profiler scan. Original Prefill and target
+arithmetic remain; sidecars add resident bytes and must preserve the reserve.
+Short >3% slowdown or nonpositive 8K closes this version. The full goal remains.
+
+The [completed composition](metadata/qwen36-27b-mtp-draft-packed-pipeline-rejection-2026-10-14.json)
+passes all BF16 bit patterns, complete projection/guard checks, root race/sync
+checks, every real packed weight, nine target prefixes and fifteen state/cache
+transactions. P65/O16 d2 Decode falls from 13.447 to 12.273 token/s (-8.737%).
+Drafting adds 90.631 ms and cache reconciliation 16.700 ms; verification remains
+unchanged within the observed variation. Prefill is 0.892 seconds / 72.88 token/s,
+TTFT 0.910 seconds and total 2.132 seconds. Startup retains 10,219,192,320 free
+bytes, above the reserve. The short stop prevents further completed API cases.
+All packet/owner/pipeline/dispatch/identity code is removed, restoring v86.
+No format, producer-count, tile, stage or profiler scan follows. Correct lossless
+compression did not yield full-runner benefit; the full goal remains unmet.
+
+## 2026-10-14 private BF16 traffic assessment — complete, composition closed
 
 `WP-MTP-DRAFT-LOSSLESS-BF16-20261014` owns one
 [fixed lossless packet assessment](metadata/qwen36-27b-mtp-draft-lossless-bf16-design-2026-10-14.json).
@@ -43,7 +66,8 @@ MMA, two buffers and explicit ready/retired ownership. Original weights remain
 for Prefill, so sidecars add resident bytes; eight-byte alignment needs safe
 raw loads. One implementation and one correctness repair return directly to
 state admission and d2 API, then d3 only for useful direction. No format/tile/
-producer-count scan. This planned composition is not retained runtime code.
+producer-count scan. The composition is now closed negative above and has no
+retained runtime code.
 
 ## 2026-10-14 arithmetic FP8 reconstruction — closed negative
 

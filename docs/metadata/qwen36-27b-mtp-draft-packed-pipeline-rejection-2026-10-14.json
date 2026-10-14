@@ -1,0 +1,161 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-DRAFT-PACKED-PIPELINE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v90",
+  "source_parent": "f26bbe4d2e3e968e6e9ed3cff0e88e8ebe5150c4",
+  "decision": "removed after negative short API direction",
+  "candidate_profile": "q3x.sm87.admission.mtp-draft-packed-pipeline-api.v92",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "minimum_admission": {
+    "registers": 40,
+    "static_shared_bytes": 36864,
+    "barriers": 4,
+    "stack_bytes": 0,
+    "spill_bytes": 0,
+    "threads": 256,
+    "all_bf16_patterns": 65536,
+    "raw_compressed_word_cases": 131072,
+    "projection_shapes": 6,
+    "projection_patterns": 3,
+    "replays_per_case": 3,
+    "all_projection_outputs_and_guards_equal": true,
+    "racecheck": {
+      "initial_unprivileged": "instrumentation disabled, not a pass",
+      "root": "0 hazards; bounded N64K512 compressed pipeline with3 replays"
+    },
+    "synccheck_root": "0 errors on same bounded case",
+    "compile_encoding_correction": "Dynamic barrier IDs reserved16 slots; constant four IDs implement the declared four-barrier design. No GPU correctness repair or parameter scan.",
+    "model_owner": "Startup authenticates canonical weights then GPU-compares all eight packed dense matrices, including every original BF16 word. Packed bytes fixed667009984; originals remain for Prefill."
+  },
+  "model_admission": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-draft-packed-pipeline-20261014/oracle-p65/q3x_mtp_whole_core_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-draft-packed-pipeline-20261014/oracle-p65/prompt.u32",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-draft-packed-pipeline-20261014/oracle-p65"
+      ],
+      "binary_sha256": "258abdf29a8b7fb8bf02293b1d3ace6fa1ac3057b08440187b622476f93c1f89",
+      "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "f26bbe4d2e3e968e6e9ed3cff0e88e8ebe5150c4",
+      "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+    },
+    "startup_original_bf16_words_gpu_compared": 424673280,
+    "packed_dense_bytes": 667009984,
+    "canonical_weights_retained_for_prefill": true,
+    "complete_prefixes": 9,
+    "state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "draft_initialization_cancel_recoveries": 8,
+    "target_state_logits_and_draft_cache_bitwise_equal": true,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.625
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "completed_requests": 1,
+    "server_sha256": "5b32494473ef419d8b386fbcc48293e44ae3cb33ca66d381c1cb200b009e3b32",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8918316660000001,
+        "prefill_tps": 72.88370942415045,
+        "ttft_s": 0.9103232319976087,
+        "decode_tps": 12.272637556399653,
+        "elapsed_s": 2.132463955997082,
+        "incumbent_decode_tps": 13.447487561074006,
+        "decode_delta_percent": -8.736576251426708,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-draft-packed-pipeline-v92"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10219192320
+          ],
+          "draft_initialization_ms": [
+            5.709196,
+            5.47729
+          ],
+          "draft_ms": [
+            113.685322,
+            204.31644699999998
+          ],
+          "verify_ms": [
+            980.7653470000001,
+            980.592634
+          ],
+          "reconcile_ms": [
+            20.249626,
+            36.949916
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 63.875
+    }
+  },
+  "interpretation": {
+    "draft_delta_ms": 90.63112499999998,
+    "verify_delta_ms": -0.172713000000158,
+    "reconcile_delta_ms": 16.700290000000003,
+    "statement": "Complete owner/decoder/producer-consumer path is correct but short Decode loses8.737% versus retained v86. Drafting and reconciliation add90.631ms and16.700ms; target verification is effectively unchanged. Payload compression did not repay complete private execution cost. No profiler measured an internal hardware stall cause.",
+    "resource": "Startup free10219192320bytes exceeds8GiB. Capacity is not the rejection reason. Original BF16 plus new sidecars increases resident storage, despite21.47% smaller encoded dense payload.",
+    "unrun": "8K request interrupted at the short stop; no completed8K/40K/d3 or full-panel validation claim.",
+    "closure": "Remove all new owner, packet encoder, validator, pipeline, dispatcher and identity paths. No packet-format, role-count, tile, barrier, stage or profiler scan follows this fixed composition. Full1.5x-3x goal remains active."
+  },
+  "host_validation": {
+    "ctests": [
+      "whole_core_exact_decode_plan",
+      "mtp_control",
+      "mtp_weights"
+    ],
+    "passed": 3,
+    "document_control_unit_tests": 7,
+    "document_control": {
+      "paths": 86,
+      "headers_checked": 57,
+      "links": 1420,
+      "errors": 0
+    }
+  },
+  "hygiene": {
+    "runtime_source_equal_parent": true,
+    "removed_owned_packet_header": true,
+    "restored_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "restored_server_sha256": "de08bc0c1d0c5b35d82ff2ce8b8b3c5c68074a5c8aa5992c0330df0fee52cfed",
+    "restored_oracle_sha256": "2018af23ea2bb6c5dcafb5871cc9dc3f3e09a39111738dc1cc6c68f32314f70e",
+    "installed_082_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "gpu_holders": [],
+    "worktree_count": 47,
+    "api_keys_remaining": [],
+    "temporary_files": [],
+    "project_or_sanitizer_files_in_system_tmp": []
+  },
+  "artifact_root": ".q3x-work/mtp-draft-packed-pipeline-20261014",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-draft-packed-pipeline-20261014/artifact-manifest.json",
+    "sha256": "d8afeee096db1ec10dfdcdde7e7354bd475fa23e69646162fba28c48c10b8772",
+    "files": 146,
+    "bytes": 49156771
+  }
+}

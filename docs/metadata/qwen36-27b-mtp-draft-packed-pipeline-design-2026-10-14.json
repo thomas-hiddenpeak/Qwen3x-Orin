@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-DRAFT-PACKED-PIPELINE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v90",
+  "source_parent": "f26bbe4d2e3e968e6e9ed3cff0e88e8ebe5150c4",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "50%-200% whole API Decode uplift, exact target state/output, draft lengths2/3, Prefill/TTFT/Decode/total reported together",
+  "origin": "Completed lossless BF16 assessment:667009984encoded bytes versus849346560original dense bytes. Existing private matrix40K interval1.004060192s is not a bandwidth attribution. Short/40K gaps72.798/505.033ms remain.",
+  "scope": "Private M1 dense projection only. Prefill and canonical BF16 owner remain; target verifier unchanged.",
+  "mechanism": "Fixed256-thread block:128 producers decode eight-byte-aligned256-word packets into two original M64/C8/K128 shared buffers;128 consumers execute unchanged ascending K16 MMA and BF16 output mapping. Separate ready/retired named barriers protect ownership.",
+  "owner": "After full checkpoint authentication create eight original-bit sidecars and offsets at startup; retain canonical weights for Prefill/oracle. No request allocation/repacking/fallback. All partial allocations cleaned and retained-free>=8GiB.",
+  "resource_gate": {
+    "max_registers": 64,
+    "max_static_shared_bytes": 36864,
+    "spills": 0,
+    "threads": 256
+  },
+  "protocol": [
+    "compile/resource/SASS gate",
+    "complete compressed/raw GPU words and projection output/guard comparison, bounded racecheck",
+    "P65 full target/state/cache/recovery",
+    "immediate d2 P65/O16, P8192/O256, P40000/O256 API against corrected v86; useful direction unlocks d3"
+  ],
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs": 1,
+    "profiler": 0,
+    "format_or_parameter_scan": false
+  },
+  "stop": "Resource failure, numerical failure after one repair, short>3%regression or nonpositive8K closes version. Neutral API is not retention.",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-draft-packed-pipeline-20261014"
+}

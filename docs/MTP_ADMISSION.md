@@ -25,10 +25,10 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## Planned private lossless BF16 composition v90
+## Private lossless BF16 composition v90 — closed negative
 
 The [host assessment](metadata/qwen36-27b-mtp-draft-lossless-bf16-assessment-2026-10-14.json)
-selects one private M1 composition; it is not implemented or API-admitted.
+selects one private M1 composition. The [bounded implementation](metadata/qwen36-27b-mtp-draft-packed-pipeline-design-2026-10-14.json) is complete and removed after negative API direction.
 Eight authenticated dense matrices gain exact packet sidecars; original BF16
 weights remain for Prefill/oracle. No request-time allocation or fallback is
 allowed, and startup must preserve the 8-GiB reserve after the additional
@@ -46,6 +46,18 @@ return immediately to d2 API; useful direction admits d3. One implementation,
 one correctness repair, no format/tile/producer-count or profiler scan. Short
 >3% slowdown or nonpositive 8K closes the composition. Compression is not an
 API speedup, and the complete 1.5x–3x goal stays active.
+
+The [completed composition](metadata/qwen36-27b-mtp-draft-packed-pipeline-rejection-2026-10-14.json)
+passes all BF16 bit patterns, complete projection/guard checks, root race/sync
+checks, every real packed weight, nine target prefixes and fifteen state/cache
+transactions. P65/O16 d2 Decode falls from 13.447 to 12.273 token/s (-8.737%).
+Drafting adds 90.631 ms and cache reconciliation 16.700 ms; verification remains
+unchanged within the observed variation. Prefill is 0.892 seconds / 72.88 token/s,
+TTFT 0.910 seconds and total 2.132 seconds. Startup retains 10,219,192,320 free
+bytes, above the reserve. The short stop prevents further completed API cases.
+All packet/owner/pipeline/dispatch/identity code is removed, restoring v86.
+No format, producer-count, tile, stage or profiler scan follows. Correct lossless
+compression did not yield full-runner benefit; the full goal remains unmet.
 
 ## 2026-10-14 arithmetic FP8 reconstruction — closed negative
 
