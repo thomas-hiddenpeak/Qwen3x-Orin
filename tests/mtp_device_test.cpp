@@ -291,7 +291,7 @@ int main(int argc, char** argv) try {
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   // Select every staged prefix before publishing a new round, then compare
   // complete recurrent/KV/hidden/logit state with independent scalar replay.
-  for (unsigned count : {2U, 3U, 4U}) {
+  for (unsigned count : {1U, 2U, 3U, 4U}) {
     require(bool(target->reset()) && draft.reset(), "prefix oracle reset");
     seed = initialize();
     std::array<std::uint32_t, 3> proposals{};
@@ -322,7 +322,8 @@ int main(int argc, char** argv) try {
     }
     require(transaction.finish(), "multi-row prefix finish");
     require(transaction.entry_snapshots() == 1 &&
-            transaction.direct_gdn_rows() == count * 48ULL &&
+            transaction.direct_gdn_rows() == (count == 1 ? 0 : count * 48ULL) &&
+            transaction.scalar_verify_rows() == (count == 1 ? 1U : 0U) &&
             transaction.seed_kv_reuses() == (count == 4 ? 1U : 0U),
             "seed reuse must require a matching completed proposal");
     require(bool(target->reset()) && draft.reset(), "scalar prefix reset");
@@ -350,7 +351,7 @@ int main(int argc, char** argv) try {
   }
 #endif
   if (prefix_only) {
-    std::cout << "scope=prefix_state_logits_only checks=9 passed\n" << std::flush;
+    std::cout << "scope=prefix_state_logits_only checks=10 passed\n" << std::flush;
     return 0;
   }
   struct Case { unsigned length; int mismatch; bool cancel; bool fail; bool adaptive = false; };

@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-SINGLE-TAIL-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v96",
+  "source_parent": "dfb2f8c",
+  "profile": "q3x.sm87.admission.mtp-single-tail-api.v98",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "Same-request 1.5x\u20133x full Decode; exact output/state, drafts2/3 and jointPrefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "short_gap_s": 0.0585616383337,
+    "long_gap_s": 0.4497706153233,
+    "source": "v94P65 d2 histogram[1,0,6,0] proves one singleton round; 8K/40K no singleton. No singleton phase timing available; no forecast gain or long-gap closure claim."
+  },
+  "source_finding": "M1 verifier calls generic projection-to-BF16 and separate MLP/norm, while native ReferenceRunner::step already owns optimized M1 whole-step dispatch. All M2..4 retain current verifier. This is a route composition, not another kernel or non-MTP tuning task.",
+  "mechanism": "When multirow transaction has count0 (rows1), reuse existing scalar-verifier branch target.step+snapshot1. Preserve begin hidden snapshot, complete immutable prefix, commit copies, draft KV append, logical positions, observer and abort/poison. No output/state becomes externally visible before commit. Add scalar_verify_rows receipt; direct GDN rows and copy-elision must count physical multirow work only.",
+  "numerical": "Unmodified original scalar Decode is the oracle; compare complete single-prefix state/full logits/KV and every existing multirow prefix. No kernel/math/layout/allocation changes.",
+  "reference_transfer": "Existing scalar transaction and native runner are proven in-repository execution paths. Existing upstream speculative scheduling principle selects ordinary Decode when no proposal remains. No imported source.",
+  "validation": [
+    "Expand prefix testM1..4;10complete prefixes,15transactions,failure/cancel and singleton route counter",
+    "Immediate d2P65 realAPI against v94; >3percent regression closes. Useful short gain must exceed0.5percent to unlock complete d2/d3 panels. Neutral long result is expected for no-tail cases and cannot establish long-goal completion.",
+    "All output IDs/acceptance/verified rows match; only new scalar counter, physically reduced directGDN/copy-elision and timings may change.",
+    "One integration,one correctness repair,no kernel/graph/length/threshold/profile scan; neutral removes. Useful dependency expires at next complete verifier API return or archival."
+  ],
+  "artifact_root": ".q3x-work/mtp-single-tail-20261014",
+  "production_changed": false
+}

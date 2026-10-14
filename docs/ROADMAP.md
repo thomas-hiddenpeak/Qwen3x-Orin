@@ -19,6 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 singleton target-tail dispatch — API return complete
+
+`WP-MTP-SINGLE-TAIL-20261014` / `AC-MTP-GREEDY-v96` owns one
+[singleton composition](metadata/qwen36-27b-mtp-single-tail-design-2026-10-14.json).
+P65 d2 contains one zero-draft final round. Reuse the existing native scalar
+Decode transaction for that single row, preserving its complete snapshot,
+commit, draft-cache and failure semantics. M2..4 and non-MTP code stay unchanged.
+A new scalar-row counter distinguishes physical work from direct GDN writes.
+Ten complete prefixes and existing transactions precede immediate d2 P65 API.
+A short gain above 0.5% unlocks full d2/d3 checks; >3% regression or neutral
+short direction removes. No kernel, graph, policy or profiler scan. This can
+address the 59-ms short gap only; the 450-ms long gap and full goal remain.
+
+The [complete API return](metadata/qwen36-27b-mtp-single-tail-direction-2026-10-14.json)
+passes ten complete M1..4 prefixes, fifteen transactions, four verification
+failure recoveries, eight initialization-cancel checks and all sixteen d2/d3
+API/lifecycle requests. Outputs, generated IDs, acceptance and semantic work
+match v94. Four d2 P65-equivalent requests use one scalar tail and improve
+Decode by 0.68%–0.90%; no-tail long/d3 observations are effectively unchanged.
+Physical GDN/copy-elision counters now exclude scalar snapshots. Retain this
+small route dependency through the next complete verifier API return or
+archival, without mirrored selection or production authority. No single-tail
+kernel/graph/policy scan follows. [Current Status](CURRENT_STATUS.md) owns the
+joint metrics and remaining gaps; the complete 1.5x–3x goal remains unmet.
+
+
 ## 2026-10-14 paired Gate/Up with bounded input ring — closed negative
 
 `WP-MTP-GATE-RING-PAIR-20261014` / `AC-MTP-GREEDY-v95` owns one

@@ -86,22 +86,25 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-Current isolated source retains the GDN graphs, Gate/Up composition, weight-major
-BF16 draft, fixed 0.4 lookahead, corrected softmax and exact short Attention,
-adding lazy batching of accepted draft-cache tail rows. The seed remains reused;
-first-token publication starts no tail batch, and future prepared rows become
-visible only through individual commits. Its profile is
-`q3x.sm87.admission.mtp-tail-kv-api.v94`; measured server ELF is
-`0e3fdce0fadc8873f74ab4bd57ff420c62706c4b9ebf47c40c0c630235d89f45`.
+Current isolated source retains the GDN graphs, Gate/Up input ring, weight-major
+BF16 draft, fixed 0.4 lookahead, corrected softmax, exact short Attention and
+lazy accepted-tail KV batching. Zero-draft singleton rounds now use the native
+scalar Decode transaction, retaining complete snapshots and original commits.
+M2..4 and the ordinary non-MTP service remain unchanged. The profile is
+`q3x.sm87.admission.mtp-single-tail-api.v98`; measured server ELF is
+`916c60ab734c5f2f297ad72cc5904fa2f875891faadd160eb602777d95fbfa6f`.
 
-The [accepted-tail direction](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
-passes nine complete target prefixes with lazy-publication assertions, fifteen
-state/cache transactions and all bounded failure/cancel recovery checks. Both
-draft lengths pass all eight API/lifecycle requests. Complete responses, usage,
-generated IDs, acceptance, target work and seed reuse match v93. New counters
-attest physically prepared tail-cache batches/rows, not committed-token counts.
-The preceding [short Attention checks](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
-retain their scope; no device arithmetic changes in this composition.
+The [singleton direction](metadata/qwen36-27b-mtp-single-tail-direction-2026-10-14.json)
+passes ten complete M1..4 prefixes, fifteen state/cache transactions and all
+bounded failure/cancel checks. Both draft lengths pass eight API/lifecycle
+requests. Complete responses, generated IDs, acceptance and semantic work
+match v94. `scalar_verify_rows` records the new path; physical direct GDN rows
+and copy-elision exclude scalar snapshots. Four d2 P65-equivalent requests
+improve Decode by 0.68%–0.90%, with one scalar tail each. No-tail long/d3
+observations are effectively unchanged. The preceding
+[accepted-tail](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
+and [short Attention](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
+checks retain their scope. No device arithmetic changes in this composition.
 These dependencies remain bounded through the next complete verifier architecture
 API return or archival, not mirrored architecture selection or production.
 
@@ -119,16 +122,16 @@ unchanged Prefill implementation.
 | 65 / 16 | non-MTP | 0.895 | 72.60 | 0.914 | 9.591 | 2.478 |
 | 8192 / 256 | non-MTP | 16.803 | 487.52 | 16.825 | 9.222 | 44.480 |
 | 40000 / 256 | non-MTP | 90.109 | 443.91 | 90.144 | 7.872 | 122.542 |
-| 65 / 16 | d2 | 0.892 | 72.90 | 0.910 | 13.621 | 2.011 |
-| 8192 / 256 | d2 | 17.305 | 473.39 | 17.327 | 15.184 | 34.121 |
-| 40000 / 256 | d2 | 92.685 | 431.57 | 92.720 | 11.566 | 114.768 |
-| 65 / 16 | d3 | 0.891 | 72.96 | 0.909 | 12.728 | 2.088 |
-| 8192 / 256 | d3 | 17.339 | 472.47 | 17.361 | 14.206 | 35.311 |
-| 40000 / 256 | d3 | 92.669 | 431.64 | 92.704 | 10.881 | 116.141 |
+| 65 / 16 | d2 | 0.892 | 72.83 | 0.911 | 13.714 | 2.005 |
+| 8192 / 256 | d2 | 17.340 | 472.44 | 17.363 | 15.178 | 34.163 |
+| 40000 / 256 | d2 | 92.787 | 431.10 | 92.822 | 11.561 | 114.880 |
+| 65 / 16 | d3 | 0.892 | 72.88 | 0.911 | 12.730 | 2.089 |
+| 8192 / 256 | d3 | 17.289 | 473.84 | 17.311 | 14.204 | 35.264 |
+| 40000 / 256 | d3 | 92.538 | 432.25 | 92.574 | 10.877 | 116.019 |
 
-D2 reaches 1.420x/1.647x/1.469x non-MTP Decode at P65/8K/40K; d3 reaches 1.327x/1.540x/1.382x.
+D2 reaches 1.430x/1.646x/1.469x non-MTP Decode at P65/8K/40K; d3 reaches 1.327x/1.540x/1.382x.
 **The full 1.5x–3x objective remains unmet.** D2 still needs approximately
-0.059 seconds removed from short Decode and 0.450 seconds from 40K Decode.
+0.051 seconds removed from short Decode and 0.460 seconds from 40K Decode.
 D3 remains slower than d2. Product targets and numerical contracts remain intact;
 the ordinary installed production service remains non-MTP.
 

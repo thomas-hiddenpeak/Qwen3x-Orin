@@ -548,7 +548,7 @@ bool TargetTransaction::initialize_whole_core_prefill(
   target_.request_reuse_boundary_ = 2;
   target_.committed_request_positions_ = 0;
   seed_cache_valid_ = false;
-  entry_snapshots_ = direct_gdn_rows_ = seed_kv_reuses_ = 0;
+  entry_snapshots_ = direct_gdn_rows_ = seed_kv_reuses_ = scalar_verify_rows_ = 0;
   tail_kv_batches_ = tail_kv_rows_ = 0;
   prepared_tail_rows_ = 0;
   const auto fail = [this]() noexcept { (void)abort(); return false; };
@@ -656,13 +656,16 @@ bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
   options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
   for (std::uint32_t i = 0; i <= count; ++i)
     inputs_[i] = i == 0 ? seed : draft[i - 1];
-  if (multirow_) {
+  // A zero-draft tail has no cross-row work to reuse. Keep the native
+  // single-step route and its complete immutable prefix snapshot.
+  if (multirow_ && rows_ > 1) {
     if (!verify_multirow(predictions)) return false;
   } else {
     for (std::uint32_t i = 0; i <= count; ++i) {
       const auto step = target_.step(inputs_[i], options);
       if (!step || !step.value->prediction || !snapshot(i + 1)) return false;
       predictions[i] = predictions_[i] = step.value->prediction->predicted_token_id;
+      if (multirow_) ++scalar_verify_rows_;
     }
   }
   // The first proposal already used the immutable target entry hidden.

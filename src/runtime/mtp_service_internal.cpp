@@ -144,7 +144,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
 std::string Service::report_json() const {
   const auto& r = report_;
   std::ostringstream out; out << std::setprecision(17) << std::boolalpha;
-  out << "{\"enabled\":true,\"verifier\":\"multirow-tail-kv-v94\",\"draft_length\":" << r.draft_length
+  out << "{\"enabled\":true,\"verifier\":\"multirow-single-tail-v98\",\"draft_length\":" << r.draft_length
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds
@@ -156,6 +156,7 @@ std::string Service::report_json() const {
       << ',' << r.proposal_histogram[1] << ',' << r.proposal_histogram[2] << ',' << r.proposal_histogram[3] << ']'
       << ",\"draft_ordered_attention_steps\":" << draft_.ordered_attention_steps()
       << ",\"entry_hidden_snapshots\":" << transaction_.entry_snapshots()
+      << ",\"scalar_verify_rows\":" << transaction_.scalar_verify_rows()
       << ",\"direct_gdn_state_rows\":" << transaction_.direct_gdn_rows()
       << ",\"seed_kv_reuses\":" << transaction_.seed_kv_reuses()
       << ",\"tail_kv_batches\":" << transaction_.tail_kv_batches()

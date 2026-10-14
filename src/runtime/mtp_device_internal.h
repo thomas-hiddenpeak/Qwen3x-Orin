@@ -86,6 +86,7 @@ class TargetTransaction final : public RoundBackend {
                                     bool committed_service_handoff = false) noexcept;
   const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
   std::uint64_t entry_snapshots() const noexcept { return entry_snapshots_; }
+  std::uint64_t scalar_verify_rows() const noexcept { return scalar_verify_rows_; }
   std::uint64_t direct_gdn_rows() const noexcept { return direct_gdn_rows_; }
   std::uint64_t seed_kv_reuses() const noexcept { return seed_kv_reuses_; }
   std::uint64_t tail_kv_batches() const noexcept { return tail_kv_batches_; }
@@ -124,6 +125,7 @@ class TargetTransaction final : public RoundBackend {
   std::array<std::uint32_t, 4> predictions_{};
   std::uint64_t entry_snapshots_ = 0, direct_gdn_rows_ = 0, seed_kv_reuses_ = 0;
   std::uint64_t tail_kv_batches_ = 0, tail_kv_rows_ = 0;
+  std::uint64_t scalar_verify_rows_ = 0;
   std::uint32_t prepared_tail_rows_ = 0;
   std::uint32_t cached_seed_ = 0;
   bool seed_cache_valid_ = false;

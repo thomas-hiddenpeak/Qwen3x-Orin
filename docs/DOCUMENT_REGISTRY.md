@@ -539,3 +539,9 @@ activates one bounded projection composition; no production qualification.
 
 The [Gate/Up ring-pair rejection](metadata/qwen36-27b-mtp-gate-ring-pair-rejection-2026-10-14.json)
 closes the composition at its short API stop; no retained runtime or production change.
+
+The [singleton tail design](metadata/qwen36-27b-mtp-single-tail-design-2026-10-14.json)
+activates bounded reuse of the native scalar transaction; no production change.
+
+The [singleton tail direction](metadata/qwen36-27b-mtp-single-tail-direction-2026-10-14.json)
+records bounded development retention after both API panels; no production promotion.
