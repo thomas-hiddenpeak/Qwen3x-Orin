@@ -1,0 +1,28 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-RECIPROCAL-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v99",
+  "decision_unit": "architecture_candidate direction",
+  "source_parent": "22e398e",
+  "product_constraint": "1.5x\u20133x real API d2/d3 complete Decode, exact target state/full logits/output and joint Prefill/TTFT/Decode/total.",
+  "budget": "40K d2 remaining0.460s; node-trace softmax0.514802816s. This direction can reduce only part of that family and does not claim to close the objective or short gap.",
+  "observation": "Frozen v98 SM87 aligned_softmax SASS 0x1800 MUFU.RCP plus 0x1860/0x1890 reciprocal refinement execute inside output loop 0x17a0..0x19a0; identical denominator is invariant.",
+  "mechanism": "Hoist one approximate reciprocal plus two original RN FMA refinement operations per thread outside normalization loop. For denominator[1,65536], numerator[2^-100,1], execute identical native div.rn normal-quotient three-FMA sequence. Outside conservative finite normal range use original FP32 division. Max/sum/exponential inputs and trees, probability publication, QK/PV and all target state unchanged.",
+  "equivalence": "Matched compiler normal path: r=rcp.approx.ftz(d); e=fma.rn(-d,r,1); r=fma.rn(r,e,r); q=fma.rn(n,r,+0); e=fma.rn(-d,q,n); result=fma.rn(r,e,q). Bounded positive operands and quotient stay normal, finite and far from overflow/underflow; exceptional inputs retain div.rn. New GPU exhaustive mantissa/edge and full probability checks must demonstrate bit identity before model.",
+  "novelty": "No exp lifetime/materialization or reassociated sum; those old lineages remain closed. Hoists denominator-only compiler work, with unchanged per-numerator arithmetic. Native compiler output is primary source; no external import.",
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "parameter_scan": false
+  },
+  "gates": [
+    "T0 zero spills and SASS reciprocal outside hot output loop",
+    "GPU full2^23 numerator mantissas across fixed denominators plus conservative-boundary/exception cases against __fdiv_rn;72 complete probability/tail cases and Graph replay",
+    "P513 complete target-prefix/state/cache/failure",
+    "Immediate d2 P65/8K/40K API vs v98; short >3% slowdown or >1%8K slowdown stops; nonpositive40K closes; useful complete direction unlocks d3/lifecycle"
+  ],
+  "profile": "q3x.sm87.admission.mtp-softmax-reciprocal-api.v100",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-softmax-reciprocal-20261014",
+  "baseline_sass_sha256": "9503e805b6e3fa974a029a1b7efcc1b368a9177cdcd37596da0e3c1fc01f6584"
+}

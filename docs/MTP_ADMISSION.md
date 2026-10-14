@@ -25,6 +25,39 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 invariant softmax divisor — closed neutral
+
+`WP-MTP-SOFTMAX-RECIPROCAL-20261014` / `AC-MTP-GREEDY-v99` owns one
+[exact divisor composition](metadata/qwen36-27b-mtp-softmax-reciprocal-design-2026-10-14.json).
+Frozen v98 machine code repeats reciprocal/refinement inside each probability
+loop. Hoist only denominator-dependent work; preserve the compiler's three-FMA
+normal quotient sequence in a conservative finite range, with original division
+elsewhere. No exponential, reduction, causal or state boundary changes. This is
+separate from the rejected exponential-lifetime path. Exhaustive mantissa/edge,
+complete probability/Graph and P513 state checks precede immediate d2 API.
+Short >3% or 8K >1% slowdown stops; nonpositive 40K closes. Useful full direction
+unlocks d3. One correctness repair; no profile or parameter scan. The measured
+0.515-second long softmax family bounds scope, not promised saving or closure of
+the 0.460-second long and 0.051-second short gaps. Production remains unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-softmax-reciprocal-rejection-2026-10-14.json)
+passes 260,047,137 division pairs, 72 complete probability cases, 216 Graph
+replays, ten P513 prefixes, fifteen transactions, four failure recoveries and
+eight initialization-cancel checks. The actual server hoists the reciprocal,
+using 31 registers, 1 KiB shared and no stack/local memory. All eight d2 API
+and lifecycle requests complete with identical target IDs, output and work.
+8K/40K Decode is 15.183/11.567 token/s, only +0.0346%/+0.0507% versus v98;
+this is neutral, not a useful gain. Prefill is 17.312/92.798 seconds,
+473.19/431.04 token/s; TTFT17.334/92.833 seconds, total34.129/114.880 seconds.
+P65 is 13.752 token/s but does not execute the changed long softmax. Unchanged
+Prefill and short-path variation are not attributed. The d2 driver had already
+finished normally when the neutral stop was inspected; no process was signalled.
+Remove all runtime/profile changes, restore v98, and stop before d3 or profiling.
+The full goal stays unmet. A separately bounded successor may remove the prior
+private M1 INT8 consumer's unshared decoded-weight tile and scale reloads;
+that ownership question is recorded as unselected, not a tuning continuation
+or performance claim.
+
 ## 2026-10-14 native private INT8 MLP — closed negative
 
 `WP-MTP-MLP-INT8-NATIVE-20261014` / `AC-MTP-GREEDY-v98` owns the

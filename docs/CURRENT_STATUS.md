@@ -142,6 +142,12 @@ removed before 40K/d3 qualification. BF16 Attention protects the fixed draft
 numerical boundary, but this packed consumer does not improve whole-API fitness.
 The retained v98 implementation and metrics above remain current.
 
+The subsequent [invariant-divisor direction](metadata/qwen36-27b-mtp-softmax-reciprocal-rejection-2026-10-14.json)
+passes exhaustive division, full softmax/Graph, P513 state and eight d2 API
+checks, but is removed for neutral whole-request performance: 8K/40K Decode
+changes only +0.0346%/+0.0507%. D3 and further profiling are not run. This
+closes that arithmetic-hoisting path without changing the retained v98 metrics.
+
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not

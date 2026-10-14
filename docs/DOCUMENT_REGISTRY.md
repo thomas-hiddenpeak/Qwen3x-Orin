@@ -559,3 +559,7 @@ registers one error-attributed precision partition before any native execution.
 - [qwen36-27b-mtp-draft-mlp-int8-2026-10-14](metadata/qwen36-27b-mtp-draft-mlp-int8-2026-10-14.json): frozen host diagnostic/numerical evidence; no runtime or performance authority.
 
 - [Native private INT8 MLP rejection](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json): frozen native correctness and two-request API early-stop evidence; removed, no production authority.
+
+- [Invariant softmax divisor design](metadata/qwen36-27b-mtp-softmax-reciprocal-design-2026-10-14.json): bounded exact division dataflow/API composition; no production authority.
+
+- [Invariant softmax divisor rejection](metadata/qwen36-27b-mtp-softmax-reciprocal-rejection-2026-10-14.json): frozen exact-numerical and neutral complete-d2 API direction; removed, no production authority.

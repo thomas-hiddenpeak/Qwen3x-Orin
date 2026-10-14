@@ -1,0 +1,456 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-RECIPROCAL-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v99",
+  "source_parent": "22e398e",
+  "decision_unit": "architecture_candidate direction",
+  "decision": "Closed neutral; remove exact reciprocal-hoist implementation and restore v98. 8K+0.0346% and40K+0.0507% cannot establish useful API improvement. No d3, profiler, threshold or arithmetic scan.",
+  "design": "docs/metadata/qwen36-27b-mtp-softmax-reciprocal-design-2026-10-14.json",
+  "artifact_root": ".q3x-work/mtp-softmax-reciprocal-20261014",
+  "candidate_profile": "q3x.sm87.admission.mtp-softmax-reciprocal-api.v100",
+  "candidate_server_sha256": "c93c10f1505ccf5d69c377c0b27dac9c686917d1c492f448129533becd3f0a16",
+  "local_admission": {
+    "mechanism": "Same normal quotient lowering, hoisted denominator prefix; all exceptional/tiny values retain div.rn",
+    "baseline_repeated_reciprocal_pc": "0x1800 inside output loop 0x17a0..0x19a0",
+    "candidate_reciprocal_prefix_pc": [
+      "0x17d0",
+      "0x17e0",
+      "0x17f0"
+    ],
+    "candidate_hot_loop": "0x1800..0x1a80; backward branch to0x1800 excludes prefix",
+    "registers": 31,
+    "shared_bytes": 1024,
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "division_pairs": 260047137,
+    "division_mismatches": 0,
+    "probability_cases": 72,
+    "graph_replays": 216,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "qualification": "Correctness only. Fast unit run ended before a retained temperature sample; preflight observations exist, no timing authority.",
+    "source_sha256": {
+      "src/runtime/mtp_verify_attention_internal.cu": "2db0bba72131a07eb968c658969d4f56f3e435ebb073d54598e44fa8f061f4de",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/baseline-softmax.cuh": "196b3972e621ec6b6eca63e0b6a03fde8fbb602d20baaae6733d5fe3475d634a",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/candidate-softmax.cuh": "b18e047ea2ee179192159c13db8e438923dd6c5b75b7e52616b7570a7852fcb5",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/consumer-test.cu": "12cc3d0b0f1f80d5e93b394ff6c1c368dcd637cc85d1ecc57ba59106add95b5c",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/consumer-test": "29b58ef6782147044ba2b854ba3807b116c3fcc6756a3c48f76e9be40ce29fdb",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/baseline-softmax.sass": "9503e805b6e3fa974a029a1b7efcc1b368a9177cdcd37596da0e3c1fc01f6584",
+      ".q3x-work/mtp-softmax-reciprocal-20261014/candidate-softmax.sass": "8e9b3523c349eb366652c3111d790de932b30021b492eae164ddc61086b9e949"
+    }
+  },
+  "model_admission": {
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_checks": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.468
+    },
+    "prompt": 513,
+    "binary_sha256": "668576830eecdc4ab24ebab706a339586bf77e214e1f5469bcb03f7eeeeea566",
+    "scope": "Complete target state/logits and draft cache against scalar; unchanged draft arithmetic needs no repeated independent FP64 run."
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v98": true,
+    "all_generated_ids_equal_v98": true,
+    "all_semantic_work_fields_equal_v98": true,
+    "physical_work_unchanged": true,
+    "completed_requests": 8,
+    "server_sha256": "c93c10f1505ccf5d69c377c0b27dac9c686917d1c492f448129533becd3f0a16",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890878715,
+        "prefill_tps": 72.9616713314337,
+        "ttft_s": 0.9093885040056193,
+        "decode_tps": 13.752273624433553,
+        "elapsed_s": 2.0000754140055506,
+        "incumbent_decode_tps": 13.71420234447416,
+        "decode_delta_percent": 0.27760477061018474,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            5.720173,
+            5.620499
+          ],
+          "draft_ms": [
+            113.70279100000002,
+            113.51058899999998
+          ],
+          "verify_ms": [
+            961.9702279999999,
+            959.5505960000002
+          ],
+          "reconcile_ms": [
+            17.694861,
+            17.297436
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.312227543000002,
+        "prefill_tps": 473.1915624175319,
+        "ttft_s": 17.334480161996908,
+        "decode_tps": 15.18339299816515,
+        "elapsed_s": 34.12936295899999,
+        "incumbent_decode_tps": 15.178137822601878,
+        "decode_delta_percent": 0.03462332220653952,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            569.836999,
+            543.167647
+          ],
+          "draft_ms": [
+            1788.107268,
+            1791.164777999999
+          ],
+          "verify_ms": [
+            14713.099902000005,
+            14704.376254000008
+          ],
+          "reconcile_ms": [
+            294.782817,
+            294.52693300000016
+          ]
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.79813934500001,
+        "prefill_tps": 431.0431252429547,
+        "ttft_s": 92.83321661999798,
+        "decode_tps": 11.567011893553538,
+        "elapsed_s": 114.88026204099879,
+        "incumbent_decode_tps": 11.561150827937299,
+        "decode_delta_percent": 0.05069621271678315,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            2775.255395,
+            2709.339615
+          ],
+          "draft_ms": [
+            2146.851504,
+            2148.255758000001
+          ],
+          "verify_ms": [
+            19610.511502999994,
+            19597.986075000004
+          ],
+          "reconcile_ms": [
+            294.17899000000006,
+            294.3985090000001
+          ]
+        }
+      },
+      {
+        "label": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887718608,
+        "prefill_tps": 73.22140080677457,
+        "ttft_s": null,
+        "decode_tps": 13.784598344759399,
+        "elapsed_s": 1.994640481992974,
+        "incumbent_decode_tps": 13.778751336172594,
+        "decode_delta_percent": 0.04243496703111305,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            5.511683,
+            5.398452
+          ],
+          "draft_ms": [
+            111.53309300000001,
+            111.772041
+          ],
+          "verify_ms": [
+            959.6697710000001,
+            958.925471
+          ],
+          "reconcile_ms": [
+            17.225852999999997,
+            17.257155
+          ]
+        }
+      },
+      {
+        "label": "raw-text",
+        "prompt": 5,
+        "output": 16,
+        "prefill_s": 0.82230969,
+        "prefill_tps": 6.080434246129339,
+        "ttft_s": 0.8544939720013645,
+        "decode_tps": 15.70208169897998,
+        "elapsed_s": 1.8097438810000313,
+        "incumbent_decode_tps": 15.698175048009885,
+        "decode_delta_percent": 0.024886019923631153,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            2.019888,
+            2.003336
+          ],
+          "draft_ms": [
+            101.89225,
+            102.09002100000001
+          ],
+          "verify_ms": [
+            835.2749550000001,
+            834.8255469999999
+          ],
+          "reconcile_ms": [
+            18.062635999999998,
+            18.089861
+          ]
+        }
+      },
+      {
+        "label": "chat-stop",
+        "prompt": 20,
+        "output": 2,
+        "prefill_s": 0.826496108,
+        "prefill_tps": 24.19854105350488,
+        "ttft_s": 0.8443410719992244,
+        "decode_tps": 6.177196450605157,
+        "elapsed_s": 1.0061379440012388,
+        "incumbent_decode_tps": 6.174242888713878,
+        "decode_delta_percent": 0.04783682703313197,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            2.711713,
+            2.680906
+          ],
+          "draft_ms": [
+            18.538073,
+            18.595175
+          ],
+          "verify_ms": [
+            142.520411,
+            142.388094
+          ],
+          "reconcile_ms": [
+            0.862004,
+            0.8641
+          ]
+        }
+      },
+      {
+        "label": "after-prefill-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8877352869999999,
+        "prefill_tps": 73.22002510417275,
+        "ttft_s": 1.1579802539999946,
+        "decode_tps": 13.784038038188772,
+        "elapsed_s": 2.2461725950051914,
+        "incumbent_decode_tps": 13.772578178183025,
+        "decode_delta_percent": 0.08320780508548342,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            5.508803,
+            5.376884
+          ],
+          "draft_ms": [
+            111.54321999999999,
+            111.736617
+          ],
+          "verify_ms": [
+            959.9592069999999,
+            958.918025
+          ],
+          "reconcile_ms": [
+            17.290487999999996,
+            17.252832
+          ]
+        }
+      },
+      {
+        "label": "after-decode-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8876230370000001,
+        "prefill_tps": 73.22928460677164,
+        "ttft_s": 1.0666169989999617,
+        "decode_tps": 13.785650969729238,
+        "elapsed_s": 2.1546414410040597,
+        "incumbent_decode_tps": 13.77821472844474,
+        "decode_delta_percent": 0.05397100735515803,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-softmax-reciprocal-v100"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            11086618624
+          ],
+          "draft_initialization_ms": [
+            5.521987,
+            5.362613
+          ],
+          "draft_ms": [
+            111.55652400000001,
+            111.722187
+          ],
+          "verify_ms": [
+            959.5630770000001,
+            958.8035969999999
+          ],
+          "reconcile_ms": [
+            17.254424,
+            17.255072
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": 0,
+      "early_stop": false
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.375
+    }
+  },
+  "stop_receipt": {
+    "decision": "Neutral complete d2 direction: 8K+0.0346%,40K+0.0507%; useful-direction gate not met. Remove rather than extend qualification; no d3.",
+    "driver_pid": 83365,
+    "terminal_before_stop": true
+  },
+  "scope": {
+    "d2_completed_requests": 8,
+    "driver": "All8 d2 API/lifecycle checks had already completed normally before the neutral-stop inspection; no process was signalled. Clean server exit0, no monitor errors.",
+    "d3": "Not run; no qualification-only extension.",
+    "arithmetic": "Conservative quotient guard and original exceptional division preserve all checked full probability bits. The normal-loop reciprocal is hoisted in actual server SASS. No reduction/exponential/causal changes.",
+    "performance": "P65 does not execute changed long-context softmax; its+0.278% observation cannot be attributed to this edit. Prefill code unchanged, its variations likewise not attributed. Long Decode differences are neutral direction, not selected gains or proof of an impossibility bound."
+  },
+  "successor_question": {
+    "status": "unselected architecture question; no runtime or GPU work activated",
+    "origin": "The preceding fixed private MLP INT8 consumer passes native numerical gates but slows draft time by13.937/232.690ms at P65/8K. Source review identifies a removable intermediate, not measured stall attribution.",
+    "source": ".q3x-work/mtp-mlp-int8-native-20261014/source/src/runtime/mtp_prefill_internal.cu",
+    "finding": "M1 uses only one C8 token warp group. Every decoded weight fragment has exactly one MMA consumer; the additional64x128 BF16 shared tile, its stores, subsequent loads and publication barrier provide no cross-token reuse. The implementation also loads a per-group scale for each decoded pair instead of once per row fragment and K128 group.",
+    "possible_composition": "Keep proven group128 U8B128 and original BF16 FC/Attention. Async packed byte staging remains, but decode directly into the four BF16 A registers immediately consumed by each MMA; preload the two row scales per thread perK128. Remove decoded shared tile and its barrier. Use pinned Marlin U8B128 FP32 bias construction then exact FP32 high-half extraction to BF16 pair and one BF16x2 scaled product. Same ascending MMA K16 and BF16 weight publication. This changes producer/consumer ownership rather than tile size, quantizer or cache tuning.",
+    "resource_arithmetic": "Packed2x64x128 bytes plus BF16 input2x8x128=20480 shared bytes versus prior36864. Static arithmetic only; register allocation and bank access must be proved separately. No performance claim.",
+    "next_gate": "Only under a new bounded design after current API closes: exact byte/scale decoder against prior admitted INT8 consumer, original-weight FP64 and complete state, immediate sameAPI comparison. One implementation/correctness repair; no geometry/format scan. Original failed shared decoded-tile consumer remains removed.",
+    "full_goal": "unchanged",
+    "prior_resource_observation": {
+      "original_weight_major_C8_registers": 72,
+      "prior_int8_shared_decoder_registers": 96,
+      "both_shared_bytes": 36864,
+      "source": ".q3x-work/mtp-mlp-int8-native-20261014/resources.log"
+    },
+    "exact_pair_conversion_detail": "For stored byte s, reinterpret FP32 bits0x4b000000|s then subtract8388736.0 gives integer q=s-128 exactly. q in[-128,127] is exactly representable in BF16, so PRMT upper halves of two FP32 results forms a BF16 pair without scalar RNE machinery. Existing SM87 fma.rn.bf16x2 with duplicated BF16 scale and -0 addend yields one BF16(q*scale) rounding, matching the admitted quantizer on authenticated finite scale range. Must device-check all stored byte pairs and actual unique scale bits; no unqualified denormal/general-purpose converter claim."
+  },
+  "production_changed": false,
+  "full_goal_achieved": false,
+  "current_retained_profile": "q3x.sm87.admission.mtp-single-tail-api.v98",
+  "workspace_restoration": {
+    "source_matches_frozen_v98": true,
+    "build_restore": "Both restored-source targets compile; fresh rebuilt ELF hashes differ from previously measured artifacts. No numerical/performance claim is inherited by those new ELFs. Cached executables are restored from exact measured v98 frozen binaries.",
+    "binaries": {
+      "server": {
+        "rebuilt_sha256": "6e643e614a70b234950681b7348d6db3f2924749f6f3a8e64062caf709a5ad50",
+        "measured_sha256": "916c60ab734c5f2f297ad72cc5904fa2f875891faadd160eb602777d95fbfa6f"
+      },
+      "oracle": {
+        "rebuilt_sha256": "13a041917bb69f15e478c3b2694e8777da8377c9e14c467513a6dc7c7c34cb2c",
+        "measured_sha256": "1aa750d58593c53cbb88e7602140a6fa7044a6576ce2c195cad021c093ea67d1"
+      }
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "worktree_count": 47
+  },
+  "final_gpu_ownership": {
+    "complete": true,
+    "holders": [],
+    "ignored_process_exit_races": [
+      {
+        "fd": "3",
+        "identity_after_error": "same",
+        "kind": "descriptor_closed",
+        "pid": 83868,
+        "stage": "fd_target"
+      }
+    ],
+    "inaccessible_fds": [],
+    "inaccessible_processes": [],
+    "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+    "scanned_fds": 981,
+    "scanned_processes": 289
+  },
+  "document_validation": {
+    "unit_tests": 7,
+    "local_links": 1491,
+    "errors": 0
+  },
+  "artifact_manifest_sha256": "4879269d9845d9704adb7c6b7e9e5cf2303dae567be1cd43fb1c76dbb6a98b32",
+  "artifact_count": 145,
+  "artifact_bytes": 210306548
+}
