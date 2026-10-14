@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 short multi-row Attention — API return complete
+
+`WP-MTP-SHORT-ATTENTION-20261014` / `AC-MTP-GREEDY-v91` owns one
+[short-interval composition](metadata/qwen36-27b-mtp-short-attention-design-2026-10-14.json).
+At S65..511, predecessor v86 dispatches QK/softmax/PV/gate separately for each
+verified row. One independent row/head CTA keeps exact intermediate scores and
+probabilities on chip, preserving all scalar trees, ordered FMAs and the BF16
+boundary before gating. The existing exact S<=64 fused source supplies the
+arithmetic construction; long-context kernels remain unchanged. This targets
+the 72.798-ms short gap and cannot close the independent 505.033-ms 40K gap.
+One implementation and one correctness repair pass full output/Graph/race and
+P65/P509 state admission, then return immediately to the short d2 API. Useful
+short direction unlocks the complete d2/d3 panel; >3% short regression stops.
+No parameter or profiler scan. Production and the full objective stay unchanged.
+
+The [completed composition](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
+passes 72 complete output/guard cases with 216 Graph comparisons, root race/sync
+checks, eighteen full prefixes, fifteen transactions and all sixteen d2/d3
+API/lifecycle requests. All generated IDs, output, usage and non-timing work
+match v86. Short Decode improves from 13.447/12.560 to 13.583/12.699 token/s
+for d2/d3 (about 1.0%/1.1%); streaming, nonstream and recovery observations
+have the same useful direction. Long Decode is effectively unchanged. Retain
+only as a bounded development dependency through the next complete verifier
+architecture API return or archival, not noise-qualified architecture selection
+or production. No short tile/unroll/launch/profile scan follows. Prefill, TTFT,
+Decode and total observations are owned by [Current Status](CURRENT_STATUS.md).
+The complete 1.5x–3x target remains unmet.
+
 ## 2026-10-14 private packed-weight pipeline — closed negative
 
 `WP-MTP-DRAFT-PACKED-PIPELINE-20261014` / `AC-MTP-GREEDY-v90` implements the

@@ -1,0 +1,27 @@
+{
+  "work_package_id": "WP-MTP-SHORT-ATTENTION-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v91",
+  "source_parent": "34a4125",
+  "profile": "q3x.sm87.admission.mtp-short-attention-api.v93",
+  "product_constraint": "Same-workload 1.5x\u20133x MTP Decode; exact scalar target state/logits, drafts 2/3, paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "short_remaining_seconds": 0.072797995333,
+    "long_remaining_seconds": 0.505033430333,
+    "scope": "Only S65..511 target Attention; long-context kernels unchanged. Cannot close long gap; no inferred short Attention timing. Retained d2 P65 has six M3 rounds and one M1 tail: 1216 old QK/softmax/PV/gate launches across16layers become160 (96 fused plus64 unchanged M1). Actual counts follow source and retained work, not profiler measurement."
+  },
+  "mechanism": "One 256-thread CTA per independent speculative row and query head retains FP32 scores/probabilities locally. Preserve scalar QK tree, original 256-thread softmax tree and both exp evaluations, ordered PV FMA, BF16 intermediate and sigmoid gate. One row/head grid replaces per-row score/softmax/PV/gate launches. No change to long Attention, private draft, target recurrence, original non-MTP path or Prefill.",
+  "lineage": "Translate existing exact native short fused GQA (S<=64) to the isolated multirow S65..511 interval; unlike closed long QK bulk/position/shared-KV lineages, remove inter-kernel score/probability and row-dispatch boundaries. Existing FlashInfer-style ownership reference remains reference-only. No new upstream code.",
+  "contract": [
+    "Rows2..4, first_sequence>=65, last_sequence<=511; all other intervals unchanged.",
+    "Disjoint validated input/cache/output spans, query/gate stride12288, output stride6144; no allocations or externally observable probability scratch.",
+    "All threads retire maximum reads before shared denominator writes, probability publication barrier before PV.",
+    "Complete BF16 output/guard comparison against scalar reference plus full prefix/cache/logit/failure admission, including S64/65 and S511/512 dispatch boundaries."
+  ],
+  "gates": [
+    "One implementation and one correctness repair; no parameter/profile scan.",
+    "Short output/Graph/race/sync checks, P65 and P509 complete prefixes, then immediate same-request d2 short API. Greater than3percent regression stops; useful short direction must exceed0.5percent to unlock full d2/d3 panel; this is a reversible direction screen, not noise qualification.",
+    "Since long path is unchanged, do not use neutral8K to reject a separately demonstrated short gain. No performance claim for long contexts without new full API observations."
+  ],
+  "artifact_root": ".q3x-work/mtp-short-attention-20261014",
+  "production_changed": false
+}

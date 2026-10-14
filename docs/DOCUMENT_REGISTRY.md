@@ -498,3 +498,11 @@ status or Markdown classifications.
 The private packed-weight pipeline closes after complete numerical admission
 and negative short API direction. Existing MTP SDD and Roadmap retain the
 rejection with v86 restored; no Markdown paths or classifications change.
+
+The 2026-10-14 short multi-row Attention package is bounded by its
+[design](metadata/qwen36-27b-mtp-short-attention-design-2026-10-14.json),
+with runtime and current-metric authority retained by their existing owners.
+
+The [short Attention direction](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
+closes its API return with bounded development retention; it grants no production
+or full-goal completion authority. The tracked Markdown inventory is unchanged.

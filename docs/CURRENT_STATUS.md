@@ -86,47 +86,46 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-Current isolated source retains v79's GDN graphs, Gate/Up composition, weight-major
-BF16 draft and fixed 0.4 confidence lookahead, with the softmax lifetime repair.
-Its profile is `q3x.sm87.admission.mtp-softmax-sync-api.v86`; the measured server
-ELF is `72caa037fd493e53d24bbaf3c799b9faca895706f509458d77b87cf7373a0927`.
-The partitioned PV experiment is [removed after negative 8K direction](metadata/qwen36-27b-mtp-pv-partitioned-rejection-2026-10-14.json).
-The independent correctness fix is retained regardless of that rejection.
+Current isolated source retains the GDN graphs, Gate/Up composition, weight-major
+BF16 draft, fixed 0.4 confidence lookahead and corrected softmax lifetime, adding
+exact fused multi-row Attention only at S65..511. Its profile is
+`q3x.sm87.admission.mtp-short-attention-api.v93`; measured server ELF is
+`11832b386f08394bdc06fca86e34a525267f9fa31966336b7e5d61d8baf529d9`.
+The [short Attention direction](metadata/qwen36-27b-mtp-short-attention-direction-2026-10-14.json)
+passes 72 full output/guard cases, 216 Graph comparisons, root race/sync checks,
+eighteen full target prefixes, fifteen state/cache transactions and failure
+recovery. Each configured draft length passes all eight API/lifecycle checks.
+All responses, usage, generated IDs and non-timing work match corrected v86.
+The approximately 1% short direction is retained only through the next complete
+verifier architecture API return or archival. It is not mirrored architecture
+selection or production qualification. Long-context kernels are unchanged.
 
-The [fresh paired API record](metadata/qwen36-27b-softmax-sync-2026-10-14.json)
-passes eight checks for each configuration. Non-MTP complete responses, usage,
-finish and physical route witnesses match their predecessor; ordinary receipts
-do not expose generated token IDs. Both MTP configurations additionally preserve
-all generated IDs and non-timing work versus v79, with complete target state/logit
-and cache admission. Cancellation/recovery, startup reserve and cleanup pass.
-The corrected non-MTP comparator ELF is
-`b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614`.
-
-These are 2026-10-14 single-process observations per configuration, not mirrored
-release qualification. MTP Prefill includes draft initialization; Decode counts
-committed tokens after the first and includes the complete controller interval.
-External TTFT and total independently measure the complete request.
+The corrected non-MTP denominator remains the
+[fresh paired softmax record](metadata/qwen36-27b-softmax-sync-2026-10-14.json),
+ELF `b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614`.
+These 2026-10-14 MTP observations use one fresh process per policy. MTP Prefill
+includes draft initialization; Decode includes the complete controller after
+the first token. TTFT and total are external. The separate installed-patch
+timings above do not replace this denominator. Prefill variation is not
+attributed to the unchanged Prefill implementation.
 
 | P / O | Configuration | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 65 / 16 | non-MTP | 0.895 | 72.60 | 0.914 | 9.591 | 2.478 |
 | 8192 / 256 | non-MTP | 16.803 | 487.52 | 16.825 | 9.222 | 44.480 |
 | 40000 / 256 | non-MTP | 90.109 | 443.91 | 90.144 | 7.872 | 122.542 |
-| 65 / 16 | d2 | 0.891 | 72.96 | 0.917 | 13.447 | 2.032 |
-| 8192 / 256 | d2 | 17.356 | 471.99 | 17.378 | 15.133 | 34.229 |
-| 40000 / 256 | d2 | 92.992 | 430.15 | 93.027 | 11.538 | 115.130 |
-| 65 / 16 | d3 | 0.890 | 73.00 | 0.916 | 12.560 | 2.111 |
-| 8192 / 256 | d3 | 17.342 | 472.38 | 17.364 | 14.151 | 35.385 |
-| 40000 / 256 | d3 | 92.799 | 431.04 | 92.834 | 10.846 | 116.346 |
+| 65 / 16 | d2 | 0.892 | 72.84 | 0.911 | 13.583 | 2.015 |
+| 8192 / 256 | d2 | 17.345 | 472.31 | 17.367 | 15.116 | 34.237 |
+| 40000 / 256 | d2 | 92.773 | 431.16 | 92.808 | 11.532 | 114.922 |
+| 65 / 16 | d3 | 0.892 | 72.85 | 0.911 | 12.699 | 2.092 |
+| 8192 / 256 | d3 | 17.289 | 473.83 | 17.311 | 14.156 | 35.325 |
+| 40000 / 256 | d3 | 92.599 | 431.97 | 92.634 | 10.847 | 116.144 |
 
-D2 reaches 1.402x/1.641x/1.466x non-MTP Decode at P65/8K/40K; d3 reaches 1.310x/1.534x/1.378x.
+D2 reaches 1.416x/1.639x/1.465x non-MTP Decode at P65/8K/40K; d3 reaches 1.324x/1.535x/1.378x.
 **The full 1.5x–3x objective remains unmet.** D2 still needs approximately
-0.073 seconds removed from short Decode and 0.505 seconds from 40K Decode
-against the refreshed comparator. The repair resolves a race; it is not a newly
-qualified speedup. Prefill interval variation is not attributed to the added
-Decode synchronization. Use these corrected source-built comparators for the
-next bounded architecture. The corrected 0.8.2 installation has identical GPU
-code, but its separate patch observations do not silently replace that denominator.
+0.062 seconds removed from short Decode and 0.515 seconds from 40K Decode.
+D3 remains slower than d2. No new performance threshold or numerical waiver
+is selected, and the ordinary installed production service remains non-MTP.
 
 ### Preceding NV live-reduction direction
 

@@ -12,6 +12,8 @@ int launch_mtp_verify_projection(const std::uint8_t*, const std::uint8_t*, float
 int launch_mtp_verify_attention(const std::uint16_t*, const std::uint16_t*,
     const std::uint16_t*, unsigned, unsigned, void*, std::size_t,
     std::uint16_t*, void*) noexcept;
+int launch_mtp_short_attention(const std::uint16_t*, const std::uint16_t*,
+    const std::uint16_t*, unsigned, unsigned, std::uint16_t*, void*) noexcept;
 bool TargetTransaction::enqueue_gdn_block(unsigned first, unsigned count) noexcept {
   constexpr std::size_t H = 5120;
   auto& v = target_.views_;
@@ -262,9 +264,15 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
       if (batch_attention && !ok(launch_mtp_verify_attention(v.projection[3],
             v.key_cache[layer], v.value_cache[layer], entry_position_ + 1, rows_,
             v.projection[2], available_bytes, v.projection[1], stream))) return false;
+      const bool short_attention = rows_ > 1 && entry_position_ + 1 >= 65 &&
+          entry_position_ + rows_ <= 511;
+      if (short_attention && !ok(launch_mtp_short_attention(v.projection[3],
+            v.key_cache[layer], v.value_cache[layer], entry_position_ + 1, rows_,
+            v.projection[1], stream))) return false;
       for (unsigned row = 0; row < rows_; ++row) {
         auto* query = v.projection[3] + row * 12288;
         auto* gate = query + 6144;
+        if (short_attention) continue;
         auto* out = v.projection[1] + row * 6144;
         const auto position = entry_position_ + row;
         if (batch_attention) {

@@ -293,6 +293,147 @@ __global__ void attention_values_ordered_pair_kernel(
   output[destination] = encode_bf16_device(accumulator);
   output[destination + 1] = encode_bf16_device(second);
 }
+__global__ void short_attention_rows_kernel(
+    const std::uint16_t* query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const unsigned first_sequence,
+    const float attention_scale,
+    const std::uint16_t* gate,
+    std::uint16_t* output) {
+  __shared__ float partial[256];
+  __shared__ float probabilities[512];
+
+  const unsigned row = blockIdx.y;
+  const unsigned sequence_length = first_sequence + row;
+  query += row * 12288;
+  gate += row * 12288;
+  output += row * 6144;
+  const std::size_t query_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t queries_per_kv =
+      24 / 4;
+  const std::size_t kv_head = query_head / queries_per_kv;
+  const std::size_t query_offset =
+      query_head * 256;
+
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int lane = threadIdx.x & 31U;
+  for (std::size_t position = warp; position < sequence_length;
+       position += 8) {
+    const std::size_t key_offset =
+        (position * 4 + kv_head) * 256;
+
+    float sum = fmaf(decode_bf16_device(query[query_offset + lane]),
+                     decode_bf16_device(key_cache[key_offset + lane]), 0.0F);
+    float rhs =
+        fmaf(decode_bf16_device(query[query_offset + lane + 128U]),
+             decode_bf16_device(key_cache[key_offset + lane + 128U]), 0.0F);
+    sum += rhs;
+
+    float sibling =
+        fmaf(decode_bf16_device(query[query_offset + lane + 64U]),
+             decode_bf16_device(key_cache[key_offset + lane + 64U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 192U]),
+               decode_bf16_device(key_cache[key_offset + lane + 192U]),
+               0.0F);
+    sibling += rhs;
+    sum += sibling;
+
+    sibling =
+        fmaf(decode_bf16_device(query[query_offset + lane + 32U]),
+             decode_bf16_device(key_cache[key_offset + lane + 32U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 160U]),
+               decode_bf16_device(key_cache[key_offset + lane + 160U]),
+               0.0F);
+    sibling += rhs;
+    float upper =
+        fmaf(decode_bf16_device(query[query_offset + lane + 96U]),
+             decode_bf16_device(key_cache[key_offset + lane + 96U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 224U]),
+               decode_bf16_device(key_cache[key_offset + lane + 224U]),
+               0.0F);
+    upper += rhs;
+    sibling += upper;
+    sum += sibling;
+
+#pragma unroll
+    for (unsigned int stride = 16U; stride != 0U; stride >>= 1U) {
+      rhs = __shfl_down_sync(0xffffffffU, sum, stride);
+      if (lane < stride) {
+        sum += rhs;
+      }
+    }
+    if (lane == 0U) {
+      probabilities[position] = sum * attention_scale;
+    }
+  }
+  __syncthreads();
+
+  float maximum = -__int_as_float(0x7f800000);
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    maximum = fmaxf(maximum, probabilities[position]);
+  }
+  partial[threadIdx.x] = maximum;
+  __syncthreads();
+  for (unsigned int stride = 256 / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] =
+          fmaxf(partial[threadIdx.x], partial[threadIdx.x + stride]);
+    }
+    __syncthreads();
+  }
+  maximum = partial[0];
+  // All readers must retire before partial is reused for the sum.
+  __syncthreads();
+
+  float denominator = 0.0F;
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    denominator += expf(probabilities[position] - maximum);
+  }
+  partial[threadIdx.x] = denominator;
+  __syncthreads();
+  for (unsigned int stride = 256 / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  denominator = partial[0];
+
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    const float probability =
+        expf(probabilities[position] - maximum) / denominator;
+    probabilities[position] = probability;
+  }
+  __syncthreads();
+
+  for (std::size_t dimension = threadIdx.x;
+       dimension < 256;
+       dimension += blockDim.x) {
+    float value = 0.0F;
+    for (std::size_t position = 0U; position < sequence_length; ++position) {
+      const std::size_t value_offset =
+          (position * 4 + kv_head) * 256;
+      value = fmaf(probabilities[position],
+                   decode_bf16_device(
+                       value_cache[value_offset + dimension]),
+                   value);
+    }
+    const std::uint16_t encoded_value = encode_bf16_device(value);
+    const float gate_value =
+        decode_bf16_device(gate[query_offset + dimension]);
+    const float sigmoid =
+        gate_value >= 0.0F
+            ? 1.0F / (1.0F + expf(-gate_value))
+            : expf(gate_value) / (1.0F + expf(gate_value));
+    output[query_offset + dimension] = encode_bf16_device(
+        decode_bf16_device(encoded_value) * sigmoid);
+  }
+}
+
 struct Span { std::uintptr_t begin; std::size_t bytes; };
 bool valid_spans(const std::array<Span, 5>& spans) noexcept {
   for (std::size_t i = 0; i < spans.size(); ++i) {
@@ -354,6 +495,33 @@ int launch_mtp_verify_attention(const std::uint16_t* query,
   if (status != cudaSuccess) return status;
   attention_values_ordered_pair_kernel<<<dim3(4*rows,4),192,0,stream>>>(
       value,probabilities,first_sequence,rows,output);
+  return cudaGetLastError();
+}
+} // namespace q3x::runtime::mtp_detail
+
+namespace q3x::runtime::mtp_detail {
+int launch_mtp_short_attention(const std::uint16_t* query,
+    const std::uint16_t* keys, const std::uint16_t* values,
+    unsigned first_sequence, unsigned rows, std::uint16_t* output,
+    void* opaque) noexcept {
+  if (rows < 2 || rows > 4 || first_sequence < 65 ||
+      first_sequence > 512 - rows) return cudaErrorInvalidValue;
+  const std::size_t last = first_sequence + rows - 1;
+  const Span spans[] = {{reinterpret_cast<std::uintptr_t>(query), rows * 12288ULL * 2},
+    {reinterpret_cast<std::uintptr_t>(keys), last * 1024 * 2},
+    {reinterpret_cast<std::uintptr_t>(values), last * 1024 * 2},
+    {reinterpret_cast<std::uintptr_t>(output), rows * 6144ULL * 2}};
+  for (unsigned i = 0; i < 4; ++i) {
+    const auto a = spans[i];
+    if (!a.begin || a.begin % 16 || a.begin > std::numeric_limits<std::uintptr_t>::max() - a.bytes)
+      return cudaErrorInvalidValue;
+    for (unsigned j = 0; j < i; ++j)
+      if (a.begin < spans[j].begin + spans[j].bytes && spans[j].begin < a.begin + a.bytes)
+        return cudaErrorInvalidValue;
+  }
+  (void)cudaGetLastError();
+  short_attention_rows_kernel<<<dim3(24,rows),256,0,static_cast<cudaStream_t>(opaque)>>>(
+      query, keys, values, first_sequence, .0625F, query + 6144, output);
   return cudaGetLastError();
 }
 } // namespace q3x::runtime::mtp_detail

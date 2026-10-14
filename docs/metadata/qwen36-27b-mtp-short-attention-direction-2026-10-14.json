@@ -1,0 +1,968 @@
+{
+  "work_package_id": "WP-MTP-SHORT-ATTENTION-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v91",
+  "source_parent": "34a4125",
+  "decision": "retain_bounded_development_dependency",
+  "profile": "q3x.sm87.admission.mtp-short-attention-api.v93",
+  "server_sha256": "11832b386f08394bdc06fca86e34a525267f9fa31966336b7e5d61d8baf529d9",
+  "oracle_sha256": "90509b2c93824f5ebf1c6d24c83d73e11ff3d628f6f7bb9e286ad006874edc64",
+  "design": "docs/metadata/qwen36-27b-mtp-short-attention-design-2026-10-14.json",
+  "implementation": "One short S65..511 row/head CTA fuses exact QK, softmax, ordered PV and sigmoid gate. Original BF16 PV boundary retained. Multirow2..4 only; original M1 and all long paths unchanged. No new allocations.",
+  "validation": {
+    "synthetic_full_output_guard_cases": 72,
+    "graph_comparisons": 216,
+    "patterns": [
+      "finite mixed signs/exponents",
+      "signed zeros",
+      "mixed infinity/NaN"
+    ],
+    "root_racecheck": "one S65/M3 case, three graph replays, zero hazards",
+    "root_synccheck": "one S65/M3 case, three graph replays, zero errors",
+    "complete_prefixes": 18,
+    "p65_transactions": 15,
+    "p65_verification_failure_recoveries": 4,
+    "p65_initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "p65-oracle": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.031
+      },
+      "p509-oracle": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.093
+      }
+    },
+    "api_requests": 16,
+    "host_ctests": 3,
+    "document_units": 7,
+    "correctness_repairs_used": 0,
+    "profiles": 0
+  },
+  "compiled_server_kernel": {
+    "registers": 40,
+    "shared_bytes": 3072,
+    "stack_bytes": 0,
+    "spill_bytes": 0
+  },
+  "comparisons": {
+    "2": {
+      "complete_output_and_usage_equal_nonmtp_and_v86": true,
+      "all_generated_ids_equal_v86": true,
+      "all_non_timing_work_equal_v86": true,
+      "completed_requests": 8,
+      "server_sha256": "11832b386f08394bdc06fca86e34a525267f9fa31966336b7e5d61d8baf529d9",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.892368326,
+          "prefill_tps": 72.83987800346917,
+          "ttft_s": 0.9109501019993331,
+          "decode_tps": 13.582640748369384,
+          "elapsed_s": 2.0151586799984216,
+          "incumbent_decode_tps": 13.447487561074006,
+          "decode_delta_percent": 1.005044151790857,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              5.709196,
+              5.529461
+            ],
+            "draft_ms": [
+              113.685322,
+              112.245067
+            ],
+            "verify_ms": [
+              980.7653470000001,
+              971.350707
+            ],
+            "reconcile_ms": [
+              20.249626,
+              20.403395000000003
+            ]
+          }
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.344640338,
+          "prefill_tps": 472.307285729778,
+          "ttft_s": 17.366854019994207,
+          "decode_tps": 15.11575781598981,
+          "elapsed_s": 34.236976656997285,
+          "incumbent_decode_tps": 15.133199694392973,
+          "decode_delta_percent": -0.11525572090101965,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              567.124371,
+              551.213644
+            ],
+            "draft_ms": [
+              1787.433875,
+              1793.1685320000004
+            ],
+            "verify_ms": [
+              14710.021078999998,
+              14720.709477000004
+            ],
+            "reconcile_ms": [
+              348.16364999999996,
+              350.79484000000014
+            ]
+          }
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.77304247000001,
+          "prefill_tps": 431.1597306182428,
+          "ttft_s": 92.80821489800292,
+          "decode_tps": 11.5321499745169,
+          "elapsed_s": 114.92191453400301,
+          "incumbent_decode_tps": 11.537527100568102,
+          "decode_delta_percent": -0.04660553344171259,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              2763.18352,
+              2686.732176
+            ],
+            "draft_ms": [
+              2144.4493610000004,
+              2149.7998370000005
+            ],
+            "verify_ms": [
+              19610.349731000002,
+              19613.095180999997
+            ],
+            "reconcile_ms": [
+              341.98977600000006,
+              344.0956560000003
+            ]
+          }
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888090547,
+          "prefill_tps": 73.19073513345256,
+          "ttft_s": null,
+          "decode_tps": 13.609166805236713,
+          "elapsed_s": 2.0091029049945064,
+          "incumbent_decode_tps": 13.49893798050364,
+          "decode_delta_percent": 0.8165740511755448,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              5.486379,
+              5.326609
+            ],
+            "draft_ms": [
+              111.45577499999999,
+              111.77399700000001
+            ],
+            "verify_ms": [
+              979.350562,
+              969.87662
+            ],
+            "reconcile_ms": [
+              20.180542,
+              20.328732
+            ]
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.822854742,
+          "prefill_tps": 6.076406618071116,
+          "ttft_s": 0.8553666590014473,
+          "decode_tps": 15.652343127122341,
+          "elapsed_s": 1.8135849909958779,
+          "incumbent_decode_tps": 15.66792242035734,
+          "decode_delta_percent": -0.09943432713680478,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              2.009168,
+              2.006035
+            ],
+            "draft_ms": [
+              101.880886,
+              102.070643
+            ],
+            "verify_ms": [
+              834.956802,
+              835.5344739999998
+            ],
+            "reconcile_ms": [
+              20.252028999999997,
+              20.401629
+            ]
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.8267787750000001,
+          "prefill_tps": 24.190267825876393,
+          "ttft_s": 0.8452731240031426,
+          "decode_tps": 6.17088067057035,
+          "elapsed_s": 1.007256259006681,
+          "incumbent_decode_tps": 6.177296692656819,
+          "decode_delta_percent": -0.10386456091863172,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              2.739701,
+              2.654936
+            ],
+            "draft_ms": [
+              18.559472,
+              18.61662
+            ],
+            "verify_ms": [
+              142.409807,
+              142.529003
+            ],
+            "reconcile_ms": [
+              0.873895,
+              0.86084
+            ]
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.88787963,
+          "prefill_tps": 73.20812169099993,
+          "ttft_s": 1.1557124190003378,
+          "decode_tps": 13.605596731513348,
+          "elapsed_s": 2.2582239269977435,
+          "incumbent_decode_tps": 13.495296844515208,
+          "decode_delta_percent": 0.8173209397981385,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              5.465386,
+              5.333809
+            ],
+            "draft_ms": [
+              111.483423,
+              111.847725
+            ],
+            "verify_ms": [
+              979.426308,
+              969.91159
+            ],
+            "reconcile_ms": [
+              20.269213000000004,
+              20.390909
+            ]
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888028781,
+          "prefill_tps": 73.19582584564903,
+          "ttft_s": 1.0671530019972124,
+          "decode_tps": 13.608102946714036,
+          "elapsed_s": 2.1694091449971893,
+          "incumbent_decode_tps": 13.496089089807466,
+          "decode_delta_percent": 0.829972714029914,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10899103744,
+              10959073280
+            ],
+            "draft_initialization_ms": [
+              5.468907,
+              5.346097
+            ],
+            "draft_ms": [
+              111.43958300000001,
+              111.830668
+            ],
+            "verify_ms": [
+              979.470597,
+              969.7783069999999
+            ],
+            "reconcile_ms": [
+              20.225565,
+              20.354364000000004
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.0
+      }
+    },
+    "3": {
+      "complete_output_and_usage_equal_nonmtp_and_v86": true,
+      "all_generated_ids_equal_v86": true,
+      "all_non_timing_work_equal_v86": true,
+      "completed_requests": 8,
+      "server_sha256": "11832b386f08394bdc06fca86e34a525267f9fa31966336b7e5d61d8baf529d9",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8922397999999999,
+          "prefill_tps": 72.85037049456884,
+          "ttft_s": 0.9108697320043575,
+          "decode_tps": 12.698558416050226,
+          "elapsed_s": 2.0920170879981015,
+          "incumbent_decode_tps": 12.560131230528667,
+          "decode_delta_percent": 1.102115758035227,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              5.582827,
+              5.524467
+            ],
+            "draft_ms": [
+              151.07842,
+              149.842885
+            ],
+            "verify_ms": [
+              1022.0736370000001,
+              1010.659224
+            ],
+            "reconcile_ms": [
+              20.375711000000003,
+              20.372446000000004
+            ]
+          }
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.289012521,
+          "prefill_tps": 473.82694587383946,
+          "ttft_s": 17.31119957399642,
+          "decode_tps": 14.156145675279983,
+          "elapsed_s": 35.32487025499722,
+          "incumbent_decode_tps": 14.150626913764706,
+          "decode_delta_percent": 0.03900012026964994,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              555.327259,
+              546.301407
+            ],
+            "draft_ms": [
+              2174.461922,
+              2166.1536020000003
+            ],
+            "verify_ms": [
+              15480.455957000007,
+              15483.852836999997
+            ],
+            "reconcile_ms": [
+              360.726227,
+              358.98160499999994
+            ]
+          }
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.599165602,
+          "prefill_tps": 431.969335144161,
+          "ttft_s": 92.63447997299954,
+          "decode_tps": 10.84724525788363,
+          "elapsed_s": 116.1443793829967,
+          "incumbent_decode_tps": 10.845885227429667,
+          "decode_delta_percent": 0.012539598432437238,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              2697.002946,
+              2663.229864
+            ],
+            "draft_ms": [
+              2632.041228,
+              2627.139179999999
+            ],
+            "verify_ms": [
+              20517.126201999992,
+              20519.79292799999
+            ],
+            "reconcile_ms": [
+              357.1883500000001,
+              356.56837199999984
+            ]
+          }
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888078659,
+          "prefill_tps": 73.1917148793911,
+          "ttft_s": null,
+          "decode_tps": 12.71740530482874,
+          "elapsed_s": 2.086308548998204,
+          "incumbent_decode_tps": 12.58862491600817,
+          "decode_delta_percent": 1.0229901175052625,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              5.38369,
+              5.320048
+            ],
+            "draft_ms": [
+              149.743472,
+              149.33143600000002
+            ],
+            "verify_ms": [
+              1021.323345,
+              1009.6978730000001
+            ],
+            "reconcile_ms": [
+              20.290911,
+              20.265946000000003
+            ]
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.822208587,
+          "prefill_tps": 6.081181927621975,
+          "ttft_s": 0.8547344190010335,
+          "decode_tps": 15.399482566298145,
+          "elapsed_s": 1.828725631996349,
+          "incumbent_decode_tps": 15.408902501638403,
+          "decode_delta_percent": -0.06113307121812239,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              2.018735,
+              2.00757
+            ],
+            "draft_ms": [
+              111.883622,
+              111.607989
+            ],
+            "verify_ms": [
+              839.3280100000001,
+              840.2139999999999
+            ],
+            "reconcile_ms": [
+              21.973484,
+              21.965543999999998
+            ]
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.826483314,
+          "prefill_tps": 24.198915648041748,
+          "ttft_s": 0.8445351890040911,
+          "decode_tps": 4.759165929900189,
+          "elapsed_s": 1.0546068890034803,
+          "incumbent_decode_tps": 4.754881530177174,
+          "decode_delta_percent": 0.09010528855080135,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              2.676661,
+              2.660216
+            ],
+            "draft_ms": [
+              28.02137,
+              27.969502
+            ],
+            "verify_ms": [
+              181.385253,
+              181.232781
+            ],
+            "reconcile_ms": [
+              0.861287,
+              0.872392
+            ]
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8879992940000001,
+          "prefill_tps": 73.19825639410925,
+          "ttft_s": 1.1534383140024147,
+          "decode_tps": 12.716060545114711,
+          "elapsed_s": 2.3329548479960067,
+          "incumbent_decode_tps": 12.59705853039833,
+          "decode_delta_percent": 0.9446809699995784,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              5.375178,
+              5.304848
+            ],
+            "draft_ms": [
+              149.68219,
+              149.298668
+            ],
+            "verify_ms": [
+              1020.4536760000001,
+              1009.734897
+            ],
+            "reconcile_ms": [
+              20.314270999999998,
+              20.281623
+            ]
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8902681460000001,
+          "prefill_tps": 73.01171033923525,
+          "ttft_s": 1.0696348630008288,
+          "decode_tps": 12.678179247359026,
+          "elapsed_s": 2.2526465949995327,
+          "incumbent_decode_tps": 12.593336119326299,
+          "decode_delta_percent": 0.6737144727084976,
+          "changed_mtp_fields": {
+            "verifier": [
+              "multirow-softmax-sync-v86",
+              "multirow-short-attention-v93"
+            ],
+            "startup_free_bytes": [
+              10880253952,
+              10967257088
+            ],
+            "draft_initialization_ms": [
+              5.356106,
+              5.264528
+            ],
+            "draft_ms": [
+              149.67563,
+              150.45154300000002
+            ],
+            "verify_ms": [
+              1020.806896,
+              1011.5052780000001
+            ],
+            "reconcile_ms": [
+              20.320285,
+              20.756541
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.343
+      }
+    }
+  },
+  "metrics": {
+    "2": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.892368326,
+        "prefill_tps": 72.83987800346917,
+        "ttft_s": 0.9109501019993331,
+        "decode_tps": 13.582640748369384,
+        "elapsed_s": 2.0151586799984216,
+        "incumbent_decode_tps": 13.447487561074006,
+        "decode_delta_percent": 1.005044151790857,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10959073280
+          ],
+          "draft_initialization_ms": [
+            5.709196,
+            5.529461
+          ],
+          "draft_ms": [
+            113.685322,
+            112.245067
+          ],
+          "verify_ms": [
+            980.7653470000001,
+            971.350707
+          ],
+          "reconcile_ms": [
+            20.249626,
+            20.403395000000003
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.4161967604949066
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.344640338,
+        "prefill_tps": 472.307285729778,
+        "ttft_s": 17.366854019994207,
+        "decode_tps": 15.11575781598981,
+        "elapsed_s": 34.236976656997285,
+        "incumbent_decode_tps": 15.133199694392973,
+        "decode_delta_percent": -0.11525572090101965,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10959073280
+          ],
+          "draft_initialization_ms": [
+            567.124371,
+            551.213644
+          ],
+          "draft_ms": [
+            1787.433875,
+            1793.1685320000004
+          ],
+          "verify_ms": [
+            14710.021078999998,
+            14720.709477000004
+          ],
+          "reconcile_ms": [
+            348.16364999999996,
+            350.79484000000014
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.6391152350617186
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.77304247000001,
+        "prefill_tps": 431.1597306182428,
+        "ttft_s": 92.80821489800292,
+        "decode_tps": 11.5321499745169,
+        "elapsed_s": 114.92191453400301,
+        "incumbent_decode_tps": 11.537527100568102,
+        "decode_delta_percent": -0.04660553344171259,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10959073280
+          ],
+          "draft_initialization_ms": [
+            2763.18352,
+            2686.732176
+          ],
+          "draft_ms": [
+            2144.4493610000004,
+            2149.7998370000005
+          ],
+          "verify_ms": [
+            19610.349731000002,
+            19613.095180999997
+          ],
+          "reconcile_ms": [
+            341.98977600000006,
+            344.0956560000003
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.4650413801711208
+      }
+    ],
+    "3": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8922397999999999,
+        "prefill_tps": 72.85037049456884,
+        "ttft_s": 0.9108697320043575,
+        "decode_tps": 12.698558416050226,
+        "elapsed_s": 2.0920170879981015,
+        "incumbent_decode_tps": 12.560131230528667,
+        "decode_delta_percent": 1.102115758035227,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10880253952,
+            10967257088
+          ],
+          "draft_initialization_ms": [
+            5.582827,
+            5.524467
+          ],
+          "draft_ms": [
+            151.07842,
+            149.842885
+          ],
+          "verify_ms": [
+            1022.0736370000001,
+            1010.659224
+          ],
+          "reconcile_ms": [
+            20.375711000000003,
+            20.372446000000004
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.3240177388866465
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.289012521,
+        "prefill_tps": 473.82694587383946,
+        "ttft_s": 17.31119957399642,
+        "decode_tps": 14.156145675279983,
+        "elapsed_s": 35.32487025499722,
+        "incumbent_decode_tps": 14.150626913764706,
+        "decode_delta_percent": 0.03900012026964994,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10880253952,
+            10967257088
+          ],
+          "draft_initialization_ms": [
+            555.327259,
+            546.301407
+          ],
+          "draft_ms": [
+            2174.461922,
+            2166.1536020000003
+          ],
+          "verify_ms": [
+            15480.455957000007,
+            15483.852836999997
+          ],
+          "reconcile_ms": [
+            360.726227,
+            358.98160499999994
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.5350572778798566
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.599165602,
+        "prefill_tps": 431.969335144161,
+        "ttft_s": 92.63447997299954,
+        "decode_tps": 10.84724525788363,
+        "elapsed_s": 116.1443793829967,
+        "incumbent_decode_tps": 10.845885227429667,
+        "decode_delta_percent": 0.012539598432437238,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-short-attention-v93"
+          ],
+          "startup_free_bytes": [
+            10880253952,
+            10967257088
+          ],
+          "draft_initialization_ms": [
+            2697.002946,
+            2663.229864
+          ],
+          "draft_ms": [
+            2632.041228,
+            2627.139179999999
+          ],
+          "verify_ms": [
+            20517.126201999992,
+            20519.79292799999
+          ],
+          "reconcile_ms": [
+            357.1883500000001,
+            356.56837199999984
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.3780312603270846
+      }
+    ]
+  },
+  "authority": "One fresh process per policy, no mirrored repetition or release qualification. Consistent roughly1percent short direction across streaming/nonstream/recovery; long code and work unchanged, near-zero long differences do not select a long speedup. Prefill variation is not attributed to unchanged Prefill code.",
+  "retention_expiry": "Carry only through the next complete verifier architecture API return, then re-evaluate the composition or archive. No short tile/unroll/launch/profile scan follows.",
+  "remaining": {
+    "goal_complete": false,
+    "d2_short_seconds_to_1_5x": 0.06169878233373316,
+    "d2_40k_seconds_to_1_5x": 0.5153388903233029,
+    "next_constraint": "Resolve remaining complete verifier cost through a materially different bounded architecture; this short-only fusion does not address 40K. Preserve target and independent numerical baseline."
+  },
+  "production_changed": false,
+  "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "artifact_root": ".q3x-work/mtp-short-attention-20261014",
+  "hygiene": {
+    "worktrees": 47,
+    "remaining_api_key_files": [],
+    "build_temporary_files": [],
+    "project_named_tmp_files": [],
+    "production_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-short-attention-20261014/artifact-manifest.json",
+    "sha256": "c8c0f78d0c3c223e8220e7a4f08b30c58975e59539808decbf3b8dc87cc2648c",
+    "files": 171,
+    "bytes": 68000626
+  },
+  "document_validation": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1428\nerrors: 0\n"
+}
