@@ -574,3 +574,9 @@ records the existing-profile budget audit and bounded private-only successor.
 
 The [private PV partition closure](metadata/qwen36-27b-mtp-private-pv-split-rejection-2026-10-14.json)
 records numerical admission, neutral real-API direction and restored v101 runtime.
+
+The [private W8A8 feasibility design](metadata/qwen36-27b-mtp-private-w8a8-design-2026-10-14.json)
+updates the existing MTP/Roadmap scope without Markdown path or class changes.
+
+The [private W8A8 numerical rejection](metadata/qwen36-27b-mtp-private-w8a8-rejection-2026-10-14.json)
+closes that host-only package before runtime changes; no path/class changes.

@@ -1,0 +1,203 @@
+{
+  "work_package_id": "WP-MTP-PRIVATE-W8A8-FEASIBILITY-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v107",
+  "source_parent": "10744d9",
+  "decision_unit": "local_mutation numerical feasibility",
+  "status": "rejected_before_gpu",
+  "decision": "Fixed private Gate/Up/Down W8A8 representation fails original-weight FP64 full-layer hidden max-row relative L2 <=0.02. No GPU executor, runtime or API integration; no quantizer/group-size scan. Current v101 remains.",
+  "assessment": {
+    "scope": "Host W8A8 representation feasibility only; FP32 activation scale and RNE codes, unrounded q*scale operands, FP64 projections against original FP64 complete layer. No native group-reduction, recursion, acceptance or performance result.",
+    "pass": false,
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.028484185798748816,
+        "max_absolute_error": 0.5,
+        "elements": 327680,
+        "pass": false
+      },
+      "k": {
+        "max_row_relative_l2": 0.0,
+        "max_absolute_error": 0.0,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0,
+        "max_absolute_error": 0.0,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "quantization": {
+      "mtp.layers.0.mlp.down_proj.weight": {
+        "shape": [
+          5120,
+          17408
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "1d1a3ab0a7fd08a0aad5ded869cd05abb47b3b658d402516c1ed973b4ea393bc",
+        "scales_bf16_sha256": "00bdaa0628e322d6e09fc7e3d1ad219856867ba6c98375e7405d20a295a508d1",
+        "weight_relative_l2": 0.007395204746419068,
+        "zero_codes": 971126
+      },
+      "mtp.layers.0.mlp.gate_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "e3997b0acd067b267ef7872782564fe580fa4c3d22e4f45b0fa22d588da25447",
+        "scales_bf16_sha256": "1fbbd6a6fd377fe6598fdd068014dae20c8e8449696572bf7faf3692ff0f4688",
+        "weight_relative_l2": 0.006615341926577433,
+        "zero_codes": 812005
+      },
+      "mtp.layers.0.mlp.up_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "c1c153608e99bd124c78e736f3fa9422ceeca006548d0c62ab64af4969705e11",
+        "scales_bf16_sha256": "2a5506a1cf3e959a1ab4f2cf6e398f5d4a8cec06f96db918cc1b96335e705814",
+        "weight_relative_l2": 0.006581736883179217,
+        "zero_codes": 813797
+      }
+    },
+    "original_reference_and_capture_hashes": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+      "original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+      "original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00"
+    },
+    "checkpoint_payload_authentication": "all prior payload hashes match",
+    "original_matrix_bytes": 849346560,
+    "mixed_matrix_and_scale_bytes": 586137600,
+    "additional_private_packed_owner_bytes": 271564800
+  },
+  "row_errors": {
+    "rows": 64,
+    "failed_rows": [
+      1,
+      4,
+      5,
+      18,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      55,
+      58,
+      59,
+      60,
+      62,
+      63
+    ],
+    "per_row_relative_l2": [
+      0.01650800372897342,
+      0.02070213368778586,
+      0.0180187353028744,
+      0.018319651042520573,
+      0.020699458340261902,
+      0.02072374940453255,
+      0.017484044074686844,
+      0.016949603201710836,
+      0.017406007348940676,
+      0.018141070948122107,
+      0.018043496299821642,
+      0.017924113870590033,
+      0.015420915104524162,
+      0.01616982061824605,
+      0.01604561660372772,
+      0.015610838318138025,
+      0.015712915768664133,
+      0.015401261659782912,
+      0.028484185798748816,
+      0.017755696131959025,
+      0.016061922336922947,
+      0.01487487803275538,
+      0.01708662557890651,
+      0.01756373154868165,
+      0.018079551435226254,
+      0.01577816058060825,
+      0.018021453069044544,
+      0.014497089990708265,
+      0.019325565317943317,
+      0.01553519831739332,
+      0.016888050258727697,
+      0.015525870836263972,
+      0.018877224736721758,
+      0.017509423590165767,
+      0.018659470332713875,
+      0.019857952477170884,
+      0.02241079102599498,
+      0.02005631511738078,
+      0.02115859095881656,
+      0.020994273455925177,
+      0.02100443328919609,
+      0.02182442725172704,
+      0.018732981082533174,
+      0.017420833376146576,
+      0.026238761190020343,
+      0.02460027639995382,
+      0.022799684636476254,
+      0.023987519845591,
+      0.023095855748382996,
+      0.02380685532053193,
+      0.02149496690902956,
+      0.01683028271190614,
+      0.015723551451505415,
+      0.016771168392461944,
+      0.01733476631826077,
+      0.020351909446809893,
+      0.01939672243960047,
+      0.01738702965790854,
+      0.0232743450301455,
+      0.020743931823137742,
+      0.020466485351951634,
+      0.019207274292947336,
+      0.02605582796028102,
+      0.020428994741192728
+    ],
+    "worst_row": 18
+  },
+  "reference_trust": "Original reference and teacher-forced inputs authenticated to immutable earlier evidence. All original checkpoint payload hashes match. Candidate six packed weight payload hashes match retained W8-only quantizer. Original FP64 reference was not replaced with quantized weights.",
+  "scope_limitations": [
+    "Historical 64 teacher-forced positions only; no recursive draft or current native long-context admission.",
+    "Candidate FP64 represents quantized operands, not a simulation of native FP32 group accumulation. Failure is sufficient to reject this frozen representation hypothesis; no hardware impossibility claim.",
+    "CPU numerical evidence only. Host preflight/cache record retained; no new Prefill, TTFT, Decode, acceptance or total-request measurement."
+  ],
+  "evidence_manifest": ".q3x-work/mtp-private-w8a8-20261014/manifest.json",
+  "evidence_manifest_sha256": "0e5e9f719f4e96ceae6bbba174e2c015616d2492c1e28d65c4a84fcdab54e86a",
+  "evidence_files": 21,
+  "evidence_bytes": 5968417,
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_complete": false
+}

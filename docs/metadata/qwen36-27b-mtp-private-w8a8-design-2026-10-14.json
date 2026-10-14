@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-PRIVATE-W8A8-FEASIBILITY-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v107",
+  "decision_unit": "local_mutation numerical feasibility",
+  "source_parent": "10744d9",
+  "product_constraint": "Complete d2/d3 real API Decode uplift 50%\u2013200%; exact target state/output; original-weight private hidden/K/V max-row relative L2 <=0.02; report Prefill/TTFT/Decode/total.",
+  "budget": "v101 d2 short/40K still need 31.201/348.446ms. Older complete private matrix family 964.466ms is only an opportunity ceiling, not predicted savings.",
+  "hypothesis": "Native INT8 dot replaces BF16 reconstruction/MMA in private Gate/Up/Down only. FC, whole Attention and all target computations unchanged. Existing group128 weight codes/scales unchanged; activation group128 FP32 maxabs/127, zero scale=1, RNE/clamp [-127,127]. Per-group INT32 dot then scales, ordered FP32 accumulation and final BF16.",
+  "host_screen": "Authenticated historical 64 teacher-forced rows and independently original-weight FP64 full-layer reference. Candidate representation uses exact q*scale without BF16 weight reconstruction, FP32 activation quantization followed by double accumulation. This isolates representation feasibility, does not simulate native FP32 group reduction or prove recursive behavior. All hidden/K/V maximum row errors <=0.02 required.",
+  "lineage": "Existing W8-only register route preserves BF16 activations; prior all-matrix INT8 and attention compression stay closed. No earlier activation INT8 implementation found in MTP evidence. This is a new private numerical/dataflow hypothesis.",
+  "reference": {
+    "path": ".q3x-work/sources/vllm-main/vllm/model_executor/layers/quantization/utils/int8_utils.py",
+    "sha256": "0426f97b9d2d095c6e9a34a4cab7569e7e5e1a0c0a08eec48d06d35a1d9fb54b",
+    "mechanism": "vLLM per-token-group quantization and block INT8 dot with per-group scales. Native candidate retains row-specific existing weight scales and RNE, unlike this reference quantizer conversion. Read-only architecture study, no source import/runtime dependency."
+  },
+  "bounds": {
+    "quantizers": 1,
+    "group_size": 128,
+    "scan": false,
+    "gpu_processes_this_screen": 0
+  },
+  "decision": "Numerical failure closes before GPU. Pass unlocks one separately declared native executor/resource/Graph/current recursive numerical admission and immediate d2 API composition; d3 follows useful full direction. No performance baseline update.",
+  "artifact_root": ".q3x-work/mtp-private-w8a8-20261014",
+  "production_changed": false
+}

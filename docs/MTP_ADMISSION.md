@@ -25,6 +25,30 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 private W8A8 representation — closed at numerical gate
+
+`WP-MTP-PRIVATE-W8A8-FEASIBILITY-20261014` selects one
+[host representation check](metadata/qwen36-27b-mtp-private-w8a8-design-2026-10-14.json).
+Keep current group128 INT8 MLP weight codes and scales, quantize only private
+MLP activations per group128, and assess integer-dot scaling instead of BF16
+weight reconstruction. FC, complete Attention and target arithmetic stay fixed.
+An authenticated 64-row full-layer comparison against original-weight FP64
+must satisfy the unchanged 2% hidden/K/V maximum row bound before GPU work.
+One fixed quantizer, no scan. A pass unlocks a separately bounded native
+executor with current recursive numerical/state admission and immediate d2
+API return; it does not prove native arithmetic, acceptance or speed. v101
+and the complete 1.5x–3x objective remain unchanged.
+
+The [completed host check](metadata/qwen36-27b-mtp-private-w8a8-rejection-2026-10-14.json)
+rejects this representation: hidden maximum row error is 2.8484%, above the
+unchanged 2% limit. K/V remain identical to the original FP64 layer because
+FC/Attention are unchanged. The original reference, capture and retained six
+weight payload hashes are authenticated. This teacher-forced representation
+check does not simulate native FP32 group reduction or prove recursive behavior.
+Close before any GPU executor, runtime or API change; no quantizer/group scan.
+Current v101 joint API metrics remain unchanged and the full objective remains
+unmet. No performance or hardware-limit conclusion follows.
+
 ## 2026-10-14 lossless draft register consumption — closed at static gate
 
 `WP-MTP-LOSSLESS-REGISTER-20261014` selects one
