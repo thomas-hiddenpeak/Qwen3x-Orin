@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-GRAPH-NODE-BUDGET-20261014",
+  "decision_unit": "diagnostic",
+  "source_parent": "55aced8",
+  "product_constraint": "MTP same-request1.5x\u20133x committed Decode, exact target/output, drafts2/3, paired Prefill/TTFT/Decode/total.",
+  "question": "Which GDN-graph node families actually dominate the retained v94 complete verifier after Conv fusion and complete-row register attempts failed?",
+  "new_finding": "Two recent GDN mechanisms give no retained gain. v79 aggregate10.800346176s never identified recurrence-only or in-graph FP8/NV/copy latency, leaving the current implementation choice underdetermined.",
+  "prior_scope": "Explicit new successor to closed WP-MTP-V79-BUDGET. Its no-extra-node-capture stop applied to that package and is preserved. No old evidence is rewritten.",
+  "protocol": "Exactly one frozen measured v94 ELF P40000/O256 d2 real API capture with NSys CUDA graph node tracing. Same complete request/output/IDs/work versus v94 required. Original unprofiled v94 remains performance anchor.",
+  "binary_sha256": "0e3fdce0fadc8873f74ab4bd57ff420c62706c4b9ebf47c40c0c630235d89f45",
+  "remaining_short_s": 0.0585616383337,
+  "remaining_40k_s": 0.4497706153233,
+  "authority": "T4 diagnostic only. Node instrumentation may perturb runtime and idle; raw profiled API intervals are not a new speedup baseline. Identify kernel families and count denominators, preserving complete causal and ordered numerical boundaries.",
+  "bounds": {
+    "captures": 1,
+    "ncu": 0,
+    "runtime_mutations": 0,
+    "profile_retries": 0
+  },
+  "stop": "After one complete capture or resource/ownership/safety failure, select a materially changed implementation question or close. No second profile, parameter scan, or d3 qualification-only extension.",
+  "artifact_root": ".q3x-work/mtp-graph-node-budget-20261014",
+  "production_changed": false
+}

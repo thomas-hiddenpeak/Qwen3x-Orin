@@ -1,0 +1,656 @@
+{
+  "work_package_id": "WP-MTP-GRAPH-NODE-BUDGET-20261014",
+  "decision_unit": "diagnostic",
+  "status": "closed_node_budget_reconciled",
+  "source_parent": "55aced8",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-tail-kv-20261014/source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-graph-node-budget-20261014/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "0e3fdce0fadc8873f74ab4bd57ff420c62706c4b9ebf47c40c0c630235d89f45",
+    "git": "55aced89cf76cc475ea8dce54444a8aaa7c0c311",
+    "driver_sha256": "053e93416684b9678e7cd91d4ef7d4153089d633c8f7d5531a786add06b82eed",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-GRAPH-NODE-BUDGET-20261014; one node-traced same-v94-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "design": "docs/metadata/qwen36-27b-mtp-graph-node-budget-design-2026-10-14.json",
+  "same_request_output_ids_and_work": {
+    "pass": true,
+    "fields": [
+      "generated_token_ids",
+      "prompt_token_ids_u32le_sha256",
+      "completion_tokens",
+      "target_prefill_complete"
+    ],
+    "mtp_fields": [
+      "enabled",
+      "verifier",
+      "draft_length",
+      "prompt_rows",
+      "draft_prefill_rows",
+      "initialized",
+      "rounds",
+      "proposed",
+      "accepted",
+      "verified_rows",
+      "committed_decode_tokens",
+      "accepted_by_position",
+      "confidence_threshold",
+      "proposal_histogram",
+      "draft_ordered_attention_steps",
+      "entry_hidden_snapshots",
+      "direct_gdn_state_rows",
+      "seed_kv_reuses",
+      "tail_kv_batches",
+      "tail_kv_rows",
+      "state_copy_bytes_elided",
+      "cancelled",
+      "failed"
+    ],
+    "reserve_bytes": 10075688960
+  },
+  "analysis": {
+    "scope": "One node-instrumented real API capture, first verifier FP8 node through last generation kernel. Includes all target verification and later draft/reconciliation; excludes first proposal and pre-verifier entry work. Not an unprofiled or complete Decode latency bound.",
+    "start_ns": 92770024480,
+    "end_ns": 114972857216,
+    "interval_s": 22.202832736,
+    "families": {
+      "verify_gate_up": {
+        "seconds": 5.308778271999978,
+        "calls": 13440
+      },
+      "verify_fp8_canonical": {
+        "seconds": 3.926849216000015,
+        "calls": 15120
+      },
+      "verify_down_packed": {
+        "seconds": 2.208782144000004,
+        "calls": 5565
+      },
+      "verify_pv": {
+        "seconds": 2.180342719999997,
+        "calls": 1680
+      },
+      "verify_qk": {
+        "seconds": 2.1431951359999966,
+        "calls": 1680
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 1.4086354240000047,
+        "calls": 6720
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 0.9644664320000019,
+        "calls": 1842
+      },
+      "draft_vocabulary": {
+        "seconds": 0.8731882240000001,
+        "calls": 198
+      },
+      "verify_vocabulary": {
+        "seconds": 0.5934253439999999,
+        "calls": 105
+      },
+      "verify_softmax": {
+        "seconds": 0.514802816,
+        "calls": 1680
+      },
+      "verify_down_canonical": {
+        "seconds": 0.4380223680000003,
+        "calls": 1155
+      },
+      "target_gdn": {
+        "seconds": 0.4240993869999975,
+        "calls": 14640
+      },
+      "other": {
+        "seconds": 0.29980835200000877,
+        "calls": 36378
+      },
+      "residual_norm": {
+        "seconds": 0.18916514799999906,
+        "calls": 13440
+      },
+      "draft_pv": {
+        "seconds": 0.1366829760000001,
+        "calls": 198
+      },
+      "draft_qk": {
+        "seconds": 0.12229059200000003,
+        "calls": 198
+      },
+      "target_conv": {
+        "seconds": 0.04520543999999965,
+        "calls": 14640
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.035178496000000004,
+        "calls": 198
+      }
+    },
+    "graph_partition": {
+      "graph:verify_gate_up": {
+        "seconds": 3.9785541760000123,
+        "calls": 10080
+      },
+      "graph:verify_fp8_canonical": {
+        "seconds": 3.0218589759999945,
+        "calls": 10080
+      },
+      "non_graph:verify_pv": {
+        "seconds": 2.180342719999997,
+        "calls": 1680
+      },
+      "non_graph:verify_qk": {
+        "seconds": 2.1431951359999966,
+        "calls": 1680
+      },
+      "graph:verify_down_packed": {
+        "seconds": 1.6668682560000048,
+        "calls": 4200
+      },
+      "non_graph:verify_gate_up": {
+        "seconds": 1.3302240960000016,
+        "calls": 3360
+      },
+      "graph:verify_fp8_sidecar": {
+        "seconds": 1.0548382399999967,
+        "calls": 5040
+      },
+      "non_graph:draft_matrix_including_reconcile": {
+        "seconds": 0.9644664320000019,
+        "calls": 1842
+      },
+      "non_graph:verify_fp8_canonical": {
+        "seconds": 0.9049902400000019,
+        "calls": 5040
+      },
+      "non_graph:draft_vocabulary": {
+        "seconds": 0.8731882240000001,
+        "calls": 198
+      },
+      "non_graph:verify_vocabulary": {
+        "seconds": 0.5934253439999999,
+        "calls": 105
+      },
+      "non_graph:verify_down_packed": {
+        "seconds": 0.5419138879999993,
+        "calls": 1365
+      },
+      "non_graph:verify_softmax": {
+        "seconds": 0.514802816,
+        "calls": 1680
+      },
+      "graph:target_gdn": {
+        "seconds": 0.4240993869999975,
+        "calls": 14640
+      },
+      "non_graph:verify_fp8_sidecar": {
+        "seconds": 0.35379718400000015,
+        "calls": 1680
+      },
+      "graph:verify_down_canonical": {
+        "seconds": 0.31830006400000016,
+        "calls": 840
+      },
+      "graph:other": {
+        "seconds": 0.1866546560000036,
+        "calls": 19680
+      },
+      "graph:residual_norm": {
+        "seconds": 0.13887522799999957,
+        "calls": 10080
+      },
+      "non_graph:draft_pv": {
+        "seconds": 0.1366829760000001,
+        "calls": 198
+      },
+      "non_graph:draft_qk": {
+        "seconds": 0.12229059200000003,
+        "calls": 198
+      },
+      "non_graph:verify_down_canonical": {
+        "seconds": 0.11972230400000006,
+        "calls": 315
+      },
+      "non_graph:other": {
+        "seconds": 0.11315369599999692,
+        "calls": 16698
+      },
+      "non_graph:residual_norm": {
+        "seconds": 0.05028992000000024,
+        "calls": 3360
+      },
+      "graph:target_conv": {
+        "seconds": 0.04520543999999965,
+        "calls": 14640
+      },
+      "non_graph:softmax_target_and_draft": {
+        "seconds": 0.035178496000000004,
+        "calls": 198
+      }
+    },
+    "copies": [
+      {
+        "kind": 2,
+        "graph": false,
+        "calls": 607,
+        "bytes": 4440,
+        "seconds": 0.000615616
+      },
+      {
+        "kind": 8,
+        "graph": false,
+        "calls": 1473,
+        "bytes": 20130891776,
+        "seconds": 0.21785808
+      },
+      {
+        "kind": 8,
+        "graph": true,
+        "calls": 14640,
+        "bytes": 899481600,
+        "seconds": 0.031680064
+      }
+    ],
+    "observed_gpu_kernel_copy_union_s": 22.062384759,
+    "outside_observed_union_s": 0.140447977,
+    "count_contract": {
+      "target_gdn_and_conv_calls": 14640,
+      "verified_rows": 305,
+      "gdn_layers": 48
+    },
+    "limitations": [
+      "Graph-node instrumentation may extend graph scheduling and measured request intervals; no speedup or normal-run idle ceiling.",
+      "Kernel duration is not a memory/instruction/stall hardware-cause measurement.",
+      "This capture does not select a new numerical, runtime or production path."
+    ],
+    "sqlite_sha256": "c520189617dcb852468c47b9c30d3f128532215439cabc7f1aa2f29f68276bb0"
+  },
+  "unprofiled_anchor": {
+    "2": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8916565799999999,
+        "prefill_tps": 72.89802089499526,
+        "ttft_s": 0.9101405429973966,
+        "decode_tps": 13.621335056416477,
+        "elapsed_s": 2.0113011299981736,
+        "incumbent_decode_tps": 13.582640748369384,
+        "decode_delta_percent": 0.2848805969615231,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10959073280,
+            10965798912
+          ],
+          "tail_kv_batches": [
+            null,
+            4
+          ],
+          "tail_kv_rows": [
+            null,
+            8
+          ],
+          "draft_initialization_ms": [
+            5.529461,
+            5.548856
+          ],
+          "draft_ms": [
+            112.245067,
+            113.243227
+          ],
+          "verify_ms": [
+            971.350707,
+            970.370208
+          ],
+          "reconcile_ms": [
+            20.403395000000003,
+            17.257999
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.4202312302803541
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.304930193000004,
+        "prefill_tps": 473.39110349683676,
+        "ttft_s": 17.327114354004152,
+        "decode_tps": 15.184432913422478,
+        "elapsed_s": 34.12089601600019,
+        "incumbent_decode_tps": 15.11575781598981,
+        "decode_delta_percent": 0.4543278495771075,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10959073280,
+            10965798912
+          ],
+          "tail_kv_batches": [
+            null,
+            71
+          ],
+          "tail_kv_rows": [
+            null,
+            142
+          ],
+          "draft_initialization_ms": [
+            551.213644,
+            545.043298
+          ],
+          "draft_ms": [
+            1793.1685320000004,
+            1789.977847000001
+          ],
+          "verify_ms": [
+            14720.709477000004,
+            14705.678372
+          ],
+          "reconcile_ms": [
+            350.79484000000014,
+            293.447609
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.6465621920612652
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.684830969,
+        "prefill_tps": 431.5700809054577,
+        "ttft_s": 92.71999829899869,
+        "decode_tps": 11.566447584194087,
+        "elapsed_s": 114.7681023969999,
+        "incumbent_decode_tps": 11.5321499745169,
+        "decode_delta_percent": 0.2974086337151016,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10959073280,
+            10965798912
+          ],
+          "tail_kv_batches": [
+            null,
+            64
+          ],
+          "tail_kv_rows": [
+            null,
+            128
+          ],
+          "draft_initialization_ms": [
+            2686.732176,
+            2657.429363
+          ],
+          "draft_ms": [
+            2149.7998370000005,
+            2149.303896000001
+          ],
+          "verify_ms": [
+            19613.095180999997,
+            19598.311230000003
+          ],
+          "reconcile_ms": [
+            344.0956560000003,
+            294.1003020000002
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.4693985397232487
+      }
+    ],
+    "3": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890845869,
+        "prefill_tps": 72.96436147025564,
+        "ttft_s": 0.9093966439977521,
+        "decode_tps": 12.727907275932887,
+        "elapsed_s": 2.0878643869946245,
+        "incumbent_decode_tps": 12.698558416050226,
+        "decode_delta_percent": 0.2311196194173304,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10967257088,
+            11002433536
+          ],
+          "tail_kv_batches": [
+            null,
+            3
+          ],
+          "tail_kv_rows": [
+            null,
+            8
+          ],
+          "draft_initialization_ms": [
+            5.524467,
+            5.611512
+          ],
+          "draft_ms": [
+            149.842885,
+            150.966962
+          ],
+          "verify_ms": [
+            1010.659224,
+            1010.7686809999999
+          ],
+          "reconcile_ms": [
+            20.372446000000004,
+            16.455619000000002
+          ]
+        },
+        "nonmtp_decode_tps": 9.5909277067,
+        "speedup_ratio": 1.3270778036457793
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.338540033,
+        "prefill_tps": 472.4734599573191,
+        "ttft_s": 17.360559866996482,
+        "decode_tps": 14.205926970656082,
+        "elapsed_s": 35.31108614499681,
+        "incumbent_decode_tps": 14.156145675279983,
+        "decode_delta_percent": 0.3516585412301154,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10967257088,
+            11002433536
+          ],
+          "tail_kv_batches": [
+            null,
+            57
+          ],
+          "tail_kv_rows": [
+            null,
+            154
+          ],
+          "draft_initialization_ms": [
+            546.301407,
+            555.369755
+          ],
+          "draft_ms": [
+            2166.1536020000003,
+            2172.61379
+          ],
+          "verify_ms": [
+            15483.852836999997,
+            15488.493226999999
+          ],
+          "reconcile_ms": [
+            358.98160499999994,
+            284.76737899999995
+          ]
+        },
+        "nonmtp_decode_tps": 9.22190062825,
+        "speedup_ratio": 1.5404554379102955
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.669092086,
+        "prefill_tps": 431.6433786022061,
+        "ttft_s": 92.70432535999862,
+        "decode_tps": 10.881360990723545,
+        "elapsed_s": 116.14050208099798,
+        "incumbent_decode_tps": 10.84724525788363,
+        "decode_delta_percent": 0.3145105695394834,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-short-attention-v93",
+            "multirow-tail-kv-v94"
+          ],
+          "startup_free_bytes": [
+            10967257088,
+            11002433536
+          ],
+          "tail_kv_batches": [
+            null,
+            52
+          ],
+          "tail_kv_rows": [
+            null,
+            145
+          ],
+          "draft_initialization_ms": [
+            2663.229864,
+            2707.667441
+          ],
+          "draft_ms": [
+            2627.139179999999,
+            2628.4649569999992
+          ],
+          "verify_ms": [
+            20519.79292799999,
+            20517.694052999996
+          ],
+          "reconcile_ms": [
+            356.56837199999984,
+            283.7733370000001
+          ]
+        },
+        "nonmtp_decode_tps": 7.87155238794,
+        "speedup_ratio": 1.3823653142923715
+      }
+    ]
+  },
+  "profiled_api_not_selection": {
+    "prompt": 40000,
+    "output": 256,
+    "draft": 2,
+    "prefill_s": 92.722978012,
+    "prefill_tps": 431.3925292048244,
+    "ttft_s": 93.13375207399804,
+    "decode_tps": 11.471887162383986,
+    "elapsed_s": 121.47047526900133,
+    "limitation": "One node-instrumented process; collection/flush affects external intervals. Not a replacement benchmark or speedup."
+  },
+  "budget_decision": {
+    "target_projection_s": 13.884492768000003,
+    "gdn_update_s": 0.4240993869999975,
+    "conv_s": 0.04520543999999965,
+    "qk_pv_s": 4.3235378559999935,
+    "remaining_unprofiled_short_s": 0.0585616383337,
+    "remaining_unprofiled_40k_s": 0.4497706153233,
+    "priority": "Target projections dominate. Do not treat whole GDN graph span as recurrence latency. Even the observed entire recurrence time is smaller than the remaining unprofiled40Kgap; this comparison selects priority, not a strict cross-protocol hardware bound.",
+    "illustrative_gap_fraction_of_all_target_projections": 0.03239373759190537,
+    "illustrative_gap_fraction_of_gate_up": 0.08472205699294684,
+    "limitations": "These fractions only translate the unchanged goal into a planning budget. No measured bandwidth/bank/stall cause, guaranteed saving, short-workload extrapolation or impossibility claim."
+  },
+  "next_implementation_question": {
+    "question": "Does composing the current exact paired NV decoder and M2/M3 K512 two-stage input ring with one Gate/Up-to-SiLU publication remove useful complete-API cost?",
+    "lineage": "Old v33 already fused Gate/Up/SiLU with four warps per role. Its M3 used128registers and32000sharedbytes; it was neutral and removed. Plain fusion or another warp mapping is not new. Current admitted NV paired decoder and K512 input ring postdate v33, creating a materially changed coupled producer lifetime.",
+    "unchanged_mapping": "Keep original four Gate and four Up warps,256threads and original per-thread accumulators. No geometry or register-cap scan. M4 retains current full-input path.",
+    "structural_resource_change": "For M3 a fixed shared K512 ring plus current 2048-byte codebooks and192-byte pair publication needs8384bytes, versus old32000. This is a source storage calculation, not compiled occupancy or speed. Current scalar pair decode/FMA trees and both BF16 intermediate rounding points remain required.",
+    "guard": "One complete bounded composition only after declaring resource/correctness/API gates. Compare to v94 at real API; remove if neutral. No profiler extension or claim that smaller storage guarantees speed.",
+    "reference_sources": {
+      "old_design": "docs/metadata/qwen36-27b-mtp-gate-pair-design-2026-10-10.json",
+      "old_result": "docs/metadata/qwen36-27b-mtp-gate-pair-rejection-2026-10-10.json",
+      "current_projection_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef"
+    }
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 74.062
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "runtime_mutations": 0,
+  "artifact_root": ".q3x-work/mtp-graph-node-budget-20261014",
+  "hygiene": {
+    "gpu_device_fd_audit": {
+      "complete": true,
+      "holders": [],
+      "ignored_process_exit_races": [
+        {
+          "fd": "3",
+          "identity_after_error": "same",
+          "kind": "descriptor_closed",
+          "pid": 76324,
+          "stage": "fd_target"
+        }
+      ],
+      "inaccessible_fds": [],
+      "inaccessible_processes": [],
+      "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+      "scanned_fds": 986,
+      "scanned_processes": 283
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "registered_worktrees": 47,
+    "remaining_api_key_files": [],
+    "remaining_profile_tmp_files": [],
+    "removed_completed_profiler_locks": [
+      "profile/tmp/nvidia/nsight_systems/NSys-SessionManager.lock-4026531836-2026.1.3",
+      "profile/tmp/nvidia/nsight_systems/telemetry-2002/telemetry.lock"
+    ],
+    "runtime_changes": false
+  },
+  "validation": {
+    "document_control": "pass; 1454 links, zero errors",
+    "document_unit": "7 passed",
+    "runtime_tests": "not rerun: no runtime changes"
+  },
+  "artifacts": {
+    "manifest": ".q3x-work/mtp-graph-node-budget-20261014/artifact-manifest.json",
+    "sha256": "37c69852eb0824a09f6466a87acb5a940d7d6867e75778dca238817b8fdf7ac0",
+    "files": 39,
+    "bytes": 64393750
+  }
+}

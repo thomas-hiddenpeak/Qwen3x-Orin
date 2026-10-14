@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 GDN graph-node attribution — complete
+
+`WP-MTP-GRAPH-NODE-BUDGET-20261014` owns one
+[node-level API attribution](metadata/qwen36-27b-mtp-graph-node-budget-design-2026-10-14.json).
+The two latest GDN attempts yielded no retained improvement. The old graph
+aggregate cannot identify recurrence, projections, Conv or copy costs. One
+unchanged measured v94 P40000/O256 d2 API capture enables node tracing and
+requires exact output/ID/work reconciliation. It is a new bounded diagnostic,
+not a repeat or extension of the closed v79 aggregate package. Node overhead
+qualifies every timing; unprofiled v94 remains the performance anchor. No NCU,
+second capture, runtime change or d3 qualification-only loop is selected.
+The result must select a concrete next implementation question or close.
+
+The [completed node trace](metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json)
+reconciles all output IDs and work with v94. All 14,640 GDN and Conv calls are
+visible. Recurrence costs 0.424 seconds and Conv 0.045; target projections cost
+13.884 seconds, including Gate/Up 5.309 and FP8 5.335. QK/PV cost 4.324 seconds.
+These are instrumented duration sums, not a new benchmark or hardware bound.
+Return priority to projections; no further GDN register/Conv variant or profile
+is selected. The concrete next question is whether the admitted paired NV
+weight decoder and M2/M3 K512 ring can now compose with the old Gate/Up/SiLU
+publication. Plain v33 fusion and its warp mapping are already tried; only the
+changed producer lifetime/decoder composition qualifies as a successor. Its
+M3 shared-storage estimate is 8,384 bytes versus old 32,000, not a performance
+claim. A separately bounded composition must preserve all arithmetic and return
+to v94's real API comparison; no local resource win selects production.
+The complete objective and unprofiled paired performance remain unchanged.
+
 ## 2026-10-14 complete value-row register ownership — closed at compilation
 
 `WP-MTP-ROW-OWNED-GDN-20261014` / `AC-MTP-GREEDY-v94` owns one

@@ -526,3 +526,10 @@ opens one isolated register-ownership composition, with no production authority.
 
 The [complete value-row resource rejection](metadata/qwen36-27b-mtp-row-owned-gdn-rejection-2026-10-14.json)
 closes the construction before device execution; it has no performance authority.
+
+The [GDN node-attribution design](metadata/qwen36-27b-mtp-graph-node-budget-design-2026-10-14.json)
+scopes one unchanged-v94 diagnostic API capture; it has no selection authority.
+
+The [GDN node-budget result](metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json)
+closes the single diagnostic and selects a bounded projection-composition question.
+It does not replace unprofiled metrics or production qualification.
