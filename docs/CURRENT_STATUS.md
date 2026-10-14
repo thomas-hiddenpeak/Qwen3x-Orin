@@ -135,6 +135,13 @@ D2 reaches 1.430x/1.646x/1.469x non-MTP Decode at P65/8K/40K; d3 reaches 1.327x/
 D3 remains slower than d2. Product targets and numerical contracts remain intact;
 the ordinary installed production service remains non-MTP.
 
+The later [private INT8 MLP direction](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json)
+passes independent original-weight FP64 and complete target-state admission,
+but regresses P65/8K Decode by 1.09%/1.45% with unchanged acceptance. It is
+removed before 40K/d3 qualification. BF16 Attention protects the fixed draft
+numerical boundary, but this packed consumer does not improve whole-API fitness.
+The retained v98 implementation and metrics above remain current.
+
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not

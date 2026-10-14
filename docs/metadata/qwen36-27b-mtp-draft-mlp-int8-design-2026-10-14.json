@@ -1,0 +1,22 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-MLP-INT8-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v97",
+  "decision_unit": "bounded numerical prerequisite before native composition",
+  "source_parent": "02f35cf",
+  "product_constraint": "1.5x\u20133x complete Decode, drafts2/3, exact target state/full logits/output, unchanged private full-hidden/K/V FP64 max-rowrelativeL2<=0.02.",
+  "causal_origin": "WP-MTP-DRAFT-ERROR-ORIGIN reproduced original and rejected seven-matrix group128 outputs bitwise. At failed rows18/62, Attention residual cancellation amplifies small branch error: MLP normalized input error0.021669/0.023430 already exceeds target hidden tolerance. Same-input MLP weight errors are smaller than propagated total. Preserve complete Attention andFC boundary rather than selectively scan individual matrices.",
+  "representation": "Only gate_proj/up_proj/down_proj use the previously fixed group128 U8B128 and BF16 scale; BF16(q*scale) before BF16 TC. FC, Q/K/V/O and norms remain original BF16. No quantizer/scale/group/threshold change.",
+  "budget": {
+    "original_dense_bytes": 849346560,
+    "mlp_original_bytes": 534773760,
+    "mlp_codes_scales_bytes": 271564800,
+    "mixed_dense_bytes": 586137600,
+    "saving_fraction": 0.30989583333333337,
+    "qualification": "Storage arithmetic only. Current profiled private-matrix interval0.964s is not a bandwidth ceiling or promised saving; full40Kgap0.460s remains and may need verifier composition."
+  },
+  "host_gate": "One sameauthenticated64row teacher-forced full FP64 layer using original BF16 publication. Exact K/V expected because FC andattention originals. Complete hidden rowmax<=0.02, finite, original full-layer reference unchanged. Failure closes beforeGPU, no alternate role subset.",
+  "conditional_native": "Only ifhostpasses: separately declare one startup-owned packedMLP consumer translating fixedgroup128 into current weight-major BF16 TC ownership, originalweights retained,8GiBreserve, independent native FP64/original reference, exact cache/target prefix/failure checks then immediate d2 real API; positive unlocksd3. No retention before complete API.",
+  "artifact_root": ".q3x-work/mtp-draft-mlp-int8-20261014",
+  "runtime_mutations_at_design": 0,
+  "production_changed": false
+}

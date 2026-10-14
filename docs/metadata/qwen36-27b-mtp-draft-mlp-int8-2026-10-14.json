@@ -1,0 +1,95 @@
+{
+  "scope": "Host representation feasibility only; original FP64 layer comparator, BF16 group-scale multiplication before projection. No GPU reduction, acceptance or performance result.",
+  "pass": true,
+  "comparisons": {
+    "target_final_norm": {
+      "max_row_relative_l2": 5.963384100154866e-05,
+      "max_absolute_error": 0.0078125,
+      "elements": 332800,
+      "threshold_max_row_relative_l2": 0.005,
+      "pass": true
+    },
+    "hidden": {
+      "max_row_relative_l2": 0.011448350779191842,
+      "max_absolute_error": 0.375,
+      "elements": 327680,
+      "pass": true
+    },
+    "k": {
+      "max_row_relative_l2": 0.0,
+      "max_absolute_error": 0.0,
+      "elements": 65536,
+      "pass": true
+    },
+    "v": {
+      "max_row_relative_l2": 0.0,
+      "max_absolute_error": 0.0,
+      "elements": 65536,
+      "pass": true
+    }
+  },
+  "quantization": {
+    "mtp.layers.0.mlp.down_proj.weight": {
+      "shape": [
+        5120,
+        17408
+      ],
+      "group_size": 128,
+      "original_bytes": 178257920,
+      "quantized_bytes": 90521600,
+      "codes_u8b128_sha256": "1d1a3ab0a7fd08a0aad5ded869cd05abb47b3b658d402516c1ed973b4ea393bc",
+      "scales_bf16_sha256": "00bdaa0628e322d6e09fc7e3d1ad219856867ba6c98375e7405d20a295a508d1",
+      "weight_relative_l2": 0.00758228701583356,
+      "zero_codes": 971126
+    },
+    "mtp.layers.0.mlp.gate_proj.weight": {
+      "shape": [
+        17408,
+        5120
+      ],
+      "group_size": 128,
+      "original_bytes": 178257920,
+      "quantized_bytes": 90521600,
+      "codes_u8b128_sha256": "e3997b0acd067b267ef7872782564fe580fa4c3d22e4f45b0fa22d588da25447",
+      "scales_bf16_sha256": "1fbbd6a6fd377fe6598fdd068014dae20c8e8449696572bf7faf3692ff0f4688",
+      "weight_relative_l2": 0.006824828849982729,
+      "zero_codes": 812005
+    },
+    "mtp.layers.0.mlp.up_proj.weight": {
+      "shape": [
+        17408,
+        5120
+      ],
+      "group_size": 128,
+      "original_bytes": 178257920,
+      "quantized_bytes": 90521600,
+      "codes_u8b128_sha256": "c1c153608e99bd124c78e736f3fa9422ceeca006548d0c62ab64af4969705e11",
+      "scales_bf16_sha256": "2a5506a1cf3e959a1ab4f2cf6e398f5d4a8cec06f96db918cc1b96335e705814",
+      "weight_relative_l2": 0.006780887409227497,
+      "zero_codes": 813797
+    }
+  },
+  "original_reference_and_capture_hashes": {
+    "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    "original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+    "original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    "original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00"
+  },
+  "checkpoint_payload_authentication": "all prior payload hashes match",
+  "original_matrix_bytes": 849346560,
+  "mixed_matrix_and_scale_bytes": 586137600,
+  "additional_private_packed_owner_bytes": 271564800,
+  "source_parent": "02f35cf",
+  "artifact_root": ".q3x-work/mtp-draft-mlp-int8-20261014",
+  "artifact_manifest_sha256": "e641cb30c6d779aabbd58e101aebc6c5bde03caa67b9a1ed30ef4c7df7617983",
+  "artifact_count": 18,
+  "artifact_bytes": 5946057,
+  "production_changed": false,
+  "gpu_or_timing_authority": false,
+  "decision": "PASS numerical prerequisite only; native reduction, memory, cache/state, API and performance remain separate gates."
+}

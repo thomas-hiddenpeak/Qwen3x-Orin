@@ -1,0 +1,16 @@
+{
+  "work_package_id": "WP-MTP-MLP-INT8-NATIVE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v98",
+  "decision_unit": "architecture_candidate direction screen",
+  "source_parent": "02f35cf",
+  "product_constraint": "Complete d2/d3 Decode 1.5x\u20133x same-request non-MTP; exact target state/logits/output. Current d2 short/40K gaps 0.051/0.460 seconds.",
+  "numerical_prerequisite": "docs/metadata/qwen36-27b-mtp-draft-mlp-int8-design-2026-10-14.json; authenticated original FP64 64-row hidden max0.011448350779191842, K/V unchanged.",
+  "composition": "Startup-owned group128 U8B128 codes/BF16 scales for private Gate/Up/Down only. Authenticate all six packed payload hashes against host prerequisite; retain original BF16 weights. Fixed M64C8K128 weight-major ascending K16 MMA, double buffered async packed bytes and input, single BF16 decoded shared tile. Original FC/Attention/cache path unchanged.",
+  "ownership": "Weights owns additional271564800 bytes, allocated at startup under unchanged8GiBreserve; no request allocations/fallback. Private step selects only indices2/3/4. Failure frees all allocations; no startup readiness on hash mismatch.",
+  "resource_gate": "Fixed128threads, shared<=40960bytes, registers<=96, no spills; no tile/stage/format sweep.",
+  "validation": "Compilation then preflight GPU startup hash check, independent original-weight FP64 full native hidden/K/V max-row L2<=0.02, complete target prefix/logit/cache and failure admission. Native weights/rounding may change draft acceptance, never committed output. Then immediate real d2 API P65/8192/40000. Short >3% regression stops; nonpositive8K stops. Positive d2 across all buckets unlocks d3 and bounded lifecycle.",
+  "bounded_variation": "One composed implementation plus at most one correctness repair. No component timing or profiler campaign. Reject runtime on negative composed direction, retain frozen patch/evidence.",
+  "profile": "q3x.sm87.admission.mtp-mlp-int8-api.v99",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-mlp-int8-native-20261014"
+}

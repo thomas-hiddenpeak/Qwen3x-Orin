@@ -25,6 +25,37 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 native private INT8 MLP — closed negative
+
+`WP-MTP-MLP-INT8-NATIVE-20261014` / `AC-MTP-GREEDY-v98` owns the
+[fixed native composition](metadata/qwen36-27b-mtp-mlp-int8-native-design-2026-10-14.json).
+The BF16 Attention boundary passes the host prerequisite at 1.145% maximum
+hidden relative L2. Startup packs and authenticates only Gate/Up/Down as the
+unchanged group128 INT8 format; FC, Attention and cache construction remain BF16.
+One M64C8K128 executor uses async packed double buffering and a single decoded
+BF16 tile, preserving ascending K16 MMA. Original weights remain resident;
+271,564,800 extra bytes obey the 8-GiB reserve. No request allocation or fallback.
+Compile resource admission and independent original-weight native FP64 plus
+complete target-state checks return immediately to d2 P65/8K/40K API; useful
+direction unlocks d3. Short >3% slowdown or nonpositive 8K stops. One correctness
+repair, no geometry/format/profiler scan. Draft acceptance may change; target
+outputs remain exact. The full objective and production boundary remain intact.
+
+The [completed native direction](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json)
+passes all six packed payload hashes, native original-weight FP64 hidden max
+0.013687553141055709, ten complete prefixes, fifteen transactions, four failure
+recoveries and eight initialization-cancel checks. K/V captures match v98
+bitwise. The two completed d2 API outputs and all acceptance/work fields match
+v98 and baseline output. Decode is 13.565/14.958 token/s at P65/8K, down
+1.090%/1.448%; private draft time increases 13.937/232.690 ms. Prefill is
+0.891 s / 72.93 token/s and 17.312 s / 473.20 token/s; TTFT is 0.910/17.334 s,
+total 2.016/34.382 s. Unchanged Prefill variation is not attributed to this edit.
+The declared 8K stop closes before 40K/d3/lifecycle; server cleanup exits 0.
+All runtime/integration changes are removed and v98 restored. No compression,
+geometry, pipeline or profiler scan follows. Numerical feasibility survives
+as evidence only; storage saving did not return API value. Current metrics,
+production and the unmet complete objective remain unchanged.
+
 ## 2026-10-14 singleton target-tail dispatch — API return complete
 
 `WP-MTP-SINGLE-TAIL-20261014` / `AC-MTP-GREEDY-v96` owns one

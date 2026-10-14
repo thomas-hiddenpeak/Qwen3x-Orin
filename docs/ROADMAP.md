@@ -19,6 +19,72 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 native private INT8 MLP — closed negative
+
+`WP-MTP-MLP-INT8-NATIVE-20261014` / `AC-MTP-GREEDY-v98` owns the
+[fixed native composition](metadata/qwen36-27b-mtp-mlp-int8-native-design-2026-10-14.json).
+The BF16 Attention boundary passes the host prerequisite at 1.145% maximum
+hidden relative L2. Startup packs and authenticates only Gate/Up/Down as the
+unchanged group128 INT8 format; FC, Attention and cache construction remain BF16.
+One M64C8K128 executor uses async packed double buffering and a single decoded
+BF16 tile, preserving ascending K16 MMA. Original weights remain resident;
+271,564,800 extra bytes obey the 8-GiB reserve. No request allocation or fallback.
+Compile resource admission and independent original-weight native FP64 plus
+complete target-state checks return immediately to d2 P65/8K/40K API; useful
+direction unlocks d3. Short >3% slowdown or nonpositive 8K stops. One correctness
+repair, no geometry/format/profiler scan. Draft acceptance may change; target
+outputs remain exact. The full objective and production boundary remain intact.
+
+The [completed native direction](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json)
+passes all six packed payload hashes, native original-weight FP64 hidden max
+0.013687553141055709, ten complete prefixes, fifteen transactions, four failure
+recoveries and eight initialization-cancel checks. K/V captures match v98
+bitwise. The two completed d2 API outputs and all acceptance/work fields match
+v98 and baseline output. Decode is 13.565/14.958 token/s at P65/8K, down
+1.090%/1.448%; private draft time increases 13.937/232.690 ms. Prefill is
+0.891 s / 72.93 token/s and 17.312 s / 473.20 token/s; TTFT is 0.910/17.334 s,
+total 2.016/34.382 s. Unchanged Prefill variation is not attributed to this edit.
+The declared 8K stop closes before 40K/d3/lifecycle; server cleanup exits 0.
+All runtime/integration changes are removed and v98 restored. No compression,
+geometry, pipeline or profiler scan follows. Numerical feasibility survives
+as evidence only; storage saving did not return API value. Current metrics,
+production and the unmet complete objective remain unchanged.
+
+## 2026-10-14 BF16 Attention boundary with private INT8 MLP — host prerequisite complete
+
+`WP-MTP-DRAFT-MLP-INT8-20261014` / `AC-MTP-GREEDY-v97` owns one
+[fixed precision partition](metadata/qwen36-27b-mtp-draft-mlp-int8-design-2026-10-14.json).
+The error-origin audit reproduces the old failure and finds amplified Attention
+residual error already entering MLP. Preserve FC and the complete Attention
+branch in BF16; quantize only Gate/Up/Down with the unchanged prior group128
+format. This is one residual-boundary partition, not a role/quantizer sweep.
+One authenticated 64-row full-layer FP64 check must pass the unchanged 0.02
+hidden/K/V bound. Failure closes before GPU; a pass only unlocks a separately
+bounded native consumer/API composition. Storage arithmetic saves about 31%;
+no speedup, numerical waiver or production change follows from that estimate.
+The [completed host check](metadata/qwen36-27b-mtp-draft-mlp-int8-2026-10-14.json)
+passes at hidden max 0.011448350779191842, with exact original K/V. The native
+composition above is the bounded successor; host PASS grants no speed claim.
+
+## 2026-10-14 private draft representation error origin — complete
+
+`WP-MTP-DRAFT-ERROR-ORIGIN-20261014` owns one
+[host attribution](metadata/qwen36-27b-mtp-draft-error-origin-design-2026-10-14.json).
+The earlier fixed group128 mixed draft failed hidden accuracy on two of 64 rows;
+K/V passed. Reproduce its exact saved original/mixed outputs, then distinguish
+per-operator same-input representation error from propagated stage error.
+Original FC/norms, quantizer, inputs and 0.02 bound stay fixed. Existing reference
+hidden-flow audits already found no semantic mismatch. This is no new GPU run,
+format/role sweep or revival of rejected execution. The diagnostic must either
+select one evidence-backed precision-ownership question for a separate bounded
+composition or close; no runtime retention or performance claim follows.
+The full objective and current v98 metrics remain unchanged.
+The [completed attribution](metadata/qwen36-27b-mtp-draft-error-origin-2026-10-14.json)
+authenticates every old quantized payload and reproduces all six saved outputs
+bitwise. Rows 18/62 expose Attention residual cancellation; propagated MLP input
+error exceeds same-input direct MLP weight error. The fixed BF16 Attention
+boundary above is the selected successor, not an individual-role scan.
+
 ## 2026-10-14 singleton target-tail dispatch — API return complete
 
 `WP-MTP-SINGLE-TAIL-20261014` / `AC-MTP-GREEDY-v96` owns one

@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-ERROR-ORIGIN-20261014",
+  "decision_unit": "diagnostic",
+  "source_parent": "02f35cf",
+  "product_constraint": "1.5x\u20133x complete Decode with unchanged numerical/output contracts, drafts2/3 and paired Prefill/TTFT/Decode/total.",
+  "budget": {
+    "remaining_short_s": 0.051,
+    "remaining_40k_s": 0.46,
+    "profiled_private_matrix_s": 0.964466432,
+    "scope": "v94node trace family includes reconciliation and excludes first proposal. Instrumented opportunity only, not bandwidth cause or expected saving; private matrix improvement may be insufficient alone."
+  },
+  "reason": "Already-pinned vLLM/native hidden recurrence audits establish no semantic discrepancy. Rejected FC-BF16 plus seven fixedgroup128INT8 matrices fail full hidden0.02 bound on2of64rows while K/V pass. Error propagation stage is not attributed.",
+  "method": "One host-only original/mixed dual FP64 evaluation with original BF16 boundaries on the same authenticated P65 teacher-forced capture. Compare every intermediate and each quantized operator on identical original inputs to separate direct representation error from propagated input error. Reproduce all original/mixed saved outputs bitwise before using attribution.",
+  "invariants": "FC and norms original BF16. Same previously rejected group128 BF16 scale/U8B128 codes and BF16 reconstruction; authenticate all code/scale hashes. No new quantizer, group size, threshold, token fixture or modified reference.",
+  "boundary": "No GPU, timing, API, runtime mutation, retained quantization or relaxation. This diagnostic cannot reverse old rejection. Select at most one separately bounded precision-ownership composition only if measured error propagation provides a concrete causal rationale; otherwise close without one. No role-subset sweep.",
+  "references": [
+    "docs/metadata/qwen36-27b-mtp-mixed-draft-2026-10-10.json",
+    "docs/metadata/qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json",
+    "docs/metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json"
+  ],
+  "artifact_root": ".q3x-work/mtp-draft-error-origin-20261014",
+  "production_changed": false
+}

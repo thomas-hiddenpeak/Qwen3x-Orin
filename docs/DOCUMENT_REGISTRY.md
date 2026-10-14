@@ -545,3 +545,17 @@ activates bounded reuse of the native scalar transaction; no production change.
 
 The [singleton tail direction](metadata/qwen36-27b-mtp-single-tail-direction-2026-10-14.json)
 records bounded development retention after both API panels; no production promotion.
+
+The [draft error-origin design](metadata/qwen36-27b-mtp-draft-error-origin-design-2026-10-14.json)
+registers one host diagnostic with unchanged numerical and runtime boundaries.
+
+The [private MLP INT8 prerequisite](metadata/qwen36-27b-mtp-draft-mlp-int8-design-2026-10-14.json)
+registers one error-attributed precision partition before any native execution.
+
+- [Native private INT8 MLP composition](metadata/qwen36-27b-mtp-mlp-int8-native-design-2026-10-14.json): bounded isolated runtime/API design; no production authority.
+
+- [qwen36-27b-mtp-draft-error-origin-2026-10-14](metadata/qwen36-27b-mtp-draft-error-origin-2026-10-14.json): frozen host diagnostic/numerical evidence; no runtime or performance authority.
+
+- [qwen36-27b-mtp-draft-mlp-int8-2026-10-14](metadata/qwen36-27b-mtp-draft-mlp-int8-2026-10-14.json): frozen host diagnostic/numerical evidence; no runtime or performance authority.
+
+- [Native private INT8 MLP rejection](metadata/qwen36-27b-mtp-mlp-int8-native-rejection-2026-10-14.json): frozen native correctness and two-request API early-stop evidence; removed, no production authority.

@@ -1,0 +1,252 @@
+{
+  "work_package_id": "WP-MTP-MLP-INT8-NATIVE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v98",
+  "decision_unit": "architecture_candidate direction screen",
+  "source_parent": "02f35cf",
+  "decision": "Rejected: independent native numerical/state gates pass, but P65/8K complete API Decode is slower. Remove all runtime/integration/profile changes and restore v98. No40K/d3/lifecycle extension, format/geometry scan, profiler campaign or performance retention.",
+  "design": "docs/metadata/qwen36-27b-mtp-mlp-int8-native-design-2026-10-14.json",
+  "host_prerequisite": "docs/metadata/qwen36-27b-mtp-draft-mlp-int8-2026-10-14.json",
+  "artifact_root": ".q3x-work/mtp-mlp-int8-native-20261014",
+  "candidate_profile": "q3x.sm87.admission.mtp-mlp-int8-api.v99",
+  "candidate_server_sha256": "d8f37a9d74741a029263a9fa26e1dfbdc78c71bb5b3beaa347ad867fc0343df2",
+  "candidate_oracle_sha256": "90c37b70151ad63b1380af5edc5b6803775b05212680e86d5bb9b6304e42f751",
+  "resource_admission": {
+    "threads": 128,
+    "registers": 96,
+    "shared_bytes": 36864,
+    "stack_bytes": 0,
+    "local_bytes": 0
+  },
+  "numerical": {
+    "scope": "independent CPU FP64 projection and causal attention; BF16 boundaries",
+    "threshold_max_row_relative_l2": 0.02,
+    "prompt_tokens": 65,
+    "payload_sha256": {
+      "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+      "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+      "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+      "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+      "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+      "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+      "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+      "selected_embedding_rows": "3ceb8a71d82d00ea485f084a2b062670a2cbfa3caa9cb9b178ad2ff41b2a87b1",
+      "model.language_model.norm.weight": "b9f0006803317a0207979bb4dcb453698d257c0a2150cc4a867666c2a8cd3092"
+    },
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.013687553141055709,
+        "max_absolute_error": 0.671875,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0018966317489639915,
+        "max_absolute_error": 0.046875,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0013001843549924304,
+        "max_absolute_error": 0.125,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "pass": true,
+    "capture_sha256": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-hidden.bf16": "462b593f29976fb0edf1ce258828ab0d5c5297a3fc046d380e9b27cd05ffc083",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548"
+    }
+  },
+  "cache_captures_against_v98": {
+    "target-hidden.bf16": true,
+    "target-residual.bf16": true,
+    "draft-prefill-k.bf16": true,
+    "draft-prefill-v.bf16": true,
+    "prompt.u32": true
+  },
+  "device_admission": {
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_checks": 8,
+    "full_target_state_and_logits": "bitwise equal scalar",
+    "cache_replay": "bitwise equal",
+    "packed_weights": "All six complete code/scale payload hashes match independently fixed host quantizer; startup fails closed otherwise.",
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.125
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v98": true,
+    "all_generated_ids_equal_v98": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counter_changes_match_singleton_route": true,
+    "completed_requests": 2,
+    "server_sha256": "d8f37a9d74741a029263a9fa26e1dfbdc78c71bb5b3beaa347ad867fc0343df2",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8912448359999999,
+        "prefill_tps": 72.93169887157697,
+        "ttft_s": 0.9098255069984589,
+        "decode_tps": 13.564717953015622,
+        "elapsed_s": 2.015553274002741,
+        "incumbent_decode_tps": 13.71420234447416,
+        "decode_delta_percent": -1.0899969805299614,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-int8-v99"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            10581405696
+          ],
+          "draft_initialization_ms": [
+            5.720173,
+            5.399512
+          ],
+          "draft_ms": [
+            113.70279100000002,
+            127.63983399999998
+          ],
+          "verify_ms": [
+            961.9702279999999,
+            960.4935450000002
+          ],
+          "reconcile_ms": [
+            17.694861,
+            17.320242
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.312085661999998,
+        "prefill_tps": 473.19544045356866,
+        "ttft_s": 17.33426460999908,
+        "decode_tps": 14.958287663940851,
+        "elapsed_s": 34.38197858100466,
+        "incumbent_decode_tps": 15.178137822601878,
+        "decode_delta_percent": -1.4484659530080601,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-single-tail-v98",
+            "multirow-mlp-int8-v99"
+          ],
+          "startup_free_bytes": [
+            11042562048,
+            10581405696
+          ],
+          "draft_initialization_ms": [
+            569.836999,
+            533.991188
+          ],
+          "draft_ms": [
+            1788.107268,
+            2020.7971359999997
+          ],
+          "verify_ms": [
+            14713.099902000005,
+            14724.834455000002
+          ],
+          "reconcile_ms": [
+            294.782817,
+            296.5090440000001
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.781
+    },
+    "all_semantic_work_and_acceptance_equal_v98": true
+  },
+  "interpretation": {
+    "acceptance": "All semantic work/acceptance fields unchanged in both completed requests.",
+    "draft_ms_delta_p65": 13.93704299999996,
+    "draft_ms_delta_p8192": 232.6898679999997,
+    "causal_limit": "The private draft phase regressed despite less packed weight traffic; instruction/stall cause was not profiled. Storage reduction alone is not performance evidence.",
+    "prefill": "FC/Attention/cache initialization unchanged; single-run Prefill variation is not attributed to this edit.",
+    "stop": "d2 8K Decode nonpositive triggers predeclared stop. Driver SIGINT during inter-request sleep, clean server exit0, no monitor errors; incomplete panel is not qualification.",
+    "next_boundary": "This fixed packed consumer is closed. BF16 Attention plus INT8 MLP numerical feasibility is preserved as evidence only; no native dependency retained. A successor must change the dominant verifier dataflow or materially remove packed decode cost and name a bounded complete API return; no local format/tile scan."
+  },
+  "production_changed": false,
+  "full_goal_complete": false,
+  "workspace_restoration": {
+    "source_matches_frozen_v98": true,
+    "build_restore": "Both restored-source targets compile; fresh rebuilt ELF hashes differ from previously measured artifacts. No numerical/performance claim is inherited by those new ELFs. Cached executables are restored from exact measured v98 frozen binaries.",
+    "binaries": {
+      "server": {
+        "rebuilt_sha256": "4b39ac02a238241f8c22f65ba73a9b772d5edb29e54d29a4a9e819987afc0fa2",
+        "measured_sha256": "916c60ab734c5f2f297ad72cc5904fa2f875891faadd160eb602777d95fbfa6f"
+      },
+      "oracle": {
+        "rebuilt_sha256": "e5a0f6e5dadb8be76b8591115a4e892dabaf8374171982eb2ad77414c20812ca",
+        "measured_sha256": "1aa750d58593c53cbb88e7602140a6fa7044a6576ce2c195cad021c093ea67d1"
+      }
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "worktree_count": 47
+  },
+  "final_gpu_ownership": {
+    "complete": true,
+    "holders": [],
+    "ignored_process_exit_races": [
+      {
+        "fd": "3",
+        "identity_after_error": "same",
+        "kind": "descriptor_closed",
+        "pid": 81910,
+        "stage": "fd_target"
+      }
+    ],
+    "inaccessible_fds": [],
+    "inaccessible_processes": [],
+    "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+    "scanned_fds": 988,
+    "scanned_processes": 288
+  },
+  "host_validation": {
+    "ctest_passed": 3,
+    "document_unit_tests_passed": 7,
+    "document_links_checked": 1484,
+    "document_errors": 0
+  },
+  "artifact_manifest_sha256": "9e938edc8c08b556b794f6b4fae465c0037e6a23829b41f33a999de788fef13b",
+  "artifact_count": 124,
+  "artifact_bytes": 76327426
+}
