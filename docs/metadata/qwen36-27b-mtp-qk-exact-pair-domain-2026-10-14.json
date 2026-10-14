@@ -1,0 +1,180 @@
+{
+  "work_package_id": "WP-MTP-QK-EXACT-PAIR-DOMAIN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v103",
+  "status": "arithmetic_prerequisite_passed",
+  "source_parent": "1273957",
+  "historical_payload": {
+    "manifest_sha256": "b9dfd16e714a03a6ae408c4ec9eade714b194ee1d03d4c09a2bb09342a8e180e",
+    "rows": [
+      {
+        "layer": 3,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "source_sha256": "e0acd723f7e000915abfc6c908af17fb6ef5ce4e770723478ed16ea2b6f004a6",
+        "checked": 6144,
+        "ineligible": 0,
+        "zeros": 0,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 3,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "source_sha256": "09db14db10671a1dfecf7b68d04e03fb49c34c82485e2935c924bd371b891aa0",
+        "checked": 40960000,
+        "ineligible": 0,
+        "zeros": 124,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 23,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "source_sha256": "2b88d6dba1c074cad82d5d56b01e1734a59bf75fb44155361072e0fd5b3ffd66",
+        "checked": 6144,
+        "ineligible": 0,
+        "zeros": 0,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 23,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "source_sha256": "61b1353d132f1a107a70fc96a1988b3ddb8c922609e79fd1f488c722c04311fd",
+        "checked": 40960000,
+        "ineligible": 0,
+        "zeros": 122,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 43,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "source_sha256": "e339b8e7846b579118036a3eaa7e5dfdb5e9f512b366518f9335a905b8324343",
+        "checked": 6144,
+        "ineligible": 0,
+        "zeros": 0,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 43,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "source_sha256": "664ebd74fc910d49db08db156b0f2b0da171cdc29dea683d3d754ebba8dafde0",
+        "checked": 40960000,
+        "ineligible": 0,
+        "zeros": 129,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 63,
+        "role": "query",
+        "shape": [
+          24,
+          256
+        ],
+        "source_sha256": "a6be9cb259c96ba0dfffad2683d70d703d0f1314767770c94c02fd1ab2e5d41a",
+        "checked": 6144,
+        "ineligible": 0,
+        "zeros": 0,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      },
+      {
+        "layer": 63,
+        "role": "key",
+        "shape": [
+          40000,
+          4,
+          256
+        ],
+        "source_sha256": "be1de009f295347b19eb8ecf987827875a844519999773c3eff5812ca7e8fa04",
+        "checked": 40960000,
+        "ineligible": 0,
+        "zeros": 111,
+        "below_range_nonzero": 0,
+        "above_range": 0,
+        "eligible_complete": true,
+        "first_bad_indices": []
+      }
+    ],
+    "gate_pass": true,
+    "scope": "Historical Legacy Prefill real payload, necessary feasibility only; no current MTP numerical or performance admission",
+    "runtime_changed": false
+  },
+  "native": {
+    "cases": 1073741824,
+    "admitted": 532709376,
+    "rejected": 541032448,
+    "raw_bit_mismatches": 0,
+    "control_failures": 0,
+    "coverage": "Each of65536 BF16 codes in each of four operand positions against all16^3 directed corner triples; not exhaustive65536^4. Complete-domain equivalence is supported by the separate algebraic proof.",
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "sass_ffma_count": 6,
+    "sass_fadd_count": 2
+  },
+  "decision": "Allow one bounded native KV-certificate/exact pair executor composition. Mathematical feasibility does not establish current-MTP applicability or whole-API benefit.",
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_achieved": false,
+  "new_performance": null,
+  "files": {
+    "assess.py": "aaea96725abcf2d736bc1a2be78bb51af08c00feb6a6df449a7b18346219a651",
+    "assessment.json": "72cebf7902f65ef932ca7bd0468ee373165ca04ebf61ccc6dcf8fa8c155225f6",
+    "pair-native.cu": "4c97e0d56f6a10a5783bddd76b28db349cedaa2cc3962f881c52e6a4af4b782f",
+    "pair-native": "7f996b277961f5661af47e0226f71275c63a72f9b406c96e3b95eff4e6bd22dc",
+    "run-native.py": "12fc7a447b64a17972440d2a29fcf9bf2964e2215ddb95dc0232a5ffe8e907a3",
+    "pair-native.sass": "57a755d7d3b280e7d58887b2fed6e64ebafcd08087b9c8f2e3bd61df0e25506c",
+    "native/cache-preparation.json": "5d35ad39dbeee79e4f86b72c51a61217015bcb6655161f92e4889e0ddf2ebaed",
+    "native/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    "native/run.log": "18171a7261677cc77fe4bb60fa671099433c436639be233031a5f1add059b619",
+    "native/preflight-console.log": "8b4a6721460126dd04f2e2e29018381760a327fb309ad5d2cf6a72e9d3428e4e",
+    "native/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native/preflight.json": "7144dddc21b9f8ce5938733ad6cda068daca2bb8c07aecae3e4d58587f90cbca"
+  }
+}

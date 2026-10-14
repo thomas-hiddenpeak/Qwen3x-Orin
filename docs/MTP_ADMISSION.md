@@ -25,6 +25,31 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 QK complete product domain — arithmetic prerequisite
+
+`WP-MTP-QK-EXACT-PAIR-DOMAIN-20261014` owns one
+[complete-product proof](metadata/qwen36-27b-mtp-qk-exact-pair-domain-design-2026-10-14.json).
+Unlike the closed nonzero-even-product certificate, constrain both original
+products to exact finite FP32 values, allowing BF16 signed zeros. This excludes
+the odd negative-underflow zero that invalidated the earlier unguarded fusion.
+Check all dimensions in the authenticated historical captures and native raw
+bits across all BF16 codes and directed corner triples. Higher reductions and
+publication stay fixed. One native correctness process, no parameter scan or
+performance claim. A pass only unlocks a separately bounded current-payload
+certificate/executor/API composition; v101 remains the runtime incumbent.
+
+The [completed prerequisite](metadata/qwen36-27b-mtp-qk-exact-pair-domain-2026-10-14.json)
+passes all 163,864,576 historical BF16 operands, including the original zeros.
+One SM87 process checks 1,073,741,824 directed combinations: 532,709,376 admitted
+combinations have zero raw-bit differences; excluded-domain and signed-zero
+controls pass. Each BF16 code occupies each operand position against fixed
+corner triples; this is not exhaustive enumeration of all four operands.
+The algebraic proof supplies the complete-domain argument. Native machine code
+contains separate original FADD and candidate FFMA instructions. No runtime
+or performance baseline changes. The next composition must bind certificates
+to actual KV append/reset/rollback lifetimes, validate current full-state
+prefixes, and return immediately to d2 API before any d3 qualification.
+
 ## 2026-10-14 QK cache certificate — closed at host screen
 
 `WP-MTP-QK-CACHE-CERTIFICATE-20261014` owns one

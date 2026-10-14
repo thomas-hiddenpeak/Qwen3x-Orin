@@ -1,0 +1,34 @@
+{
+  "work_package_id": "WP-MTP-QK-EXACT-PAIR-DOMAIN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v103",
+  "source_parent": "1273957",
+  "decision_unit": "bounded_arithmetic_prerequisite",
+  "product_constraint": "MTP1.5x\u20133x real API Decode, d2/d3, exact target full state/logits/output; joint Prefill/TTFT/Decode/total",
+  "incumbent": "v101",
+  "downward_budget": {
+    "remaining_short_seconds": 0.0312007363,
+    "remaining_40k_seconds": 0.3484463013,
+    "instrumented_qk_family_seconds": 2.143195136,
+    "scope": "Family opportunity only; no predicted saving and long-only cannot close short gap"
+  },
+  "distinction": "Previous whole-prefix certificate required even products nonzero while odd operands were unrestricted; it failed on real zeros. This hypothesis proves a different sufficient mathematical domain for BOTH products. It does not vary the old guard threshold, certificate granularity or numerical tolerance.",
+  "proof": [
+    "Every operand is BF16 signed zero or absolute bits[0x2000,0x5f7f]. Nonzero products have <=16 significant bits, magnitudes >=2^-126 and <=(255/128)^2*2^126; thus exact finite normal FP32.",
+    "Original p=FMA_RN(a,b,+0), q=FMA_RN(c,d,+0). Nonzero products exact; zero products become positive zero. No odd negative-underflow zero is possible.",
+    "If ab nonzero, RN(p+q)=FMA_RN(a,b,q) since p is the exact real product. If ab zero, q is nonzero or positive zero; adding the signed product zero cannot change q, including q=+0. Opposite nonzero cancellation produces +0 in both expressions. Pair overflow also agrees.",
+    "Keep all higher pair merges, warp tree, scale and publication unchanged. Out-of-domain inputs require original arithmetic; a certificate must bind actual Q and K including speculative append, rollback/reset and causal lifetime."
+  ],
+  "validation": [
+    "Authenticate all eight historical real captures; inspect ALL256 dimensions, not only even product dimensions. This remains necessary feasibility, not current MTP admission.",
+    "One native SM87 raw-bit comparison: all65536 BF16 codes as each of four operands against fixed directed signed-zero/exponent/mantissa corner triples; execute fast form only under complete predicate. Check out-of-domain controls and preserved original negative-zero counterexample.",
+    "If both pass, a separately bounded native certificate ownership/executor and current real API composition is required. No runtime retention or speedup is granted by arithmetic testing."
+  ],
+  "bounds": {
+    "native_test_processes": 1,
+    "correctness_repairs": 1,
+    "performance_runs": 0,
+    "parameter_scans": 0
+  },
+  "artifact_root": ".q3x-work/mtp-qk-exact-pair-domain-20261014",
+  "expiry": "Arithmetic and historical feasibility decision; no production change"
+}
