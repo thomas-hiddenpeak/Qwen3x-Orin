@@ -587,3 +587,10 @@ scopes a local dependency check in existing documents; no Markdown paths/classes
 The [softmax warp-tree rejection](metadata/qwen36-27b-mtp-softmax-warp-tree-rejection-2026-10-14.json)
 records exact numerical checks and a nonpositive historical real-payload local
 comparison; no runtime retention or Markdown path/class changes.
+
+The [shared-prefix feedback design](metadata/qwen36-27b-mtp-shared-feedback-design-2026-10-14.json)
+updates existing MTP/Roadmap scope; no Markdown path/class changes.
+
+The [shared-prefix feedback rejection](metadata/qwen36-27b-mtp-shared-feedback-rejection-2026-10-14.json)
+records native admission and negative two-request API direction, with complete
+runtime removal. No Markdown path or classification changes.

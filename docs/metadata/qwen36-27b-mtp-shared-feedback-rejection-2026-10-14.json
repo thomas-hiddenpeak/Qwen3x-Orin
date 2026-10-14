@@ -1,0 +1,388 @@
+{
+  "work_package_id": "WP-MTP-SHARED-FEEDBACK-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v109",
+  "source_parent": "ff6d553",
+  "decision_unit": "architecture_candidate direction",
+  "status": "closed_negative_api",
+  "decision": "Close at8K before40K/d3/lifecycle after15.7401% Decode slowdown vs v101. Remove all policy/control/identity changes; no warmup, horizon, exploration or threshold scan in this package.",
+  "candidate_server_sha256": "5baf5e91721cad6f9f463cdd0dbe14640c28035ec2829a0744fe5e9ab6f6a7ed",
+  "source_snapshot": ".q3x-work/mtp-shared-feedback-20261014/source",
+  "initial_source_snapshot": ".q3x-work/mtp-shared-feedback-20261014/initial-source",
+  "numerical": {
+    "complete_prefixes": 10,
+    "singleton_included": true,
+    "failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "scope": "P65 unchanged target/draft arithmetic and new mixed-budget controller. Oracle artifact precedes host-only reward-eligibility repair; same mtp_control source and same numerical kernels. Repaired host policy separately passes host checks and two real API outputs. No new independentFP64/8K fullstate claim.",
+    "transactions": 15,
+    "mixed_budget_transactions": 4
+  },
+  "correctness_repair": {
+    "stage": "source audit before any API timing",
+    "finding": "Sharing outcome-known higher-budget rejections while censoring their unknown successful continuations would downward-bias higher-arm rewards. Exact individual labels do not make selected sample means unbiased.",
+    "final_rule": "Eligibility is k<=requested, independent of current acceptance/confidence outcome. Every eligible smaller budget has reward1+min(accepted,k), including confidence-shortened rounds. Do not update any larger budget from this round, even when its reward is inferable. Costs remain actual-arm only.",
+    "tests": "Enumerate every possible unseen continuation to establish eligible rewards, and assert repeated short-arm rejection cannot change larger-arm counts/sums.",
+    "scope": "One declared correctness repair; no alternate policy or parameter scan. Native mixed-budget state check exercises unchanged control/numerical code; final policy selected only after host recheck and realAPI."
+  },
+  "metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8904903080000001,
+      "prefill_tps": 72.99349517457073,
+      "ttft_s": 0.9090228819986805,
+      "decode_tps": 13.94866688238621,
+      "elapsed_s": 1.9844012499961536,
+      "incumbent_decode_tps": 13.96839569085758,
+      "decode_delta_percent": -0.14123890035763198
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.333855296,
+      "prefill_tps": 472.6011530678005,
+      "ttft_s": 17.356101566998404,
+      "decode_tps": 12.981710344780215,
+      "elapsed_s": 36.999427735994686,
+      "incumbent_decode_tps": 15.406742861030079,
+      "decode_delta_percent": -15.740072630041468
+    }
+  ],
+  "comparison": {
+    "complete_output_and_usage_equal_nonmtp_and_v101": true,
+    "all_generated_ids_equal_v101": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 2,
+    "server_sha256": "5baf5e91721cad6f9f463cdd0dbe14640c28035ec2829a0744fe5e9ab6f6a7ed",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8904903080000001,
+        "prefill_tps": 72.99349517457073,
+        "ttft_s": 0.9090228819986805,
+        "decode_tps": 13.94866688238621,
+        "elapsed_s": 1.9844012499961536,
+        "incumbent_decode_tps": 13.96839569085758,
+        "decode_delta_percent": -0.14123890035763198,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-shared-feedback-v109"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10755772416
+          ],
+          "draft_initialization_ms": [
+            5.419103,
+            5.443743
+          ],
+          "draft_ms": [
+            96.585497,
+            96.95173700000001
+          ],
+          "verify_ms": [
+            959.5971870000001,
+            960.6553379999999
+          ],
+          "reconcile_ms": [
+            17.314887,
+            17.351965
+          ],
+          "shared_feedback": [
+            null,
+            false
+          ],
+          "requested_budget_histogram": [
+            null,
+            [
+              0,
+              0,
+              7,
+              0
+            ]
+          ],
+          "budget_cost_count": [
+            null,
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "budget_cost_ms": [
+            null,
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "budget_reward_count": [
+            null,
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "budget_reward_sum": [
+            null,
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.333855296,
+        "prefill_tps": 472.6011530678005,
+        "ttft_s": 17.356101566998404,
+        "decode_tps": 12.981710344780215,
+        "elapsed_s": 36.999427735994686,
+        "incumbent_decode_tps": 15.406742861030079,
+        "decode_delta_percent": -15.740072630041468,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-shared-feedback-v109"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10755772416
+          ],
+          "rounds": [
+            98,
+            140
+          ],
+          "proposed": [
+            187,
+            140
+          ],
+          "accepted": [
+            157,
+            115
+          ],
+          "verified_rows": [
+            285,
+            280
+          ],
+          "accepted_by_position": [
+            [
+              86,
+              71,
+              0
+            ],
+            [
+              115,
+              0,
+              0
+            ]
+          ],
+          "proposal_histogram": [
+            [
+              0,
+              9,
+              89,
+              0
+            ],
+            [
+              0,
+              140,
+              0,
+              0
+            ]
+          ],
+          "draft_ordered_attention_steps": [
+            187,
+            140
+          ],
+          "entry_hidden_snapshots": [
+            98,
+            140
+          ],
+          "direct_gdn_state_rows": [
+            13680,
+            13440
+          ],
+          "seed_kv_reuses": [
+            98,
+            140
+          ],
+          "tail_kv_batches": [
+            71,
+            0
+          ],
+          "tail_kv_rows": [
+            142,
+            0
+          ],
+          "state_copy_bytes_elided": [
+            29253216256,
+            32191344640
+          ],
+          "draft_initialization_ms": [
+            531.398831,
+            546.991979
+          ],
+          "draft_ms": [
+            1539.310869,
+            1136.3305289999994
+          ],
+          "verify_ms": [
+            14710.987177999996,
+            18182.487738999997
+          ],
+          "reconcile_ms": [
+            295.933348,
+            317.7452109999999
+          ],
+          "shared_feedback": [
+            null,
+            true
+          ],
+          "requested_budget_histogram": [
+            null,
+            [
+              0,
+              138,
+              2,
+              0
+            ]
+          ],
+          "budget_cost_count": [
+            null,
+            [
+              0,
+              138,
+              1,
+              0
+            ]
+          ],
+          "budget_cost_ms": [
+            null,
+            [
+              0,
+              19361.174895,
+              140.307923,
+              0
+            ]
+          ],
+          "budget_reward_count": [
+            null,
+            [
+              0,
+              139,
+              1,
+              0
+            ]
+          ],
+          "budget_reward_sum": [
+            null,
+            [
+              0,
+              253,
+              1,
+              0
+            ]
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.375
+    }
+  },
+  "finding": {
+    "P8192_incumbent": {
+      "rounds": 98,
+      "proposed": 187,
+      "accepted": 157,
+      "verified_rows": 285
+    },
+    "P8192_candidate": {
+      "rounds": 140,
+      "proposed": 140,
+      "accepted": 115,
+      "verified_rows": 280,
+      "requested_budget_histogram": [
+        0,
+        138,
+        2,
+        0
+      ],
+      "learned_cost_counts": [
+        0,
+        138,
+        1,
+        0
+      ],
+      "learned_reward_counts": [
+        0,
+        139,
+        1,
+        0
+      ],
+      "learned_reward_sum": [
+        0,
+        253,
+        1,
+        0
+      ]
+    },
+    "interpretation": "The first chosen budget2 was shortened to one proposal by the unchanged confidence stop and rejected, giving its only learned reward1. Greedy empirical selection then stays with budget1; final tail budget2 is not learned. Round count rises42 despite five fewer verified rows. This is observed policy lock-in on an unrepresentative initial outcome, not proof that online scheduling or budget1 always fails. Actual complete API loses; local saved drafting does not select it.",
+    "attribution_limit": "No new GPU profile, DRAM or kernel-causality claim. Do not attribute unchanged Prefill/short variation to policy. No offline re-fit or hypothetical sum of future savings."
+  },
+  "scope": "One fresh d2 process, two complete output-equal requests and early stop. DriverSIGINT-2 during inter-request wait; server exits0, no errors, max69.375C. Not fullpanel, mirroredselection, d3 or release qualification.",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-shared-feedback-20261014",
+  "restoration": {
+    "runtime_diff_empty": true,
+    "removed_new_header": true,
+    "cached_measured_server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "rebuilt_restored_server_sha256": "3c9130cbd69d04caf4a98a961080fa190b0882d9b6a2a0b67680ef171dc346ef",
+    "rebuilt_restored_oracle_sha256": "54c23063f754ea71cbd9030dd572cc921553d8fa2d4cc698518ca2eff7a4b995",
+    "host_checks": "Internal ctest changing into directory: /home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission\nTest project /home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission\n    Start 2: whole_core_exact_decode_plan\n1/3 Test #2: whole_core_exact_decode_plan .....   Passed    0.00 sec\n    Start 5: mtp_control\n2/3 Test #5: mtp_control ......................   Passed    0.01 sec\n    Start 6: mtp_weights\n3/3 Test #6: mtp_weights ......................   Passed    0.00 sec\n\n100% tests passed, 0 tests failed out of 3\n\nLabel Time Summary:\ncorrectness    =   0.01 sec*proc (2 tests)\nhost           =   0.01 sec*proc (2 tests)\nmtp            =   0.01 sec*proc (2 tests)\n\nTotal Test time (real) =   0.02 sec\n"
+  },
+  "hygiene": {
+    "api_key_removed": true,
+    "runtime_and_tests_restored": true,
+    "new_header_removed": true,
+    "registered_worktrees": 47,
+    "retained_artifacts_inside_workspace": true,
+    "server_exit": 0,
+    "oracle_exit": 0
+  },
+  "validation": {
+    "document_control": "PASS:86 tracked/registered,1545 links,0errors",
+    "document_unit_tests": 7,
+    "restored_host_checks": 3,
+    "git_diff_check": "pass"
+  },
+  "artifact_manifest": ".q3x-work/mtp-shared-feedback-20261014/manifest.json",
+  "artifact_manifest_sha256": "58908676684fb20c247f205aa62f5eaf9968c306e11d19f497afb2efcbf49672",
+  "artifact_files": 179,
+  "artifact_bytes": 107961807
+}

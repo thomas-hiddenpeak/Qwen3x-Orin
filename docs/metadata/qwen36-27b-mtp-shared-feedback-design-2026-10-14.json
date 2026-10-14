@@ -1,0 +1,39 @@
+{
+  "work_package_id": "WP-MTP-SHARED-FEEDBACK-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v109",
+  "source_parent": "ff6d553",
+  "decision_unit": "architecture_candidate direction",
+  "product_constraint": "Complete real API d2/d3 Decode uplift50%\u2013200%; exact target state/output and original private numerical contract; joint Prefill/TTFT/Decode/total.",
+  "budget": "v101 d2 short/8K/40K gain45.6/67.1/47.6%; d3 is slower. One online controller must lower actual complete request cost, not sum counterfactual timing estimates. Long-only package has no claim on short gap.",
+  "mechanism": "Request-local shared-prefix reward and measured-round cost selection among budgets1..configured2/3. Keep existing0.4 confidence stop. First try each unmeasured budget once in descending order; thereafter select largest empirical committed-tokens/round-ms ratio, tie larger. Actual cost observations belong only to executed requested budget. No fabricated counterfactual costs, confidence-as-acceptance or cross-request learning.",
+  "shared_feedback_proof": "After completed nonterminal round with proposed n and accepted a, budget k output count is1+min(a,k) when k<=n; also known for all larger k if a<n (first rejection already observed), or n<requested (confidence stopped). If all n accepted and n=requested<k, larger-arm reward is unobserved and is not updated. Histories condition future estimates; no stationarity or optimality guarantee.",
+  "scope": "Enable only max_new_tokens>=64 to bound three-arm startup exploration on short generation; shorter requests keep incumbent. This fixed horizon boundary is not fitted or scanned. Tail-limited, stop/cancel/failure rounds do not update learning. Costs include full transaction and observers. Select effective budget before begin; no target/draft arithmetic changes or new allocation.",
+  "lineage": "v55 changed length by last accept/reject only; v67 confidence trace lacked counterfactual costs and was closed. This policy measures each chosen budget and shares only exactly inferable token rewards; no oldtrace fitting or offline calibration.",
+  "reference": {
+    "BanditSpec": "https://arxiv.org/html/2505.15141v1",
+    "TapOut": "https://arxiv.org/html/2511.02017v1",
+    "translation": "Online configuration selection motivates request-local observed feedback. Native greedy empirical rate with shared exact prefix feedback is a distinct experimental policy, not either paper algorithm or an inherited guarantee. No code import."
+  },
+  "profile": "q3x.sm87.admission.mtp-shared-feedback-api.v109",
+  "bounds": {
+    "policies": 1,
+    "threshold_or_length_scans": 0,
+    "correctness_repairs": 1,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Host exhaustive shared-reward censorship, cost-selection, invalid observations, reset and mixed-budget complete state replay, stop/cancel/failure contracts.",
+    "Current P65 fullprefix and mixed-budget transactions with complete state/KV equality; target/private arithmetic unchanged.",
+    "Immediate d2 P65/8K/40K API versus v101; short>3%slowdown or nonpositive8K/40K closes. Fullpositive unlocks d3/lifecycle; outputs/IDs identical, work allowed to change."
+  ],
+  "expiry": "One complete API direction or earlystop, no trace-only campaign. A positive controller remains bounded through next fullarchitecture qualification, not production.",
+  "artifact_root": ".q3x-work/mtp-shared-feedback-20261014",
+  "production_changed": false,
+  "correctness_repair": {
+    "stage": "source audit before any API timing",
+    "finding": "Sharing outcome-known higher-budget rejections while censoring their unknown successful continuations would downward-bias higher-arm rewards. Exact individual labels do not make selected sample means unbiased.",
+    "final_rule": "Eligibility is k<=requested, independent of current acceptance/confidence outcome. Every eligible smaller budget has reward1+min(accepted,k), including confidence-shortened rounds. Do not update any larger budget from this round, even when its reward is inferable. Costs remain actual-arm only.",
+    "tests": "Enumerate every possible unseen continuation to establish eligible rewards, and assert repeated short-arm rejection cannot change larger-arm counts/sums.",
+    "scope": "One declared correctness repair; no alternate policy or parameter scan. Native mixed-budget state check exercises unchanged control/numerical code; final policy selected only after host recheck and realAPI."
+  }
+}

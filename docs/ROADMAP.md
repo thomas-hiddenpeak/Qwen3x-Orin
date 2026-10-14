@@ -19,6 +19,38 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 shared-prefix feedback — closed negative
+
+`WP-MTP-SHARED-FEEDBACK-20261014` selects one
+[request-local rate controller](metadata/qwen36-27b-mtp-shared-feedback-design-2026-10-14.json).
+Choose budgets 1..configured 2/3 from exactly inferable prefix rewards and
+measured costs of executed budgets. Keep the current confidence stop; never
+invent a larger all-accepted continuation or counterfactual latency. Each budget
+is tried once in descending order, then empirical committed tokens per complete
+round time select it. Feedback eligibility is restricted to budgets no larger than the chosen budget,
+independent of the current outcome, to avoid rejection-only sampling bias.
+No cross-request learning. Apply only to requested outputs
+at least 64; short requests stay unchanged. This experimental policy has no
+statistical optimality guarantee and cannot close the short gap. Host shared-
+feedback/state checks and native mixed-budget transactions return immediately
+to d2 API; nonpositive 8K/40K closes, useful full direction unlocks d3. One policy,
+no threshold/length/profile scan or production promotion. v101 remains incumbent.
+
+The [completed API direction](metadata/qwen36-27b-mtp-shared-feedback-rejection-2026-10-14.json)
+passes ten complete prefixes and fifteen transactions (four with mixed budgets), four failure
+recoveries and eight initialization-cancel checks. The one host-only repair
+restricts feedback eligibility to avoid rejection-only sampling bias. Both
+completed API outputs and generated IDs match v101/non-MTP. P65/8K Prefill is
+0.890/17.334 s (72.99/472.60 token/s), TTFT 0.909/17.356 s, Decode
+13.949/12.982 token/s and total 1.984/36.999 s. At 8K Decode falls 15.740%;
+rounds rise from 98 to 140 despite verified rows falling from 285 to 280.
+The first budget-2 observation is confidence-shortened and rejected; the
+empirical greedy policy then stays at budget 1. This is a failure of this
+policy, not a general scheduling or hardware limit. Stop before 40K/d3/lifecycle,
+restore all runtime/control/identity files to v101, and preserve the evidence.
+No warmup, horizon, exploration or threshold scan follows. Existing v101 joint
+metrics and the complete unmet objective remain unchanged.
+
 ## 2026-10-14 softmax warp tree — closed without local gain
 
 `WP-MTP-SOFTMAX-WARP-TREE-20261014` selects one
