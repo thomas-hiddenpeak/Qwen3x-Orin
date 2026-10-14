@@ -571,3 +571,6 @@ records numerical admission and joint d2/d3 API direction; bounded development r
 
 The [private PV partition design](metadata/qwen36-27b-mtp-private-pv-split-design-2026-10-14.json)
 records the existing-profile budget audit and bounded private-only successor.
+
+The [private PV partition closure](metadata/qwen36-27b-mtp-private-pv-split-rejection-2026-10-14.json)
+records numerical admission, neutral real-API direction and restored v101 runtime.

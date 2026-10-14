@@ -147,6 +147,13 @@ changes only +0.0346%/+0.0507%. D3 and further profiling are not run. This
 closes that arithmetic-hoisting path; its v98 comparator is preserved in the
 dated record.
 
+The later [private PV partition](metadata/qwen36-27b-mtp-private-pv-split-rejection-2026-10-14.json) passes recursive
+original-weight FP64 checks through position44095, but gives neutral complete
+API results: 8K/40K Decode changes +0.0688%/-0.0528% versus v101. The candidate
+is removed at its declared long stop before d3; only long-capture and independent
+recursive numerical tools remain. Current runtime and joint metrics above stay
+v101. No full-goal or production claim follows.
+
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not

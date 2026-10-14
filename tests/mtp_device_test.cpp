@@ -149,19 +149,20 @@ void confidence_test() {
   std::cout << "confidence_cpu_cases=" << cases << std::endl;
 }
 int main(int argc, char** argv) try {
+  const bool draft_long = argc == 5 && std::string(argv[4]) == "--draft-long";
   const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
-  if (argc != 4 && !prefix_only) {
-    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only]\n"; return 2;
+  if (argc != 4 && !prefix_only && !draft_long) {
+    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long]\n"; return 2;
   }
 #if !defined(Q3X_MTP_WHOLE_CORE_TEST)
-  if (prefix_only) return 2;
+  if (prefix_only || draft_long) return 2;
 #endif
   const std::filesystem::path output(argv[3]);
   require(std::filesystem::is_directory(output), "output directory must exist");
   std::ifstream input(argv[2], std::ios::binary | std::ios::ate);
   require(bool(input), "prompt input");
   const auto size = input.tellg();
-  require(size >= 4 && size <= (prefix_only ? 8192 : 513) * 4 && size % 4 == 0, "prompt outside declared correctness panel");
+  require(size >= 4 && size <= (draft_long ? 44093 : (prefix_only ? 8192 : 513)) * 4 && size % 4 == 0, "prompt outside declared correctness panel");
   std::vector<std::uint32_t> prompt(static_cast<std::size_t>(size) / 4);
   input.seekg(0);
   input.read(reinterpret_cast<char*>(prompt.data()), size);
@@ -225,14 +226,16 @@ int main(int argc, char** argv) try {
     const auto final_view = request->layer_major_final_hidden();
     require(bool(final_view), "whole-core final view");
     const auto final_hidden = read_device(final_view.value->storage.device_data, 10240);
-    const auto before = live_state(*request, *target);
+    const auto before = draft_long ? std::vector<char>{} : live_state(*request, *target);
     require(transaction.initialize_whole_core_prefill(prompt.data(), prompt.size()), "whole-core MTP initialization");
-    const auto after = live_state(*request, *target);
+    const auto after = draft_long ? std::vector<char>{} : live_state(*request, *target);
     // Only the previously unused scalar final-hidden workspace may change.
+    if (!draft_long) {
     const auto hidden_begin = before.size() - 248320 * 2 - 10240;
     require(std::equal(before.begin(), before.begin() + hidden_begin, after.begin()) &&
             std::equal(before.end() - 248320 * 2, before.end(), after.end() - 248320 * 2),
             "MTP initialization altered target persistent state/logits");
+    }
     require(read_device(mtp::TargetTransaction::hidden(*target), 10240) == final_hidden,
             "prompt capture final row differs from whole-core handoff");
     return result.value->generated_token_ids.at(0);
@@ -242,6 +245,41 @@ int main(int argc, char** argv) try {
   std::uint32_t seed = 0;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   seed = initialize();
+  if (draft_long) {
+    const auto initial_position = draft.position();
+    write(output / "initial-hidden.bf16", read_device(mtp::TargetTransaction::hidden(*target), 10240));
+    write(output / "initial-k.bf16", read_device(draft.keys(), initial_position * 2048ULL));
+    write(output / "initial-v.bf16", read_device(draft.values(), initial_position * 2048ULL));
+    std::vector<char> hidden_rows, key_rows, value_rows;
+    std::vector<std::uint32_t> tokens;
+    auto token = seed;
+    for (unsigned row = 0; row < 3; ++row) {
+      tokens.push_back(token);
+      const auto position = draft.position();
+      std::uint32_t prediction = 0;
+      require(draft.step(token, row ? draft.hidden() : mtp::TargetTransaction::hidden(*target),
+                         true, prediction), "long recursive draft step");
+      for (auto pair : {std::make_pair(&hidden_rows, read_device(draft.hidden(),10240)),
+                        std::make_pair(&key_rows,read_device(draft.keys()+position*1024ULL,2048)),
+                        std::make_pair(&value_rows,read_device(draft.values()+position*1024ULL,2048))})
+        pair.first->insert(pair.first->end(),pair.second.begin(),pair.second.end());
+      token = prediction;
+    }
+    write(output / "recursive-hidden.bf16", hidden_rows);
+    write(output / "recursive-k.bf16", key_rows);
+    write(output / "recursive-v.bf16", value_rows);
+    std::vector<char> token_bytes(tokens.size()*4);
+    std::memcpy(token_bytes.data(),tokens.data(),token_bytes.size());
+    write(output / "recursive-tokens.u32",token_bytes);
+    std::ofstream meta(output / "recursive.json");
+    meta << "{\"initial_position\":" << initial_position << ",\"steps\":3,\"long_attention_steps\":"
+         << draft.ordered_attention_steps() << "}\n";
+    require(bool(meta),"recursive metadata write");
+    std::cout << "long_recursive_capture=complete steps=3 initial_position=" << initial_position
+              << " numerical_pass=pending_independent_FP64\n";
+    return 0;
+  }
+
   {
     // Same real hidden/history, independently selected original draft GQA.
     mtp::Draft reference(weights, *model_weights, request->max_sequence_length(),

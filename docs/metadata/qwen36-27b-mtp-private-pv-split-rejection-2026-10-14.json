@@ -1,0 +1,547 @@
+{
+  "work_package_id": "WP-MTP-PRIVATE-PV-SPLIT-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v101",
+  "source_parent": "4b24aeb",
+  "decision": "remove_neutral_composition_at_declared_nonpositive_long_stop",
+  "design": "docs/metadata/qwen36-27b-mtp-private-pv-split-design-2026-10-14.json",
+  "profile_tested": "q3x.sm87.admission.mtp-private-pv-split-api.v102",
+  "server_sha256": "167f48e0926633ca8bcb1030248e3f587dedc34ee0e6bbdc03cc093193402750",
+  "oracle_sha256": "648ee87ea7fc924be9a118130fac17d92268c49b8119bba6bcd024c28b523561",
+  "numerical": {
+    "recursive_reference": {
+      "recursive-p8192": {
+        "scope": "three recursively propagated original-weight FP64 steps, conditional on captured initial KV and fixed captured input token IDs",
+        "initial_position": 8191,
+        "threshold_max_row_relative_l2": 0.02,
+        "comparisons": {
+          "hidden": {
+            "row_relative_l2": [
+              0.007942324994564327,
+              0.011470595470122436,
+              0.010905007909828
+            ],
+            "max_row_relative_l2": 0.011470595470122436,
+            "pass": true
+          },
+          "k": {
+            "row_relative_l2": [
+              0.0007794753756110146,
+              0.007828375677097594,
+              0.010558430652176496
+            ],
+            "max_row_relative_l2": 0.010558430652176496,
+            "pass": true
+          },
+          "v": {
+            "row_relative_l2": [
+              0.0005952302733510701,
+              0.005912683516837039,
+              0.006768790916778772
+            ],
+            "max_row_relative_l2": 0.006768790916778772,
+            "pass": true
+          }
+        },
+        "payload_sha256": {
+          "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+          "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+          "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+          "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+          "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+          "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+          "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+          "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+          "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+          "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+          "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+          "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+          "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+          "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+          "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+          "selected_embedding_rows": "38d7d201921fed9a84eb0f172b7720cc2e178b3b49a4d38c801b04b7a2061f5b"
+        },
+        "pass": true,
+        "capture_sha256": {
+          "initial-v.bf16": "c8ef35455f0b608694e2ad2503df673cffc982f4fedad0deea76fc49b0df4762",
+          "real-p.f32": "16714490f4ca4f9f7b746918b29f4c8be9d1c870486d6b49ef35815f615a0f36",
+          "initial-hidden.bf16": "c823e87a286f5e4f3c2ba1f1fe39c0e85a134ac1b6f79326c4a0e47e98c7875b",
+          "initial-k.bf16": "ea772c4a4074c6e8e7f60fca574ac81542e07cf50f0442e6b2e41cdda1af146d",
+          "recursive-v.bf16": "486cdd341b1a9f332ccc5e0f76d898accbfd142547446aa4024fe716fb9a1868",
+          "recursive-tokens.u32": "8a166908cbaa565d47bdcbc64842470e6ce6ee3daf1e6707303efbbe2ae9a98a",
+          "real-v.bf16": "64fa9c9d18bc50860fcbeccdf80b59144c03f810cf87330b364bd28e7df96d2a",
+          "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "recursive-k.bf16": "8b41003471f4c5fefc2f5843868eaf82df1d6c40ac540e9ab4233093313b6024",
+          "recursive-hidden.bf16": "6982133c67265c67d2a31baee704835afc2297eceb8af8a8269f0dc2364769ba"
+        }
+      },
+      "recursive-p40000": {
+        "scope": "three recursively propagated original-weight FP64 steps, conditional on captured initial KV and fixed captured input token IDs",
+        "initial_position": 39999,
+        "threshold_max_row_relative_l2": 0.02,
+        "comparisons": {
+          "hidden": {
+            "row_relative_l2": [
+              0.008928840683394577,
+              0.01268553242647671,
+              0.012565669455529426
+            ],
+            "max_row_relative_l2": 0.01268553242647671,
+            "pass": true
+          },
+          "k": {
+            "row_relative_l2": [
+              0.0015887989477417154,
+              0.008840332436821497,
+              0.00927879430435322
+            ],
+            "max_row_relative_l2": 0.00927879430435322,
+            "pass": true
+          },
+          "v": {
+            "row_relative_l2": [
+              0.0009263718557567953,
+              0.008112059695067049,
+              0.009351900417457924
+            ],
+            "max_row_relative_l2": 0.009351900417457924,
+            "pass": true
+          }
+        },
+        "payload_sha256": {
+          "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+          "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+          "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+          "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+          "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+          "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+          "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+          "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+          "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+          "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+          "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+          "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+          "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+          "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+          "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+          "selected_embedding_rows": "32a56bc8428ec43a784026d19642f612e476e4ff7caacd16906d17161b70f92f"
+        },
+        "pass": true,
+        "capture_sha256": {
+          "initial-v.bf16": "25a46054204cee12e530588adf3825349483ce8e17d7a70c147fad7170cab061",
+          "real-p.f32": "27bce2c4223947fde347009cdf6ee9ce9f335ac0c5dd3a9079d268398dcb982e",
+          "initial-hidden.bf16": "a04d8c1038031758e2222d0cad060da32c5ec2e39a0e02137324bed98e234013",
+          "initial-k.bf16": "c3017f85efb6ba9bf54a3d566ef1a5ea7c1f8a2ecbca455238852d223ff7322a",
+          "recursive-v.bf16": "b11f86a6dfabdc4371bab6db9f95bae1fd1600aeffb62c82b1ebf59ceb2029bb",
+          "recursive-tokens.u32": "35b36db365677296a123dc5734c0eb1822742cd8b32bdf54100c61637afe4583",
+          "real-v.bf16": "6e482d91f80cc39bda4763b10e8a9d98ca2aeb8f5a243f8c2819190f416da9a6",
+          "prompt.u32": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "recursive-k.bf16": "0872577ccc25ae7cb70e2247c10a56175f490bf32c40536a93b2c2d167bb9502",
+          "recursive-hidden.bf16": "adcd9370e95ca5cad9fb6dee386f49d6829e157a91366dd193e83b6fa9c4f50d"
+        }
+      },
+      "recursive-p44093": {
+        "scope": "three recursively propagated original-weight FP64 steps, conditional on captured initial KV and fixed captured input token IDs",
+        "initial_position": 44092,
+        "threshold_max_row_relative_l2": 0.02,
+        "comparisons": {
+          "hidden": {
+            "row_relative_l2": [
+              0.008576362364656413,
+              0.009838682298585083,
+              0.015622989812654631
+            ],
+            "max_row_relative_l2": 0.015622989812654631,
+            "pass": true
+          },
+          "k": {
+            "row_relative_l2": [
+              0.0006952232750469296,
+              0.007494499644899368,
+              0.010990693032959185
+            ],
+            "max_row_relative_l2": 0.010990693032959185,
+            "pass": true
+          },
+          "v": {
+            "row_relative_l2": [
+              0.0010049866670210235,
+              0.004969610252325582,
+              0.007523373104310714
+            ],
+            "max_row_relative_l2": 0.007523373104310714,
+            "pass": true
+          }
+        },
+        "payload_sha256": {
+          "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+          "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+          "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+          "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+          "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+          "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+          "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+          "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+          "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+          "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+          "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+          "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+          "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+          "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+          "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+          "selected_embedding_rows": "90417150f1b231567c585e35c679c83d26bab70d2b6ee89349afcebedf7f5f8c"
+        },
+        "pass": true,
+        "capture_sha256": {
+          "initial-v.bf16": "e5eca7bc1b52df0d0421c16244a1ff43d2b74e268d266fae0d88ccf8184e68d7",
+          "real-p.f32": "4f80a17efd902a000bcd2b8ab76d20f77433c4ae3ab2b8e66437a914581fa66c",
+          "initial-hidden.bf16": "df0e60c205fdd43e9d1c618ffe996bfc26703a48165f1039a627fdf6c220403d",
+          "initial-k.bf16": "cad31b963af53841e1c5a0715ea92a68e4661819565e5c655812f035553ac521",
+          "recursive-v.bf16": "5a17afd20db5a6532c472e0337a929484d748bf6cd5a693b55530ac4c01a7377",
+          "recursive-tokens.u32": "48f70933b3fc82c316ca1e211708cd483b63d7675ce84df0971aa62a0e908e80",
+          "real-v.bf16": "f54ac3bc6824b119419afb958f58ba209ea1eb24e6a3c46e36cba7d8a0e42601",
+          "prompt.u32": "dc826ac89d10a8179c1d945c2e65fb1f3869ed05d66822bd2efc797846445f8d",
+          "recursive-k.bf16": "39069ab348954d303a9dd9d8e7fa01c3adf340d66ae4fadd49db60fc056c9cbe",
+          "recursive-hidden.bf16": "06ee551876fb7e56eed6476d50bb8ea70c17ad421e19f217f45b314bf5e0850c"
+        }
+      }
+    },
+    "reference_boundary": "FP64 recursively propagates its own hidden and appended K/V for three steps using original BF16 MTP weights, captured token IDs, and a common captured initial KV. This does not independently regenerate initial long KV.",
+    "original_weight_hashes_match_prior_admitted_reference": true,
+    "synthetic_cases": 10,
+    "synthetic_graph_replays": 30,
+    "synccheck": "root run zero errors; first non-root attempt could not enable GPU debugging, not a kernel finding",
+    "real_operand_cases": 5,
+    "real_operand_graph_replays": 15,
+    "real_operand_source": "Last recursive step at44095 from independent original-weightFP64; shorter cases restrict that real V/P to a prefix and renormalize P. Correctness only, not actual short-request timing/state or performance evidence.",
+    "partition_proof": {
+      "sequences_checked": 43584,
+      "empty_final_partitions": 64,
+      "coverage_pass": true,
+      "correctness_repair": "Before new GPU validation, static review found an empty final split could exit with two zero-fill async groups pending. Uniform early zero publication now happens before staging. No captured8192/40000 case has an empty split; old513synthetic pass is superseded by post-repair Graph/sync checks."
+    },
+    "resources": {
+      "pv_registers": 40,
+      "pv_shared_bytes": 38912,
+      "merge_registers": 16,
+      "stack": 0,
+      "local": 0
+    },
+    "pre_repair_capture_scope": "8K/40K captures precede empty-split early return; all their partitions are nonempty. Final-kernel real-operand panel and post-repair44095 recursive capture pass.",
+    "target_source_identity": [
+      {
+        "source_span": "__device__ __forceinline__ void ordered_stage(",
+        "unchanged": true,
+        "sha256": "4c7e3535d502a301ce87360da08cecad8eac4292c74acc727ccd6c323c15b2c7"
+      },
+      {
+        "source_span": "int launch(const std::uint16_t* query,",
+        "unchanged": true,
+        "sha256": "4cc71f016978abf6d766bdbae381538adabd4db01d6bb1fcf7789553733f41ac"
+      }
+    ]
+  },
+  "target_state": {
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.718
+    },
+    "short_capture_identical_v101": {
+      "prompt.u32": true,
+      "target-hidden.bf16": true,
+      "target-residual.bf16": true,
+      "draft-prefill-hidden.bf16": true,
+      "draft-prefill-k.bf16": true,
+      "draft-prefill-v.bf16": true
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v101": true,
+    "all_generated_ids_equal_v101": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 3,
+    "server_sha256": "167f48e0926633ca8bcb1030248e3f587dedc34ee0e6bbdc03cc093193402750",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.89100491,
+        "prefill_tps": 72.95133760822934,
+        "ttft_s": 0.9096384570002556,
+        "decode_tps": 13.965041579542728,
+        "elapsed_s": 1.9835167929995805,
+        "incumbent_decode_tps": 13.96839569085758,
+        "decode_delta_percent": -0.02401214419381903,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-private-pv-split-v102"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10748678144
+          ],
+          "draft_partitioned_attention_steps": [
+            null,
+            0
+          ],
+          "draft_initialization_ms": [
+            5.419103,
+            5.475785
+          ],
+          "draft_ms": [
+            96.585497,
+            96.81003299999999
+          ],
+          "verify_ms": [
+            959.5971870000001,
+            959.579279
+          ],
+          "reconcile_ms": [
+            17.314887,
+            17.335041
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.338856779,
+        "prefill_tps": 472.4648288185736,
+        "ttft_s": 17.360930606999318,
+        "decode_tps": 15.417340302764066,
+        "elapsed_s": 33.90106504499272,
+        "incumbent_decode_tps": 15.406742861030079,
+        "decode_delta_percent": 0.06878443957671898,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-private-pv-split-v102"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10748678144
+          ],
+          "draft_partitioned_attention_steps": [
+            null,
+            187
+          ],
+          "draft_initialization_ms": [
+            531.398831,
+            549.912872
+          ],
+          "draft_ms": [
+            1539.310869,
+            1531.7147380000006
+          ],
+          "verify_ms": [
+            14710.987177999996,
+            14707.434798000004
+          ],
+          "reconcile_ms": [
+            295.933348,
+            295.80653299999983
+          ]
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.70612950999998,
+        "prefill_tps": 431.4709309019885,
+        "ttft_s": 92.74099409100018,
+        "decode_tps": 11.613712228449772,
+        "elapsed_s": 114.69937879500503,
+        "incumbent_decode_tps": 11.61985161872719,
+        "decode_delta_percent": -0.052835358650549225,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-private-pv-split-v102"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10748678144
+          ],
+          "draft_partitioned_attention_steps": [
+            null,
+            201
+          ],
+          "draft_initialization_ms": [
+            2605.064143,
+            2681.215111
+          ],
+          "draft_ms": [
+            1887.0303519999993,
+            1843.8697979999997
+          ],
+          "verify_ms": [
+            19758.140648000008,
+            19812.196306000005
+          ],
+          "reconcile_ms": [
+            294.75297400000017,
+            295.4377500000001
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 76.406
+    }
+  },
+  "decision_reason": "P65/8K/40K Decode changes -0.0240/+0.0688/-0.0528percent versus v101. These are neutral whole-API observations, not evidence that private partitioning causes target-verifier slowdown. At40K private draft phase falls43.160554ms but unchanged target verifier rises54.055658ms; wholeDecode does not improve. Declared nonpositive40K stop closes without further timing or d3.",
+  "stop_process": "Driver receives SIGINT during the30-second idle after the completed40K response. Driver exits-2, server exits0, monitor errors empty. API lifecycle requests and d3 are not completed or claimed.",
+  "counter_accounting": "New draft_partitioned_attention_steps replaces draft_ordered_attention_steps only for the rejected candidate. Actual proposed/accepted/verified work and complete generated IDs/responses match v101. No arithmetic cause is assigned to unchanged Prefill or target timing variation.",
+  "runtime_restoration": {
+    "build_restore": "Both restored-source targets compile; fresh rebuilt ELF hashes differ from previously measured artifacts. No numerical/performance claim is inherited by those new ELFs. Cached server is restored from exact measured v101 frozen binary. The rebuilt oracle retains only the new diagnostic capture interface; it has no performance authority.",
+    "binaries": {
+      "server": {
+        "rebuilt_sha256": "a79b23a2a7f5fd16c6fee515ca6338957b6547388250a2f9c457a382a6171aef",
+        "measured_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09"
+      },
+      "oracle": {
+        "rebuilt_sha256": "b40e609dd16c968e427f20868af69b114e50a42ae76041025f4178d4786906b2",
+        "measured_sha256": "ad713826c4fb8142d4ac516d34f589730b03dcbb8ff3e36c2da74c32247777a0",
+        "kept_new_diagnostic_capture_binary": true
+      }
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "worktree_count": 47,
+    "runtime_source_matches_frozen_v101": true,
+    "diagnostic_source_exception": "tests/mtp_device_test.cpp adds only --draft-long capture; tools/evaluation/validate_mtp_recursive.py adds the independent reference. Runtime source remains byte-identical to measuredv101."
+  },
+  "retained_tools": "Only --draft-long capture mode and independent original-weight FP64 recursive validator remain new. Runtime, route labels, receipt counters and cached server return to v101. The rebuilt correctness oracle includes the diagnostic mode and has no timing authority.",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-private-pv-split-20261014",
+  "hygiene": {
+    "gpu_device_fd_audit": {
+      "complete": true,
+      "holders": [],
+      "ignored_process_exit_races": [
+        {
+          "fd": "3",
+          "identity_after_error": "same",
+          "kind": "descriptor_closed",
+          "pid": 89761,
+          "stage": "fd_target"
+        }
+      ],
+      "inaccessible_fds": [],
+      "inaccessible_processes": [],
+      "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+      "scanned_fds": 983,
+      "scanned_processes": 288
+    },
+    "registered_worktrees": 47,
+    "remaining_api_key_files": [],
+    "remaining_tmp_files": [],
+    "cached_server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "diagnostic_oracle_sha256": "b40e609dd16c968e427f20868af69b114e50a42ae76041025f4178d4786906b2",
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "production_changed": false
+  },
+  "retained_tool_check": {
+    "scope": "three recursively propagated original-weight FP64 steps, conditional on captured initial KV and fixed captured input token IDs",
+    "initial_position": 8191,
+    "threshold_max_row_relative_l2": 0.02,
+    "comparisons": {
+      "hidden": {
+        "row_relative_l2": [
+          0.008031539720446235,
+          0.010706013709037641,
+          0.010830630602642825
+        ],
+        "max_row_relative_l2": 0.010830630602642825,
+        "pass": true
+      },
+      "k": {
+        "row_relative_l2": [
+          0.0007794753756110146,
+          0.007719964576451031,
+          0.01029139223206606
+        ],
+        "max_row_relative_l2": 0.01029139223206606,
+        "pass": true
+      },
+      "v": {
+        "row_relative_l2": [
+          0.0005952302733510701,
+          0.00532457387385835,
+          0.006652226046757015
+        ],
+        "max_row_relative_l2": 0.006652226046757015,
+        "pass": true
+      }
+    },
+    "payload_sha256": {
+      "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+      "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+      "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+      "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+      "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+      "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+      "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+      "selected_embedding_rows": "38d7d201921fed9a84eb0f172b7720cc2e178b3b49a4d38c801b04b7a2061f5b"
+    },
+    "pass": true,
+    "capture_sha256": {
+      "initial-v.bf16": "c8ef35455f0b608694e2ad2503df673cffc982f4fedad0deea76fc49b0df4762",
+      "real-p.f32": "16714490f4ca4f9f7b746918b29f4c8be9d1c870486d6b49ef35815f615a0f36",
+      "initial-hidden.bf16": "c823e87a286f5e4f3c2ba1f1fe39c0e85a134ac1b6f79326c4a0e47e98c7875b",
+      "initial-k.bf16": "ea772c4a4074c6e8e7f60fca574ac81542e07cf50f0442e6b2e41cdda1af146d",
+      "recursive-v.bf16": "8f54a5e753649592213dabd12cc45da5a9b0440b7c401b45e51eb3388573ff06",
+      "recursive-tokens.u32": "8a166908cbaa565d47bdcbc64842470e6ce6ee3daf1e6707303efbbe2ae9a98a",
+      "real-v.bf16": "64fa9c9d18bc50860fcbeccdf80b59144c03f810cf87330b364bd28e7df96d2a",
+      "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+      "recursive-k.bf16": "a08157bb04878fdd98f953c000275e83892989a5c7f10b7e125445e8a5462335",
+      "recursive-hidden.bf16": "7cc705c4005587f7b62e8e03cf2cc91b71a804889130abc42bfa161ec16b84af"
+    }
+  },
+  "retained_tool_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 69.531
+  },
+  "retained_source_sha256": {
+    "tests/mtp_device_test.cpp": "9edac6a9d3cc60ef1fab0e9b0025ec5728cc7229e505a8b69e068885420f43fc",
+    "tools/evaluation/validate_mtp_recursive.py": "e0b04d1ef67ad6b84b3d275c95c19add830057a501f7471296541966855166b4"
+  },
+  "host_tests": "Internal ctest changing into directory: /home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission\nTest project /home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission\n    Start 2: whole_core_exact_decode_plan\n1/3 Test #2: whole_core_exact_decode_plan .....   Passed    0.00 sec\n    Start 5: mtp_control\n2/3 Test #5: mtp_control ......................   Passed    0.01 sec\n    Start 6: mtp_weights\n3/3 Test #6: mtp_weights ......................   Passed    0.00 sec\n\n100% tests passed, 0 tests failed out of 3\n\nLabel Time Summary:\ncorrectness    =   0.01 sec*proc (2 tests)\nhost           =   0.01 sec*proc (2 tests)\nmtp            =   0.01 sec*proc (2 tests)\n\nTotal Test time (real) =   0.02 sec\n",
+  "document_validation": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1502\nerrors: 0\n",
+  "document_unit_tests": ".......\n----------------------------------------------------------------------\nRan 7 tests in 0.394s\n\nOK\n",
+  "source_snapshot_note": {
+    "snapshot": "post-repair-source-snapshot.cu",
+    "note": "The copy occurred after the build freeze refreshed this source. It contains the empty-partition repair and is not a pre-repair source attestation. Earlier recursive capture executables and their binary identities are retained in their own directories. Independent numerical verdicts compare actual captured bytes, not inferred source identity."
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-private-pv-split-20261014/artifact-manifest.json",
+    "files": 255,
+    "bytes": 763328686,
+    "sha256": "50c7bf655552732f2187354539f0cc286653e2ce06ed0d67a676b2a0b008ff61"
+  }
+}

@@ -25,7 +25,7 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-14 private Attention PV partition — selected implementation
+## 2026-10-14 private Attention PV partition — closed neutral
 
 `WP-MTP-PRIVATE-PV-SPLIT-20261014` / `AC-MTP-GREEDY-v101` selects one
 [private PV composition](metadata/qwen36-27b-mtp-private-pv-split-design-2026-10-14.json).
@@ -41,6 +41,30 @@ One executor, one correctness repair, no parameter/profile scan. Full shape,
 guard/Graph and real numerical checks return immediately to d2 API; useful long
 direction unlocks d3. Short >3% slowdown or nonpositive 8K/40K closes. No new
 performance result or production change is claimed. v101 remains incumbent.
+
+The [completed direction](metadata/qwen36-27b-mtp-private-pv-split-rejection-2026-10-14.json)
+passes ten synthetic PV cases, 30 Graph replays and root synchronization checks,
+plus five real-operand prefix cases and 15 Graph replays. Recursive original-weight
+FP64 checks at 8K, 40K and through position 44095 pass the unchanged 2% bound;
+maximum hidden errors are 1.147%, 1.269% and 1.562%. These recursive references
+share a captured initial KV; they do not independently regenerate that cache.
+Ten complete target prefixes, fifteen transactions and failure/cancel checks pass.
+One static correctness repair handles empty final partitions before async staging.
+
+All three completed d2 responses and generated IDs match v101, with unchanged
+acceptance/work. Decode is 13.965/15.417/11.614 token/s at P65/8K/40K, changing
+-0.0240%/+0.0688%/-0.0528%. Prefill is 0.891/17.339/92.706 seconds,
+72.95/472.46/431.47 token/s; TTFT0.910/17.361/92.741 seconds and
+complete request1.984/33.901/114.699 seconds. At40K private draft time falls
+43.161 ms, but whole Decode does not improve. Do not attribute unchanged target
+or Prefill variation to the partition. The declared nonpositive40K stop closes
+before API lifecycle requests or d3; server cleanup exits0. Restore v101 runtime
+and measured server. Retain only the diagnostic long-capture/FP64 tools, with
+no new speed or production claim. No partition/tile/profile scan follows.
+The retained capture/FP64 utility also passes on restored v101 at 8K: three
+recursive steps reach hidden/K/V maxima 1.083%/1.029%/0.665%, conditional on
+the captured initial KV. This is a numerical tool check, not a new timing run.
+
 
 ## 2026-10-14 private MLP register consumption — API return complete
 
