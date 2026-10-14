@@ -25,6 +25,23 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 private Attention PV partition — selected implementation
+
+`WP-MTP-PRIVATE-PV-SPLIT-20261014` / `AC-MTP-GREEDY-v101` selects one
+[private PV composition](metadata/qwen36-27b-mtp-private-pv-split-design-2026-10-14.json).
+The current d2 short/40K gaps are 31/348 ms. Existing real-API node evidence
+attributes only 11.61 ms to confidence, so that direction is not implemented.
+Private PV accounts for 136.68 ms in that older instrumented interval: a partial
+opportunity, not a promise to close either gap. Partition only private long PV
+into four contiguous segments, preserve original QK/softmax and final BF16/gate
+boundaries, and merge FP32 partials. Target arithmetic stays exact; private
+reassociation requires unchanged original-weight FP64 hidden/KV admission,
+including recursive long-position captures with the retained INT8 MLP.
+One executor, one correctness repair, no parameter/profile scan. Full shape,
+guard/Graph and real numerical checks return immediately to d2 API; useful long
+direction unlocks d3. Short >3% slowdown or nonpositive 8K/40K closes. No new
+performance result or production change is claimed. v101 remains incumbent.
+
 ## 2026-10-14 private MLP register consumption — API return complete
 
 `WP-MTP-MLP-REGISTER-20261014` / `AC-MTP-GREEDY-v100` owns one

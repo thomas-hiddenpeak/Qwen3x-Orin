@@ -1,0 +1,49 @@
+{
+  "work_package_id": "WP-MTP-PRIVATE-PV-SPLIT-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v101",
+  "source_parent": "7911a8b",
+  "decision_unit": "architecture_candidate",
+  "status": "selected implementation, not executed",
+  "product_constraint": "Same-request complete API Decode uplift50\u2013200percent d2/d3, target full state/logits/output exact, private original-weight FP64 max-row relative L2<=0.02, joint Prefill/TTFT/Decode/total.",
+  "current_gaps_seconds": {
+    "d2_p65": 0.031200736333732715,
+    "d2_p40000": 0.3484463013233022
+  },
+  "evidence_audit": {
+    "source_profile": ".q3x-work/mtp-graph-node-budget-20261014/profile/capture.sqlite",
+    "confidence_kernels": [
+      [
+        "q3x::runtime::mtp_detail::<unnamed>::draft_confidence(const unsigned short *, unsigned int, float *)",
+        105,
+        11.610336
+      ]
+    ],
+    "private_pv_seconds": 0.1366829760000001,
+    "scope": "One node-instrumented real API capture, first verifier FP8 node through last generation kernel. Includes all target verification and later draft/reconciliation; excludes first proposal and pre-verifier entry work. Not an unprofiled or complete Decode latency bound.",
+    "decision": "Do not implement confidence optimization: measured family11.61ms is small versus remaining348ms long gap. Private PV is a bounded partial contributor, not claimed to close short or whole target. No new profile process."
+  },
+  "mathematics": "Retain full original QK and softmax probabilities. For each private Attention output, partition S into four contiguous 64-aligned segments; each segment consumes ascending original FP32-probability times BF16-V FMA into FP32. Merge four partials as (a0+a1)+(a2+a3), then original single BF16 publication and sigmoid boundary. This intentionally changes only private PV reduction; it is not target scalar equivalence. FP64 and recursive hidden/KV admission required.",
+  "composition": "One private launcher from Draft::attention_step at S>=512; ordinary fused_decode::launch and all target verifier paths unchanged. Reuse original192-thread pair consumer and four-stage async operands, grid becomes4x4x4. Each split must mask against its end separately from full probability stride. Store4x6144FP32partials in explicitly reserved request-owned draft scratch; no request allocation, alias, or workspace overrun. Original short path retained.",
+  "reference_transfer": "FlashInfer state merging motivates context partition. Because full normalized P already exists, no online maximum/denominator or exp2 change is needed. Existing native splitKV gate path was inspected but not selected: it changes QK/softmax as well and adds online normalization work. No third-party source copied.",
+  "validation": [
+    "Freeze source/binary and startup arena identity; compile zero spills and bounded shared/register use.",
+    "Full512/513/8192/40000/44095 shape guards and graph replay against FP64 PV for real captured operands, with finite-value and tail coverage; synthetic cases correctness only.",
+    "Real model recursive draft hidden/KV captures at long positions against independent original-weightFP64, including retainedINT8MLP; preserve unchanged0.02maximum and full target prefix/logit/failure checks. Do not mistake initial short prefill capture for long private Attention validation.",
+    "Immediate complete d2 API vs frozenv101 P65/8K/40K, then d3 for useful long direction. Final generatedIDs/output remain exact even if acceptance changes. Jointmetrics include initialization."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiles": 0,
+    "stop": "Short>3percent slowdown or nonpositive8K/40K closes; no repeated tuning. Positive direction is bounded dependency through next completeMTPAPI composition or archival, not production promotion."
+  },
+  "source_hashes": {
+    "src/kernels/sm87/decode_fused_gqa.cu": "335d53bc7db626ac4e453cf5cb2945cce912db9b5311c20798d62cd4335777e4",
+    "src/kernels/sm87/decode_gqa_splitkv_sm87.cu": "8afeb44d0a1a7a83609d4fbc062c84f3c436c4b167e9e0046c56cb7a323d3fc3",
+    "src/runtime/mtp_device_internal.cpp": "ebf6a9fbcd62e19e4c7a8f0eb48a29878eed658a0dcde3e0a392f8bf7d2f3f5e",
+    "third_party/flashinfer/include/flashinfer/attention/state.cuh": "b2f59c104c2857e7e69f1837faf577525a292da98b375d5fb24dbcfc15d78159"
+  },
+  "production_changed": false,
+  "goal_complete": false
+}

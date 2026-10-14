@@ -568,3 +568,6 @@ registers one error-attributed precision partition before any native execution.
 
 The [private MLP register direction](metadata/qwen36-27b-mtp-mlp-register-direction-2026-10-14.json)
 records numerical admission and joint d2/d3 API direction; bounded development retention only.
+
+The [private PV partition design](metadata/qwen36-27b-mtp-private-pv-split-design-2026-10-14.json)
+records the existing-profile budget audit and bounded private-only successor.
