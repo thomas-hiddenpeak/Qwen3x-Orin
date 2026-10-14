@@ -1,0 +1,21 @@
+{
+  "vmm_supported": 1,
+  "driver": 13020,
+  "sm": 87,
+  "granularity": 2097152,
+  "allocation_bytes": 4194304,
+  "stable_va_switches": 2,
+  "full_byte_checks": 3,
+  "status": "capability_passed_no_runtime_selection",
+  "cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": null
+  },
+  "model_performance_authority": false,
+  "work_package_id": "WP-MTP-STATE-VMM-FEASIBILITY-20261014",
+  "source_sha256": "4ebc9ef1b9ae66a345df76d5b1f405c127b3a9b31239574ef0d86afb0734054d",
+  "binary_sha256": "b1ae56db8bdc8d79235a5483f96a44cce66294d8d0ffc6de515603aab8f676b4",
+  "production_changed": false,
+  "new_performance": null
+}

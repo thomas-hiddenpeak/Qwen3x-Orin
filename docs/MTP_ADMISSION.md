@@ -25,6 +25,45 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 stable-address state publication — closed negative
+
+`WP-MTP-STATE-VMM-FEASIBILITY-20261014` owns one
+[VMM capability check](metadata/qwen36-27b-mtp-state-vmm-feasibility-design-2026-10-14.json).
+Assess whether the current driver can remap a stable device address between
+two bounded allocations while exposing the selected complete bytes. This is
+distinct from pointer-only state selection: canonical observer addresses must
+still expose the selected full state. Current cudaMalloc arenas cannot support
+this directly; any successor needs explicit arena/pool ownership, immutable
+prefix rotation and graph/state lifecycle design. The 217.858 ms older copy
+family is an opportunity ceiling, not a saving prediction or full-goal closure.
+One capability/primitive process, no model timing or runtime changes. Unsupported
+operation closes before implementation; a pass only unlocks a bounded real-state
+composition. v101 and the complete performance objective remain unchanged.
+
+The [capability probe](metadata/qwen36-27b-mtp-state-vmm-feasibility-2026-10-14.json)
+passes on SM87/driver 13020: two stable-address switches and three full-byte
+checks, with complete cleanup. Minimum allocation granularity is 2 MiB, so the
+78,446,592-byte recurrent region needs 1,245,184 bytes of page padding.
+This does not establish a performance gain. The selected
+[real-state publication comparator](metadata/qwen36-27b-mtp-state-vmm-publication-design-2026-10-14.json)
+authenticates historical full Conv/GDN capture bytes and includes padding-copy
+cost. One process uses three B-C-C-B rounds with 32 publications per block;
+all bytes must match and mapping must save at least 25% in every round before
+runtime ownership work proceeds. Negative results close without an allocator
+or driver scan. Current model numerical qualification and real API return
+remain mandatory for any successor.
+
+The [real-state comparator](metadata/qwen36-27b-mtp-state-vmm-publication-rejection-2026-10-14.json)
+rejects this direction before runtime edits. Complete copy publication averages
+0.875–0.878 ms per state; remap publication takes 3.554–3.920 ms, or 4.06–4.46x
+copy cost across all three mirrored rounds. All 12 timed block comparisons and
+four warmup comparisons preserve the full 79,691,776 bytes; 384 publications
+were timed. Cleanup passes with no GPU handles remaining. Driver support does
+not imply lower latency. No arena/pool/Graph implementation or allocator,
+granularity or driver scan follows. These local real-state timings do not
+replace the unchanged v101 Prefill/TTFT/Decode/total API metrics or prove a
+hardware limit. The complete 1.5x–3x objective remains unmet.
+
 ## 2026-10-14 certified QK execution — closed negative
 
 `WP-MTP-QK-CERTIFIED-API-20261014` selects one

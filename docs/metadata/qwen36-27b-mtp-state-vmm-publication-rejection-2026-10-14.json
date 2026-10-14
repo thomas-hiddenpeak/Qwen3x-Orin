@@ -1,0 +1,69 @@
+{
+  "work_package_id": "WP-MTP-STATE-VMM-PUBLICATION-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v105",
+  "decision_unit": "local_mutation",
+  "status": "closed_before_runtime_implementation",
+  "source_parent": "57bcdff",
+  "design": "docs/metadata/qwen36-27b-mtp-state-vmm-publication-design-2026-10-14.json",
+  "artifact_root": ".q3x-work/mtp-state-vmm-publication-20261014",
+  "decision": "Stable-address remapping passes primitive byte checks but costs4.06–4.46 times complete copy publication on authenticated real state. Reject before request-arena/pool/Graph implementation. No allocator/granularity/driver scan.",
+  "raw_blocks": [
+    {
+      "round": 0,
+      "B0_ms": 0.877313781,
+      "C0_ms": 3.907564094,
+      "C1_ms": 3.897001,
+      "B1_ms": 0.87595575,
+      "candidate_over_baseline": 4.451434851,
+      "byte_equality": true
+    },
+    {
+      "round": 1,
+      "B0_ms": 0.877532781,
+      "C0_ms": 3.908042125,
+      "C1_ms": 3.91983725,
+      "B1_ms": 0.877733781,
+      "candidate_over_baseline": 4.459652763,
+      "byte_equality": true
+    },
+    {
+      "round": 2,
+      "B0_ms": 0.87624175,
+      "C0_ms": 3.563132656,
+      "C1_ms": 3.554441563,
+      "B1_ms": 0.87480475,
+      "candidate_over_baseline": 4.064754545,
+      "byte_equality": true
+    },
+    {
+      "decision": "reject_before_runtime",
+      "blocks": 12,
+      "publications": 384,
+      "cleanup": "pass",
+      "api_performance_authority": false
+    }
+  ],
+  "cleanup": {
+    "returncode": 3,
+    "errors": [],
+    "max_temperature": 59.625
+  },
+  "coverage": "Full79,691,776-byte equality after each of12timed blocks plus4warmupblocks;384timed publications. Distinct-pattern remap correctness belongs to preceding capability probe.",
+  "scope": "Historical real Conv/GDN state bytes; not current target-state numerical admission, API throughput, model performance improvement or hardware impossibility. Three B-C-C-B rounds in one process, no production selection.",
+  "files": {
+    "source_sha256": "a85af943698c6a322bceb2e3ce3ea83b60a84e5792fa93ef353bde6b911116a8",
+    "binary_sha256": "40930ec85f950fa6f26c816a93aef919705168c171a0a967213064c60dedab2e",
+    "payload_sha256": "ac94cbbacef98f5a6bfd92f42c007a9a14a23e94dd19fc988bf7660ee6d5a8e6",
+    "manifest_sha256": "363624f2e0a63e7564abf55b20b53fb745f6b38ab76b513c785d1aec206d9924"
+  },
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_achieved": false,
+  "retained_implementation": "v101 private register MLP",
+  "gpu_handles_after": [],
+  "validation": {
+    "byte_comparisons": "pass",
+    "resource_cleanup": "pass",
+    "unsupported_hypothesis": "Driver actually supports VMM; rejection is measured publication cost, not missing capability."
+  }
+}

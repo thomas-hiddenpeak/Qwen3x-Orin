@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-STATE-VMM-FEASIBILITY-20261014",
+  "decision_unit": "hardware_capability_prerequisite",
+  "source_parent": "57bcdff",
+  "product_constraint": "MTP1.5x\u20133x real API Decode, d2/d3, exact complete state visible before each observer; joint Prefill/TTFT/Decode/total",
+  "incumbent": "v101",
+  "downward_budget": {
+    "remaining_short_s": 0.0312007363,
+    "remaining_40k_s": 0.3484463013,
+    "older_non_graph_d2d_s": 0.21785808,
+    "scope": "All non-graph copies are an upper opportunity bound, not all removable recurrent publication. This prerequisite cannot promise complete target closure."
+  },
+  "hypothesis": "Replace physical canonical recurrent-state publication copies with stable-VA remapping of fully materialized immutable prefix allocations. Unlike rejected pointer-only selection, canonical device addresses would expose selected bytes before observer. Requires whole-core arena ownership redesign, physical pool rotation, no aliasing of a live input and mutable output, and complete graph/state lifecycle proof before any runtime selection.",
+  "static_facts": {
+    "whole_core_recurrent_offset": 0,
+    "conv_bytes": 2949120,
+    "gdn_bytes": 75497472,
+    "sum_bytes": 78446592,
+    "both_regions_multiple_of_64k": true,
+    "current_allocation": "cudaMalloc; cannot retrofit remapping into that allocation"
+  },
+  "reference": {
+    "local_path": ".q3x-work/sources/vllm-main/csrc/cumem_allocator.cpp",
+    "sha256": "cb7c8bb69de9c59197752990611fd85f303d7773668b590addfb43d1459bbabb",
+    "transfer": "vLLM separates reserved VA and generic physical allocation with cuMemCreate/cuMemMap/cuMemSetAccess. This allocator is not a state-swap implementation, no source imported.",
+    "official": "https://developer.nvidia.com/blog/introducing-low-level-gpu-virtual-memory-management/"
+  },
+  "screen": "One preflight-protected driver probe: query VMM support and granularity, then if available create two bounded allocations and remap one stable VA between distinct patterns. Check full bytes and cleanup. No model/performance timing; unsupported/error closes before runtime edits.",
+  "bounds": {
+    "processes": 1,
+    "allocation_limit_bytes": 268435456,
+    "model_runs": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "Capability and primitive correctness decision only; favorable result requires separately bounded real-state architecture and immediate API return",
+  "artifact_root": ".q3x-work/mtp-state-vmm-feasibility-20261014",
+  "production_changed": false
+}

@@ -1,0 +1,49 @@
+{
+  "work_package_id": "WP-MTP-STATE-VMM-PUBLICATION-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v105",
+  "decision_unit": "local_mutation",
+  "source_parent": "57bcdff",
+  "incumbent": "v101; no runtime edits",
+  "product_constraint": "MTP1.5x\u20133x real API Decode with exact full canonical state before every observer",
+  "downward_budget": {
+    "older_non_graph_copy_seconds": 0.21785808,
+    "remaining_40k_seconds": 0.3484463013,
+    "scope": "Copy-family ceiling only, partial opportunity; no full-goal promise"
+  },
+  "payload": {
+    "files": {
+      "conv": {
+        "path": ".q3x-work/whole-core-exact-composition-20260927/numerical-v2/state_conv.bin",
+        "sha256": "fa8b0089c29a078f4f1752c9129d571a807749739ec0058f1533b246939cf422",
+        "bytes": 2949120
+      },
+      "gdn": {
+        "path": ".q3x-work/whole-core-exact-composition-20260927/numerical-v2/state_gdn.bin",
+        "sha256": "f5c3461b2738eb18c75aaeab5564d1b890ff83321504f640bc5a376785ba7869",
+        "bytes": 75497472
+      },
+      "kv": {
+        "path": ".q3x-work/whole-core-exact-composition-20260927/numerical-v2/state_kv.bin",
+        "sha256": "92ea183d6677b444b6b050cd84a16cb34934394345597b12184dadbd045ec138",
+        "bytes": 134217728
+      }
+    },
+    "derived_sha256": "ac94cbbacef98f5a6bfd92f42c007a9a14a23e94dd19fc988bf7660ee6d5a8e6",
+    "recurrent_bytes": 78446592,
+    "padding_bytes": 1245184,
+    "total_bytes": 79691776,
+    "provenance": "Pinned historical P40000/O16 whole-core capture; full Conv/GDN and last2048 KV positions. Byte publication comparator only, not current numerical/state authority."
+  },
+  "mechanism": "Same process and real bytes compare recurrent D2D copy+stream synchronize against padding copy+stream synchronize+stable-VA unmap/map/set-access. Two immutable prefix allocations and separate baseline target allocation. Candidate includes1.245184MB padding publication on each switch conservatively; graph/pool integration remains unimplemented.",
+  "protocol": "One preflight-protected process; four untimed warmups; three B-C-C-B rounds,32publications perblock; full byte equality after every block. CPU complete publication interval includes driver calls. No CUDA synthetic timing authority.",
+  "gate": "Each round candidate mean <=75% baseline mean, plus byte equality and cleanup, required to justify complex runtime ownership work. Otherwise close before runtime modification, no geometry/allocator/driver scan. Favorable primitive cannot retain or select production; it unlocks one bounded full-state/API architecture.",
+  "bounds": {
+    "processes": 1,
+    "physical_allocation_limit_bytes": 536870912,
+    "model_generations": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "This local comparator; next action native architecture selection or rejection, no repeated cell qualification",
+  "artifact_root": ".q3x-work/mtp-state-vmm-publication-20261014",
+  "production_changed": false
+}
