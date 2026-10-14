@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-GATE-RING-PAIR-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v95",
+  "source_parent": "79bd089",
+  "profile": "q3x.sm87.admission.mtp-gate-ring-pair-api.v97",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "1.5x\u20133x complete Decode versus same-request non-MTP; exact target outputs/state, draft lengths2/3, paired Prefill/TTFT/Decode/total reporting.",
+  "downward_budget": {
+    "remaining_short_s": 0.0585616383337,
+    "remaining_40k_s": 0.4497706153233,
+    "profiled_gate_up_s": 5.308778272,
+    "source": "docs/metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json",
+    "qualification": "Instrumented family envelope only, no guaranteed saving or short timing extrapolation."
+  },
+  "lineage": "v33 already tried4+4warp GateUp+SiLU with full shared input. This successor composes later exact pairedBF16 decoder and M2/M3 K512 double buffer with that publication. No new warp mapping claim.",
+  "equivalence": "g=BF16(scale_g*original four-chain FP32 FMA/reduction);u=BF16(scale_u*same);y=BF16((float(g)/(1+expf(-float(g))))*float(u)). Same exact scale decoding, ordered chains, scalar trees, BF16 intermediates and state. Shared pair replaces global intermediate only.",
+  "ownership": "256threads: four original Gate warps and four Up warps; one common two-slot M*K512 activation ring. Uniform retirement/arrival barriers. BF16 pair[M][32] then CTA barrier and exact SiLU. M4/M1 and missing sidecars retain original path before enqueue. Selected failure never falls back.",
+  "resources": {
+    "threads": 256,
+    "M2_shared_bytes": 6272,
+    "M3_shared_bytes": 8384,
+    "max_registers_per_thread": 128,
+    "max_stack_bytes": 0,
+    "max_spill_bytes": 0,
+    "minimum_resident_ctas": 2
+  },
+  "trade": "Eliminates duplicate input/table initialization and2launches/layer; adds cross-role retirement barriers and reduces register-limited occupancy. No performance inferred from storage. No new allocation or inventory.",
+  "reference_translation": "Previously reviewed vLLM/Marlin paired MLP publication translated with exact scalar FMA, shared ring, and SM87 cp.async. Existing FlashInfer/FLA/Mamba attention/recurrence boundaries unchanged. No new external source.",
+  "validation": {
+    "component": "M2/M3 full canonical GateUp+SiLU comparison, guards/special values/invalid no-enqueue,3Graphreplays, bounded race/sync.",
+    "model": "P65 complete target state/logits/prefix, transactions/failure/cancel.",
+    "api": "Immediate d2 P65/8K/40K against frozen v94. Short >3% slowdown or nonpositive8K closes. Useful complete direction then d3. Output IDs and all prior non-timing work must match. Prefill/TTFT/Decode/total together.",
+    "stop": "One fixed composition; one correctness repair maximum; no register/geometry/stage/profile scan. Neutral or negative removes. Useful dependency bounded through next complete verifier API return or archival.",
+    "authority": "direction only, not mirrored architecture selection or production"
+  },
+  "artifact_root": ".q3x-work/mtp-gate-ring-pair-20261014",
+  "production_changed": false
+}

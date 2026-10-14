@@ -1,0 +1,161 @@
+{
+  "work_package_id": "WP-MTP-GATE-RING-PAIR-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v95",
+  "source_parent": "79bd089",
+  "decision": "remove_negative_API_direction",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-gate-ring-pair-api.v97",
+  "retained_profile": "q3x.sm87.admission.mtp-tail-kv-api.v94",
+  "server_sha256": "84663b345fc66737eaf08ae457f04388a1a3fcf53a382e6e0fdf224243834450",
+  "oracle_sha256": "b663a4636970f4e4b923389ae79f642b78540bd7c0e662ef4ca746a76f2aa98d",
+  "artifact_root": ".q3x-work/mtp-gate-ring-pair-20261014",
+  "design": "docs/metadata/qwen36-27b-mtp-gate-ring-pair-design-2026-10-14.json",
+  "implementation": "Current paired BF16 decoder and M2/M3 K512 two-slot activation ring composed with fourGate/fourUpwarp BF16 pair publication and exact SiLU. M4 unchanged. No launch geometry scan.",
+  "component": {
+    "compiled_shapes": {
+      "2": {
+        "registers": 72,
+        "shared_bytes": 6272,
+        "stack_bytes": 0,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      "3": {
+        "registers": 93,
+        "shared_bytes": 8384,
+        "stack_bytes": 0,
+        "spill_stores": 0,
+        "spill_loads": 0
+      }
+    },
+    "scope": "Fixed256threads, M2/M3 only; runtime occupancy3/2CTAs recorded by component. No timing authority.",
+    "component_cases": 8,
+    "graph_replays": 24,
+    "invalid_no_enqueue": "pass",
+    "racecheck": "zero errors/warnings",
+    "synccheck": "zero errors"
+  },
+  "model": {
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.843
+    },
+    "complete_log": "oracle-p65/run.log",
+    "row_count_cases": 3,
+    "complete_prefixes": 9
+  },
+  "identity_repair": {
+    "cause": "Compiled DeploymentPlan header kept v94 identity while request witness/validator used v97. Startup identity gate rejected before any generation.",
+    "repair": "Update both plan.id and decode_route_id in include/q3x/server/evaluation_server.h. Runtime arithmetic unchanged.",
+    "numerical_repairs": 0,
+    "integration_repairs": 1,
+    "failed_server_sha256": "cb79ac3d3547909ef77c13523360dd1ede60102d8d9478ae562f2672f3a31405",
+    "cleanup": "startup process exited0, no requests or performance evidence"
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v94": true,
+    "all_generated_ids_equal_v94": true,
+    "all_prior_non_timing_fields_equal_v94": true,
+    "completed_requests": 1,
+    "server_sha256": "84663b345fc66737eaf08ae457f04388a1a3fcf53a382e6e0fdf224243834450",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8915451719999999,
+        "prefill_tps": 72.90713027382083,
+        "ttft_s": 0.9101498130039545,
+        "decode_tps": 12.841260763816578,
+        "elapsed_s": 2.078144727005565,
+        "incumbent_decode_tps": 13.621335056416477,
+        "decode_delta_percent": -5.726856357097221,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-gate-ring-pair-v97"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            11035897856
+          ],
+          "draft_initialization_ms": [
+            5.548856,
+            5.464656
+          ],
+          "draft_ms": [
+            113.243227,
+            111.93464200000001
+          ],
+          "verify_ms": [
+            970.370208,
+            1038.598646
+          ],
+          "reconcile_ms": [
+            17.257999,
+            17.191378999999998
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 60.906
+    }
+  },
+  "decision_reason": "P65/O16 d2 Decode decreases5.726856percent versus v94, passing the declared >3percent rejection stop. Verification adds68.228438ms. Complete output/IDs/work unchanged. Smaller shared storage and zero spills did not transfer upward into useful performance.",
+  "limitations": "One-process direction, not statistical regression or hardware-cause attribution. 8K/40K/d3 and complete lifecycle not run after stop. No new profiler or resource/geometry variant follows.",
+  "next_constraint": "Retained v94 target projections remain dominant. Close this paired-ring publication lineage; next composition must remove another measured projection dependency rather than replay fusion/resource geometry. Whole-path 1.5x\u20133x target remains unchanged.",
+  "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "hygiene": {
+    "gpu_device_fd_audit": {
+      "complete": true,
+      "holders": [],
+      "ignored_process_exit_races": [
+        {
+          "fd": "3",
+          "identity_after_error": "same",
+          "kind": "descriptor_closed",
+          "pid": 78577,
+          "stage": "fd_target"
+        }
+      ],
+      "inaccessible_fds": [],
+      "inaccessible_processes": [],
+      "matching_rule": "GPU-specific nvhost/nvidia/render descriptors; nvmap only when paired with a GPU-specific descriptor",
+      "scanned_fds": 1003,
+      "scanned_processes": 288
+    },
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "registered_worktrees": 47,
+    "remaining_api_key_files": [],
+    "remaining_tmp_files": [],
+    "all_candidate_runtime_changes_removed": true,
+    "restored_builds_sha256": {
+      "server": "7bc4c515f40418effe1ce9b7e5e7441a5f71a9e0174d4836afb95d3c32ddd8c7",
+      "oracle": "f60557c4b6e5354487819e9222dd71b6a99d2d90742d3ffdf5c811e5ef90f95d"
+    }
+  },
+  "restoration_validation": {
+    "host_ctests": 3,
+    "document_tests": 7,
+    "document_control": "1460 links; zero errors"
+  },
+  "artifacts": {
+    "manifest": ".q3x-work/mtp-gate-ring-pair-20261014/artifact-manifest.json",
+    "sha256": "e7fe73b9d363adbb04e23b82bddee73907d3194a20f740a7eb4932ba1f0d5f0b",
+    "files": 162,
+    "bytes": 66509834
+  }
+}

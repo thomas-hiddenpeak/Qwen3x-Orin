@@ -533,3 +533,9 @@ scopes one unchanged-v94 diagnostic API capture; it has no selection authority.
 The [GDN node-budget result](metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json)
 closes the single diagnostic and selects a bounded projection-composition question.
 It does not replace unprofiled metrics or production qualification.
+
+The [Gate/Up ring-pair design](metadata/qwen36-27b-mtp-gate-ring-pair-design-2026-10-14.json)
+activates one bounded projection composition; no production qualification.
+
+The [Gate/Up ring-pair rejection](metadata/qwen36-27b-mtp-gate-ring-pair-rejection-2026-10-14.json)
+closes the composition at its short API stop; no retained runtime or production change.

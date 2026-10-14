@@ -25,6 +25,33 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 paired Gate/Up with bounded input ring — closed negative
+
+`WP-MTP-GATE-RING-PAIR-20261014` / `AC-MTP-GREEDY-v95` owns one
+[projection composition](metadata/qwen36-27b-mtp-gate-ring-pair-design-2026-10-14.json).
+Node attribution selects Gate/Up from the remaining 59/450-ms short/40K gap.
+The old v33 fusion already owns four warps per role. This successor composes
+its exact BF16-to-SiLU publication with the later paired decoder and M2/M3
+K512 two-slot ring. M4 and scalar paths remain unchanged. One 256-thread CTA
+must use at most 128 registers, 8,384 shared bytes and no stack/spills, with
+at least two resident CTAs. Complete output/Graph/race and P65 state checks
+return immediately to d2 API, then d3 for useful direction. Short >3% slowdown
+or nonpositive 8K closes. One correctness repair; no resource/geometry/profile
+scan. Numerical contracts, production and the full 1.5x–3x objective remain.
+
+The [completed direction](metadata/qwen36-27b-mtp-gate-ring-pair-rejection-2026-10-14.json)
+passes eight complete output cases, 24 Graph replays, root race/sync checks,
+nine model prefixes and fifteen state/cache transactions. A startup identity
+omission was caught before generation and repaired without changing arithmetic.
+The completed P65/O16 d2 request preserves all output IDs and work, but Decode
+falls from 13.621 to 12.841 token/s (-5.727%); verification adds 68.228 ms.
+Prefill is 0.892 seconds / 72.91 token/s, TTFT 0.910 seconds and total 2.078.
+The declared short stop closes the composition before 8K/40K/d3 or lifecycle
+qualification. Remove all kernel/integration/identity changes and restore v94.
+No resource, geometry, stage or profiler variant follows. The smaller shared
+buffer did not yield API value; current paired metrics and the full goal remain.
+
+
 ## 2026-10-14 complete value-row register ownership — closed at compilation
 
 `WP-MTP-ROW-OWNED-GDN-20261014` / `AC-MTP-GREEDY-v94` owns one
