@@ -25,6 +25,29 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 GDN publication density — closed at traffic gate
+
+`WP-MTP-STATE-DENSITY-20261014` selects one
+[real API density check](metadata/qwen36-27b-mtp-state-density-design-2026-10-14.json).
+Compare canonical and selected next-prefix GDN states at the first eight
+commits of one P40000/O16 d2 request, across all 48 layers. Preserve every
+ordinary state copy and output boundary. This instrumented process has no
+performance authority. Only an aggregate changed 32-byte-sector fraction
+below 75% unlocks a separately bounded producer-mask implementation; otherwise
+close without a mask or parameter scan. The historical copy budget alone
+cannot close the remaining 40K gap. v101 and the full objective stay current.
+
+The [completed diagnostic](metadata/qwen36-27b-mtp-state-density-rejection-2026-10-14.json)
+finds 293,311,892 of 301,989,888 BF16 words changed (97.1264%), and
+18,863,831 of 18,874,368 sectors changed (99.9442%). Every layer/sample
+has at least 99.3245% changed sectors. Adjacent state hashes chain exactly;
+all sixteen generated IDs match the retained 40K output prefix. This fails
+the declared traffic-opportunity gate, so no bitmap or selective-copy kernel
+is implemented. Remove all instrumentation, rebuild restored source and restore
+the measured v101 server. Instrumented timings have no performance authority;
+current joint metrics and the full unmet objective remain unchanged. No
+granularity, mask or threshold scan follows.
+
 ## 2026-10-14 shared-prefix feedback — closed negative
 
 `WP-MTP-SHARED-FEEDBACK-20261014` selects one

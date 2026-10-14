@@ -594,3 +594,7 @@ updates existing MTP/Roadmap scope; no Markdown path/class changes.
 The [shared-prefix feedback rejection](metadata/qwen36-27b-mtp-shared-feedback-rejection-2026-10-14.json)
 records native admission and negative two-request API direction, with complete
 runtime removal. No Markdown path or classification changes.
+
+The bounded [GDN publication density check](metadata/qwen36-27b-mtp-state-density-design-2026-10-14.json) has diagnostic feasibility authority only.
+
+The [GDN publication density rejection](metadata/qwen36-27b-mtp-state-density-rejection-2026-10-14.json) records one real API diagnostic and complete instrumentation removal; no Markdown paths or classifications change.

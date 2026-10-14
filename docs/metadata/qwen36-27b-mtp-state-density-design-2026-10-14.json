@@ -1,0 +1,18 @@
+{
+  "work_package_id": "WP-MTP-STATE-DENSITY-20261014",
+  "architecture_candidate_id": "AC-MTP-STATE-DENSITY-v110",
+  "decision_unit": "local_mutation",
+  "status": "declared",
+  "parent_constraint": "Real API MTP Decode 1.5x\u20133x same-request non-MTP; P65 and P40000 remain below 1.5x with v101",
+  "incumbent_commit": "41028d1",
+  "incumbent_profile": "q3x.sm87.admission.mtp-mlp-register-api.v101",
+  "hypothesis": "Producer-generated change masks may permit exact selective GDN state publication while preserving immutable full snapshots and every observer boundary. First establish real state change density.",
+  "budget": "Historical complete D2D family 217.858 ms is smaller than remaining 40K gap 348.446 ms; this can only be a coupled prerequisite, not full closure.",
+  "protocol": "One instrumented real API P40000/O16 d2 request; first eight commit_prefix calls, all 48 GDN layers; compare old canonical and selected immutable next prefix wordwise and in 32-byte sectors. Complete normal copy remains unchanged. No timing authority.",
+  "gate": "Continue to one separately declared producer-mask implementation only if changed 32-byte sector fraction is below 0.75 aggregated across eight commits. Otherwise close without mask implementation or tuning. This is a bounded traffic-opportunity screen, not a hardware speed bound.",
+  "equivalence": "Read-only device-to-host copies synchronized before unchanged canonical copy; diagnostic-only static host arrays. No arithmetic, state, proposals or generated tokens modified.",
+  "output_gate": "Complete API result/usage; first 16 generated IDs equal incumbent P40000/O256 prefix; authenticated prompt hash and profile; startup reserve at least 8 GiB. Different output limit changes only end-tail work.",
+  "composition_deadline": "One density process; favorable result requires named producer-mask ownership/exact state checks and immediate d2 API return before any retention.",
+  "scope": "No production switch, no new speed claim, no non-MTP optimization",
+  "artifacts": ".q3x-work/mtp-state-density-20261014"
+}

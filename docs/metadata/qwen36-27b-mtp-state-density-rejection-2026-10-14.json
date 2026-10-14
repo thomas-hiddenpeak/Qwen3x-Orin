@@ -1,0 +1,129 @@
+{
+  "scope": "one real API diagnostic; no new performance evidence",
+  "sample_count": 8,
+  "layers_per_sample": 48,
+  "words_compared": 301989888,
+  "changed_words": 293311892,
+  "changed_word_fraction": 0.97126395172543,
+  "sectors_compared": 18874368,
+  "changed_sectors": 18863831,
+  "changed_sector_fraction": 0.9994417296515571,
+  "minimum_layer_sample_sector_fraction": 0.9932454427083334,
+  "maximum_layer_sample_sector_fraction": 1.0,
+  "successive_state_hash_chain_matches": true,
+  "generated_ids_match_retained_prefix": true,
+  "output_limit_difference": "16 vs historical 256; same prompt and first 16 generated IDs; not a matched performance comparison",
+  "decision": "close selective-publication direction before implementation",
+  "gate_changed_sector_fraction_below": 0.75,
+  "server_sha256": "e18e560808a6907d20b19c621a359457c375e26f7d6f5f312febe608f616a029",
+  "cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 73.843
+  },
+  "work_package_id": "WP-MTP-STATE-DENSITY-20261014",
+  "architecture_candidate_id": "AC-MTP-STATE-DENSITY-v110",
+  "decision_unit": "local_mutation",
+  "status": "closed_before_mask_implementation",
+  "design": "docs/metadata/qwen36-27b-mtp-state-density-design-2026-10-14.json",
+  "source_commit": "41028d1",
+  "artifacts": ".q3x-work/mtp-state-density-20261014",
+  "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+  "payload": "Actual complete canonical/selected-prefix BF16 GDN state [48,48,128,128] at positions 40001..40008, one P40000/O16 d2 API request",
+  "numerical_scope": "Read-only copies and hashes; every ordinary device operation and canonical copy retained. Output IDs match first 16 of v101 P40000/O256. No new full-state oracle or recursive draft numerical qualification claimed.",
+  "state_hashes": [
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 0,
+      "entry_position": 40000,
+      "rows": 1,
+      "before_sha256": "865276ac7daa9eee0f4e62ed100d5ebc99cb0f994bd9f9756c42f3b3cba70f21",
+      "after_sha256": "20b462b720af2b54baa07d4cfce011761eb096256f3f7d733e2febae34f43b28"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 1,
+      "entry_position": 40000,
+      "rows": 2,
+      "before_sha256": "20b462b720af2b54baa07d4cfce011761eb096256f3f7d733e2febae34f43b28",
+      "after_sha256": "f93ff62011b61d7f5d7e9b878935897895a149463d2addd0c848d7b7012600e5"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 2,
+      "entry_position": 40002,
+      "rows": 1,
+      "before_sha256": "f93ff62011b61d7f5d7e9b878935897895a149463d2addd0c848d7b7012600e5",
+      "after_sha256": "af4845a2e8fce3aa2bad43460039c6ae2e96dd96e0b95efc158a125999b4c82d"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 3,
+      "entry_position": 40002,
+      "rows": 2,
+      "before_sha256": "af4845a2e8fce3aa2bad43460039c6ae2e96dd96e0b95efc158a125999b4c82d",
+      "after_sha256": "56a42e4cd0037b538bfd8a4c51e6248b88419bdac5c0d6c21cbc433bbbc94a1b"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 4,
+      "entry_position": 40002,
+      "rows": 3,
+      "before_sha256": "56a42e4cd0037b538bfd8a4c51e6248b88419bdac5c0d6c21cbc433bbbc94a1b",
+      "after_sha256": "199ae7a1c3d6521b47c52d22f7e200faaf80f058e0fbde642d42222c2da505c1"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 5,
+      "entry_position": 40005,
+      "rows": 1,
+      "before_sha256": "199ae7a1c3d6521b47c52d22f7e200faaf80f058e0fbde642d42222c2da505c1",
+      "after_sha256": "c24552adcf032d27e65cffef9e197c776423918aa4061942ee34a2571d29c9cb"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 6,
+      "entry_position": 40005,
+      "rows": 2,
+      "before_sha256": "c24552adcf032d27e65cffef9e197c776423918aa4061942ee34a2571d29c9cb",
+      "after_sha256": "511f0f63f4bb54a776d3f23a00f546499d8a5c958341056d77fb7568b798476a"
+    },
+    {
+      "schema": "mtp-state-density-v1",
+      "sample": 7,
+      "entry_position": 40005,
+      "rows": 3,
+      "before_sha256": "511f0f63f4bb54a776d3f23a00f546499d8a5c958341056d77fb7568b798476a",
+      "after_sha256": "ca0046dc266e860299e5f8cf288eac9c3cb52976ff0c6ecfa1e54b18eab1af23"
+    }
+  ],
+  "performance_authority": "None: extra D2H, CPU comparisons and SHA256 are in the request interval. Raw diagnostic timing is retained but excluded from current performance figures. Existing v101 joint Prefill/TTFT/Decode/total metrics remain in docs/CURRENT_STATUS.md.",
+  "interpretation": "Changed 32-byte sectors are 99.94417%, failing the predeclared below-75% traffic-opportunity gate. No producer bitmap or selective-copy kernel is warranted for this bounded dataflow. This is not a general recurrent-state or hardware limit.",
+  "next_boundary": "Restore v101 and close this package; any materially different successor needs its own downward budget and bounded real API return. No mask/granularity/threshold scan follows.",
+  "restore": {
+    "source_restored_exactly": true,
+    "restored_source_rebuilt": true,
+    "diagnostic_strings_absent": true,
+    "fresh_restored_binary_sha256": "3c9130cbd69d04caf4a98a961080fa190b0882d9b6a2a0b67680ef171dc346ef",
+    "cached_measured_v101_server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "gpu_handles_after": [],
+    "api_key_removed": true,
+    "worktree_count": 47
+  },
+  "validation": {
+    "complete_api_request": true,
+    "preflight_and_cleanup": true,
+    "host_checks_passed": 3,
+    "production_changed": false,
+    "goal_completed": false,
+    "document_control": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1551\nerrors: 0",
+    "document_tests": 7
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-state-density-20261014/artifact-manifest.json",
+    "sha256": "a11f78fe10d2ab09637aa86582374ed0caa35aec26653e0487d9350d14bd3d8e",
+    "files": 34,
+    "bytes": 30005056
+  }
+}
