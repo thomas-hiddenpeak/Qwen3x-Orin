@@ -1,0 +1,34 @@
+{
+  "work_package_id": "WP-MTP-CONV-GDN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v93",
+  "source_parent": "9a22a94",
+  "profile": "q3x.sm87.admission.mtp-conv-gdn-api.v95",
+  "product_constraint": "MTP committed Decode 1.5x\u20133x same-request non-MTP, exact target state/logits/output, drafts 2/3 and paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "d2_short_remaining_s": 0.0585616383337,
+    "d2_40k_remaining_s": 0.4497706153233,
+    "historical_40k_gdn_graph_span_s": 10.800346176,
+    "qualification": "Graph span includes projections, MLP, recurrence and inner gaps; not a measured Conv latency. No isolated speedup forecast.",
+    "d2_40k_conv_calls_and_copies_each": 14640,
+    "d2_40k_conv_snapshot_payload_bytes": 899481600
+  },
+  "lineage": "v81 carried GDN state across token rows and left Conv unchanged; it was removed. This keeps original per-token GDN schedule and state scratch, eliminating Conv producer and D2D snapshot boundaries inside each call. No row-state reuse or graph-granularity revival.",
+  "equivalence_ledger": [
+    "For each channel use original four ascending FP32 fmaf operations from +0, original convolution/(1+exp(-convolution)), then encode/decode BF16 before GDN consumption.",
+    "Q/K values are recomputed in three value-head CTAs. Only the first CTA of each triple writes Q/K history; each value head uniquely writes its own V history. No multiple-writer race.",
+    "Conv reads canonical history for row zero or prior immutable prefix thereafter; writes current immutable prefix, never its own input. Raw QKV remains immutable for whole call.",
+    "Every GDN FMA/reduction, rounded state and unrounded current output, BF16 raw output and norm/gate remain original; no cross-token reassociation.",
+    "Original canonical full prefix restoration still precedes each observer. Speculative canonical Conv is no longer mutated and cannot be observed until commit. All full prefix bytes must match scalar.",
+    "Extra Q/K Conv math replaces intermediate publication/read, separate kernel and snapshot copy; new private CUDA code only, no new owner/arena/allocation or production dispatch."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "tile_launch_or_fusion_variants": 0
+  },
+  "validation": "Complete synthetic output/state/Conv/guard and Graph comparisons, root race/sync checks, complete P65 prefix and transaction/cancel/failure admission, immediate d2 API P65/8K/40K; short >3% regression or nonpositive 8K stops. Useful whole direction admits d3. Neutral whole path removes.",
+  "retention_expiry": "One full API return selects removal or dependency through next complete verifier architecture return/archival; no production or full-goal claim.",
+  "artifact_root": ".q3x-work/mtp-conv-gdn-20261014",
+  "production_changed": false
+}

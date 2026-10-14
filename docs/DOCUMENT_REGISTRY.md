@@ -514,3 +514,9 @@ experiment, preserving the existing document inventory and production boundary.
 The [accepted-tail KV direction](metadata/qwen36-27b-mtp-tail-kv-direction-2026-10-14.json)
 closes its composition with bounded development retention. Numerical and API
 passes do not establish full-goal completion or production qualification.
+
+The [direct Conv/GDN design](metadata/qwen36-27b-mtp-conv-gdn-design-2026-10-14.json)
+opens one isolated exact producer/consumer composition with a bounded API return.
+
+The [Conv/GDN rejection](metadata/qwen36-27b-mtp-conv-gdn-rejection-2026-10-14.json)
+closes that isolated composition without retention or production promotion.

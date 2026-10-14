@@ -1,0 +1,399 @@
+{
+  "work_package_id": "WP-MTP-CONV-GDN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v93",
+  "source_parent": "9a22a94",
+  "decision": "remove_neutral_API_direction",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-conv-gdn-api.v95",
+  "retained_profile": "q3x.sm87.admission.mtp-tail-kv-api.v94",
+  "server_sha256": "f1aa67e642eafb860ca93de639f5d357ffc202339628ddc78cb788501ba68ed8",
+  "oracle_sha256": "e846aa6580bfd20c6cff7d2e47631f50067fdafaefa596dcd515939913274ded",
+  "artifact_root": ".q3x-work/mtp-conv-gdn-20261014",
+  "design": "docs/metadata/qwen36-27b-mtp-conv-gdn-design-2026-10-14.json",
+  "implementation": "GDN consumes scalar-exact BF16-rounded Conv values in its CTA and writes immutable Conv prefixes with unique Q/K and V writers. Original per-token GDN schedule/arithmetic unchanged; no separate Conv producer or history D2D copy in M2/3/4 graphs. Q/K Conv repeats across three heads.",
+  "numerical": {
+    "reference_source": "src/kernels/reference/gdn_decode.cu",
+    "reference_sha256": "04a966ef6268c6792c04320ca887a0455c13eea10be57bcc59c939dfcdcc6505",
+    "candidate_source": "src/runtime/mtp_verify_gdn_internal.cu",
+    "candidate_sha256": "20a59478a898945e4d9805e1a8dcec5233802434ac05f62823ff9eb734269143",
+    "component_cases": 15,
+    "graph_replays_per_case": 3,
+    "complete_prefix_comparisons": 135,
+    "candidate_and_original_gdn_resources": {
+      "registers": 40,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    "sanitizer_scope": "One M3 fixture, complete state/history/output with three Graph replays; root racecheck and synccheck zero errors",
+    "full_model_prefixes": 9,
+    "full_model_transactions": 15,
+    "failure_recoveries": 4,
+    "init_cancel_recoveries": 8,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "racecheck_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.406
+    },
+    "synccheck_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "p65-oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.093
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v94": true,
+    "all_generated_ids_equal_v94": true,
+    "all_prior_non_timing_fields_equal_v94": true,
+    "completed_requests": 8,
+    "server_sha256": "f1aa67e642eafb860ca93de639f5d357ffc202339628ddc78cb788501ba68ed8",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.902141116,
+        "prefill_tps": 72.05081205942952,
+        "ttft_s": 0.9209857910027495,
+        "decode_tps": 13.634449483605678,
+        "elapsed_s": 2.0209260460032965,
+        "incumbent_decode_tps": 13.621335056416477,
+        "decode_delta_percent": 0.09627857427252362,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            5.548856,
+            5.553861
+          ],
+          "draft_ms": [
+            113.243227,
+            113.66625499999999
+          ],
+          "verify_ms": [
+            970.370208,
+            968.878438
+          ],
+          "reconcile_ms": [
+            17.257999,
+            17.236141
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.324069267,
+        "prefill_tps": 472.86811624591274,
+        "ttft_s": 17.346335237001767,
+        "decode_tps": 15.196023510717636,
+        "elapsed_s": 34.12734648500191,
+        "incumbent_decode_tps": 15.184432913422478,
+        "decode_delta_percent": 0.07633210513191546,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            545.043298,
+            551.52981
+          ],
+          "draft_ms": [
+            1789.977847000001,
+            1798.2984890000002
+          ],
+          "verify_ms": [
+            14705.678372,
+            14684.048173000001
+          ],
+          "reconcile_ms": [
+            293.447609,
+            293.5118750000001
+          ]
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.676986492,
+        "prefill_tps": 431.60661037951263,
+        "ttft_s": 92.7124796479984,
+        "decode_tps": 11.575185062774164,
+        "elapsed_s": 114.74396244999662,
+        "incumbent_decode_tps": 11.566447584194087,
+        "decode_delta_percent": 0.07554159145646278,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            2657.429363,
+            2688.143952
+          ],
+          "draft_ms": [
+            2149.303896000001,
+            2155.293525
+          ],
+          "verify_ms": [
+            19598.311230000003,
+            19576.519121
+          ],
+          "reconcile_ms": [
+            294.1003020000002,
+            292.918009
+          ]
+        }
+      },
+      {
+        "label": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8885762050000001,
+        "prefill_tps": 73.15073218734233,
+        "ttft_s": null,
+        "decode_tps": 13.670286938074277,
+        "elapsed_s": 2.0046058879961492,
+        "incumbent_decode_tps": 13.65634161023896,
+        "decode_delta_percent": 0.10211613207495862,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            5.328309,
+            5.340283
+          ],
+          "draft_ms": [
+            111.718965,
+            112.188941
+          ],
+          "verify_ms": [
+            969.283375,
+            967.703884
+          ],
+          "reconcile_ms": [
+            17.186281,
+            17.163406000000002
+          ]
+        }
+      },
+      {
+        "label": "raw-text",
+        "prompt": 5,
+        "output": 16,
+        "prefill_s": 0.822831369,
+        "prefill_tps": 6.07657922190859,
+        "ttft_s": 0.8551962959973025,
+        "decode_tps": 15.718919199559688,
+        "elapsed_s": 1.809409274996142,
+        "incumbent_decode_tps": 15.70472288267358,
+        "decode_delta_percent": 0.09039520781208843,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            2.015572,
+            2.007614
+          ],
+          "draft_ms": [
+            102.067862,
+            102.495035
+          ],
+          "verify_ms": [
+            834.780279,
+            833.4866979999999
+          ],
+          "reconcile_ms": [
+            17.996947,
+            17.976717999999998
+          ]
+        }
+      },
+      {
+        "label": "chat-stop",
+        "prompt": 20,
+        "output": 2,
+        "prefill_s": 0.8270458520000001,
+        "prefill_tps": 24.18245608950832,
+        "ttft_s": 0.8451246810000157,
+        "decode_tps": 6.184772757966067,
+        "elapsed_s": 1.006732813999406,
+        "incumbent_decode_tps": 6.177379727744838,
+        "decode_delta_percent": 0.11967906373029358,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            2.657882,
+            2.672318
+          ],
+          "draft_ms": [
+            18.539543,
+            18.653134
+          ],
+          "verify_ms": [
+            142.443781,
+            142.129975
+          ],
+          "reconcile_ms": [
+            0.862409,
+            0.861375
+          ]
+        }
+      },
+      {
+        "label": "after-prefill-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888797877,
+        "prefill_tps": 73.13248791659748,
+        "ttft_s": 1.1586009789971285,
+        "decode_tps": 13.668185956610312,
+        "elapsed_s": 2.2559402429978945,
+        "incumbent_decode_tps": 13.657241685209952,
+        "decode_delta_percent": 0.0801352985662751,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            5.313877,
+            5.346491
+          ],
+          "draft_ms": [
+            111.704501,
+            112.18924000000001
+          ],
+          "verify_ms": [
+            969.0909859999999,
+            967.7266159999999
+          ],
+          "reconcile_ms": [
+            17.226667,
+            17.200657
+          ]
+        }
+      },
+      {
+        "label": "after-decode-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8885458890000001,
+        "prefill_tps": 73.15322799270753,
+        "ttft_s": 1.067514783993829,
+        "decode_tps": 13.668495734951845,
+        "elapsed_s": 2.1648548079974717,
+        "incumbent_decode_tps": 13.65753856972886,
+        "decode_delta_percent": 0.0802279647027282,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-tail-kv-v94",
+            "multirow-conv-gdn-v95"
+          ],
+          "startup_free_bytes": [
+            10965798912,
+            10951655424
+          ],
+          "draft_initialization_ms": [
+            5.298036,
+            5.346523
+          ],
+          "draft_ms": [
+            111.703731,
+            112.20934
+          ],
+          "verify_ms": [
+            969.0758159999999,
+            967.6647469999999
+          ],
+          "reconcile_ms": [
+            17.226567999999997,
+            17.207186
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": 0,
+      "early_stop": false
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.5
+    }
+  },
+  "decision_reason": "Short/8K/40K Decode differences are only +0.0963/+0.0763/+0.0755 percent. Verification saves about 1.5/21.6/21.8ms, but complete long Decode gains only 12.8/16.6ms. This one-process observation establishes no useful composed gain or statistical speedup. Remove rather than expand measurement or retain duplicate GDN implementation.",
+  "qualification": "All completed output/usage/finish/generated IDs and prior non-timing work match v94/non-MTP as scoped by comparison. No d3, new profiler or mirrored-selection result. No performance or impossibility claim from unchanged resources.",
+  "next_constraint": "Remaining complete target verification cost, with v94 incumbent retained. Audit complete value-row register ownership against old eight-row scalar-lane and cross-token register lineages before a new bounded composition; no Conv tile/fusion/launch/graph scan.",
+  "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "hygiene": {
+    "worktrees": 47,
+    "api_key_files": [],
+    "temporary_files": [],
+    "project_named_tmp_files": [],
+    "gpu_holders": [],
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "restored_server_sha256": "0e3fdce0fadc8873f74ab4bd57ff420c62706c4b9ebf47c40c0c630235d89f45"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-conv-gdn-20261014/artifact-manifest.json",
+    "sha256": "925b1777414ddecb74d97ad30c68451263db7ec2cc832844b6a5b82442fbe114",
+    "files": 146,
+    "bytes": 50711107
+  },
+  "document_validation": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1444\nerrors: 0\n"
+}

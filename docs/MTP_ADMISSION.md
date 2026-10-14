@@ -25,6 +25,32 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 direct Conv/GDN consumption — closed neutral
+
+`WP-MTP-CONV-GDN-20261014` / `AC-MTP-GREEDY-v93` owns one
+[Conv/GDN composition](metadata/qwen36-27b-mtp-conv-gdn-design-2026-10-14.json).
+The remaining d2 short/40K Decode gaps are 59/450 ms. Original per-token GDN
+consumes the exact BF16-rounded convolution inside its CTA, eliminating the
+separate Conv publication and history copy. Immutable Conv prefixes have unique
+writers; canonical history stays untouched until the existing full commit.
+Q/K convolution is recomputed for three value heads, charged to the whole API.
+This changes neither GDN row-state ownership nor its ordered scalar arithmetic;
+the closed v81 row-reuse version remains closed. One implementation and at most
+one correctness repair return through complete output/state/Graph/race and P65
+transaction admission directly to d2 API, then d3 only for useful direction.
+Short >3% slowdown or nonpositive 8K closes; no launch/tile/profile scan.
+The full objective and production boundary remain unchanged.
+
+The [completed API direction](metadata/qwen36-27b-mtp-conv-gdn-rejection-2026-10-14.json)
+passes fifteen full output/state/Conv cases, 45 Graph replays, bounded root race/
+sync checks, nine model prefixes, fifteen transactions and all eight d2 API
+requests. Short/8K/40K Decode differences are only +0.096%/+0.076%/+0.076%;
+verification saves about 1.5/21.6/21.8 ms. This establishes no useful composed
+improvement. Remove the private kernel and integration, restoring v94. D3,
+profiling and further Conv/launch/graph variants are not selected. Complete
+output, state and resource passes do not select performance or complete the
+1.5x–3x goal. The existing retained metrics remain unchanged.
+
 ## 2026-10-14 lazy accepted-tail KV composition — API return complete
 
 `WP-MTP-TAIL-KV-20261014` / `AC-MTP-GREEDY-v92` owns one
