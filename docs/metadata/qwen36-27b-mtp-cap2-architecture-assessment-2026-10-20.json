@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-20",
+  "source_commit": "43a9525",
+  "work_package_id": "WP-MTP-CAP2-NEXT-ARCHITECTURE-20261020",
+  "authority": "Source/real-output feasibility assessment; no new GPU performance or numerical qualification",
+  "product_constraint": "Cap2 short>=1.5x matched nonMTP, preserve cap3 retained result and exact target semantics; full objective remains active.",
+  "terminal_state_assessment": {
+    "code": "src/runtime/mtp_device_internal.cpp:728",
+    "finding": "commit_prefix restores canonical Conv/GDN/hidden/logits and maintains target-conditioned draft KV before observer; finish requires matching draft position. Final private KV is unused by later generation but skipping it alone requires a distinct terminal contract.",
+    "measured_total_reconcile_ms": 17.82311,
+    "scope_limit": "The entire reconcile interval is smaller than the approximately21ms cap2 short gap. Only a subset is terminal private KV; this is not a proof that all overhead is removable. No terminal-state mutation is selected.",
+    "conservative_gap_ms": 21.25676266666642
+  },
+  "prompt_lookup": {
+    "scope": "Offline proposal coverage only on fixed P65/O16 request. Pinned vLLM default exact5-token prompt lookup; no threshold scan, timing or full-runtime claim.",
+    "positions": [
+      {
+        "committed_outputs": 1,
+        "history_length": 66,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 2,
+        "history_length": 67,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 3,
+        "history_length": 68,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 4,
+        "history_length": 69,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 5,
+        "history_length": 70,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 6,
+        "history_length": 71,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 7,
+        "history_length": 72,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 8,
+        "history_length": 73,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 9,
+        "history_length": 74,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 10,
+        "history_length": 75,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 11,
+        "history_length": 76,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 12,
+        "history_length": 77,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 13,
+        "history_length": 78,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 14,
+        "history_length": 79,
+        "prior_matches": [],
+        "proposal": []
+      },
+      {
+        "committed_outputs": 15,
+        "history_length": 80,
+        "prior_matches": [],
+        "proposal": []
+      }
+    ],
+    "positions_with_proposals": 0,
+    "decision": "No default5-gram proposal at any potential decision position, so this policy cannot remove private drafting or target rounds on the short workload. Do not implement or GPU-test this direction to close cap2 short budget. Other lookup lengths, cross-request caches and models are not evaluated."
+  },
+  "reference_sources": {
+    ".q3x-work/tmp-archive-20260809/vllm-mtp-audit.E1q1gW/vllm/v1/spec_decode/ngram_proposer.py": "5051e1bca645fe4befec0a6340f0dfc169fbcbe070ac1da508b72f8ee9c91736",
+    ".q3x-work/tmp-archive-20260809/vllm-mtp-audit.E1q1gW/vllm/config/speculative.py": "b0ccd70e399723d3720ed1178242f5becf0fe1bf6e4756972691114435db5bcf",
+    ".q3x-work/tmp-archive-20260809/vllm-mtp-audit.E1q1gW/vllm/v1/spec_decode/suffix_decoding.py": "5ce2f64f9c6bec815a10f51eb328934a112eb432d29fb5a4d93926128977844e"
+  },
+  "reference_boundary": "Pinned local vLLM source, Apache-2.0; inspected only, no runtime dependency or copied implementation. Default min=max5 in local speculative.py; not a claim about current upstream. Cross-request suffix cache is distinct and not evaluated.",
+  "payload_sources": {
+    ".q3x-work/mtp-output-tail-20261020/d2/p65.json": "f2821337f48d3e4a12905161f48cbbe0b724716568770b7d6910b0b42c4722e1",
+    ".q3x-work/mtp-output-tail-20261020/d2/server.log": "0b32e247043bc61c3c10860b6a1c5dfbe3f3d20da8e29fb6db868d46ae71cef3",
+    ".q3x-work/mtp-cap2-next-architecture-20261020/prompt-lookup-coverage.json": "ca6a743ba66a634cc0c241f1ccb728fdadff9a33d9a65959fef47bf40200ddfb",
+    ".q3x-work/mtp-cap2-next-architecture-20261020/check.py": "fd864ff7953e24aa83defc96f161893f12b23570e69b8c75644d6588f724acff"
+  },
+  "decision": "Reject terminal-KV-only as sufficient short-budget implementation and default5-gram prompt lookup as a useful short-workload composition. Do not scan horizons or reopen rejected kernel layouts. Next selection must change a dominant projection or private proposal computation with a complete API budget; no hardware impossibility claim.",
+  "production_changed": false,
+  "goal_achieved": false
+}

@@ -19,6 +19,18 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 cap 2 architecture assessment — two directions closed
+
+The [source and real-output assessment](metadata/qwen36-27b-mtp-cap2-architecture-assessment-2026-10-20.json)
+rejects terminal-private-KV-only work as sufficient to close the short budget:
+the entire measured reconciliation interval is smaller than the gap, and only
+a subset is terminal private KV. It also rejects the pinned vLLM default
+5-token prompt lookup for this short workload: no match exists at any of the
+15 possible proposal positions. No GPU process or threshold scan is selected.
+These are scoped feasibility conclusions, not speed measurements or hardware
+bounds. The next implementation still requires a materially different dominant
+projection or private-proposal computation and an immediate real API return.
+
 ## 2026-10-20 retained cap 3 repetition — complete
 
 The [prospective protocol](metadata/qwen36-27b-mtp-output-tail-repeat-design-2026-10-20.json)
