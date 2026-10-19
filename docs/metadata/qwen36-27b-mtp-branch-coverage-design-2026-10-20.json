@@ -1,0 +1,29 @@
+{
+  "work_package_id": "WP-MTP-BRANCH-COVERAGE-20261020",
+  "architecture_candidate_id": "AC-MTP-BRANCH-v1",
+  "source_parent": "4633c9b",
+  "product_constraint": "50%\u2013200% same-workload committed Decode uplift; d2/d3; exact full hybrid state and greedy output; jointPrefill/TTFT/Decode/total.",
+  "hypothesis": "One alternate first-token branch uses second-ranked first-step private MTP logit, alongside existing depth2/3 chain. Exact greedy target remains selector. Branching may avoid first-rejection rounds; more verifier rows and hybrid state cost must be paid, no assumed speedup.",
+  "budget": "Current d2 P65 has6 drafted rounds,4 accepted first tokens and2 first rejections. At8K98 rounds/86 accepted first;40K105 rounds/86 accepted first. Added branch cannot improve an already accepted first token. These counts bound opportunity, not counterfactual saved rounds. Short still needs17.903ms.",
+  "screen": "At first proposal per round, copy already-complete248320 BF16 private logits to startup-owned496640-byte host array. After unchanged target verification record target first-token rank and top2 under original value/lowest-ID tie breaking. No logits/proposals/confidence/state modification. Instrumented timings have no selection authority.",
+  "fixed_scope": "One alternate top2 first-token candidate, no rank/width/depth/threshold sweep. If short first-rejection coverage is zero close this candidate before tree implementation; otherwise finish d2 realAPI panel and design bounded parent-state verifier. No claim current trace predicts recursive tree acceptance or eliminated rounds.",
+  "next_architecture": "Existing linear chain remains depth2/3; add one sibling of first draft. Parent indices, branch positions, per-node Conv/GDN states, causal ancestor-onlyAttention and selected-path KV/hidden/logits publication must all match scalar tree-path replay. No recurrent-state reuse across siblings. M4(d2)/M5(d3) and fullGraph/resource plan require explicit native admission before realtree API.",
+  "reference": {
+    "paper": "https://arxiv.org/abs/2401.10774",
+    "source": "https://github.com/FasterDecoding/Medusa",
+    "transfer": "Candidate tree + ancestor-only attention verification; no Medusa heads, training, typical acceptance, imported code or model dependency. Hybrid Conv/GDN parent-state ownership is an additional native obligation, not established by full-attention tree paper."
+  },
+  "bounds": {
+    "diagnostic_policies": [
+      2
+    ],
+    "api_processes": 1,
+    "candidate_ranks": [
+      2
+    ],
+    "profiling": false,
+    "production_changed": false,
+    "deadline": "Coverage screen then at most two native implementation milestones before tree API or archival; no open-ended tracing."
+  },
+  "artifact_root": ".q3x-work/mtp-branch-coverage-20261020"
+}

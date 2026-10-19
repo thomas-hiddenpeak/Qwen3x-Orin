@@ -1,0 +1,2832 @@
+{
+  "work_package_id": "WP-MTP-BRANCH-COVERAGE-20261020",
+  "architecture_candidate_id": "AC-MTP-BRANCH-v1",
+  "source_parent": "4633c9b",
+  "decision": "coverage_complete; remove diagnostic; select bounded fixed-node-budget tree composition",
+  "identity": {
+    "parent": "4633c9b53ab8de8be075577689dedb7c0d783e2e",
+    "server_sha256": "7470832d99bbe3eefe2b13cb1c79ff5903c067f801362231adeac7f65bac86ec",
+    "files": {
+      "docs/DOCUMENT_REGISTRY.md": "7ee5e7552a802617f786242517a7f4503140264df7f48b91dfa9532eb9ff33a0",
+      "docs/MTP_ADMISSION.md": "5650f5b9848a6115364dd46e00f7e402082c760414ff53b0f06fb6da82a9ede4",
+      "docs/ROADMAP.md": "868988b4ce64645d087d7efd50252ce6dca6482862ac1a055fb59ee6b6fd4eb0",
+      "include/q3x/server/evaluation_server.h": "446fdc6aa99ecf3dbba801506fe6bbe85ff58913bf52b47ee533f01c72bdfe85",
+      "src/runtime/mtp_device_internal.cpp": "02b6b1a88d5d50df2b86e7a84ff5a2adaef3318a8c1fdafdc0f5378e9b3c6db1",
+      "src/runtime/mtp_device_internal.h": "14bf178d3ecaad3fcd3bc0f6ff22a3be85812280206a5e67663f2b46b34d197d",
+      "src/server/evaluation_server.cpp": "855ac3808e510c0ae56cafde6379461efb7cc3e0d3f061ec0fcfb07e4ea34841",
+      "tools/evaluation/validate_mtp_service.py": "857c64e70a96ed56e33780d34a6ec40e5229483195a9dd5f3b59d67f905e1379"
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v113": true,
+    "all_generated_ids_equal_v113": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 8,
+    "server_sha256": "7470832d99bbe3eefe2b13cb1c79ff5903c067f801362231adeac7f65bac86ec",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.891858747,
+        "prefill_tps": 72.8814963340826,
+        "ttft_s": 0.910389486933127,
+        "decode_tps": 14.041285960053955,
+        "elapsed_s": 1.9861615099944174,
+        "incumbent_decode_tps": 14.14897114978091,
+        "decode_delta_percent": -0.7610814142385403,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            5.454666,
+            5.554166
+          ],
+          "draft_ms": [
+            87.193625,
+            88.458556
+          ],
+          "verify_ms": [
+            955.2385310000001,
+            961.972485
+          ],
+          "reconcile_ms": [
+            17.373451000000003,
+            17.463275
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.334214442999997,
+        "prefill_tps": 472.5913612605699,
+        "ttft_s": 17.35634019295685,
+        "decode_tps": 15.502075805460729,
+        "elapsed_s": 33.80603350594174,
+        "incumbent_decode_tps": 15.635467587236855,
+        "decode_delta_percent": -0.8531358658247834,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            549.616703,
+            566.478979
+          ],
+          "draft_ms": [
+            1386.2916779999996,
+            1405.8195539999995
+          ],
+          "verify_ms": [
+            14620.652988,
+            14736.758166999995
+          ],
+          "reconcile_ms": [
+            297.1908079999999,
+            301.227762
+          ]
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.669209147,
+        "prefill_tps": 431.64283334444457,
+        "ttft_s": 92.70448270603083,
+        "decode_tps": 11.785390619075054,
+        "elapsed_s": 114.34296341205481,
+        "incumbent_decode_tps": 11.852969593254283,
+        "decode_delta_percent": -0.5701438246976442,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            2679.740603,
+            2716.719881
+          ],
+          "draft_ms": [
+            1715.9247019999998,
+            1731.0777650000002
+          ],
+          "verify_ms": [
+            19496.801134,
+            19602.078912999998
+          ],
+          "reconcile_ms": [
+            296.0035179999999,
+            298.36746699999986
+          ]
+        }
+      },
+      {
+        "label": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.895245876,
+        "prefill_tps": 72.60575194205083,
+        "ttft_s": null,
+        "decode_tps": 13.98633771267821,
+        "elapsed_s": 1.986657805973664,
+        "incumbent_decode_tps": 14.17347488903029,
+        "decode_delta_percent": -1.3203337771241719,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            5.353921,
+            5.458016
+          ],
+          "draft_ms": [
+            85.722032,
+            88.516092
+          ],
+          "verify_ms": [
+            955.0441029999998,
+            963.3280979999998
+          ],
+          "reconcile_ms": [
+            17.333458,
+            20.353354999999997
+          ]
+        }
+      },
+      {
+        "label": "raw-text",
+        "prompt": 5,
+        "output": 16,
+        "prefill_s": 0.824155519,
+        "prefill_tps": 6.06681613449221,
+        "ttft_s": 0.8568915859796107,
+        "decode_tps": 15.975825398048553,
+        "elapsed_s": 1.7956604820210487,
+        "incumbent_decode_tps": 16.106506148854148,
+        "decode_delta_percent": -0.8113538069514314,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            2.013336,
+            2.019924
+          ],
+          "draft_ms": [
+            78.29157300000001,
+            79.20107900000001
+          ],
+          "verify_ms": [
+            834.583499,
+            841.0945160000001
+          ],
+          "reconcile_ms": [
+            18.133629,
+            18.294007999999998
+          ]
+        }
+      },
+      {
+        "label": "chat-stop",
+        "prompt": 20,
+        "output": 2,
+        "prefill_s": 0.8264787800000001,
+        "prefill_tps": 24.19904840146047,
+        "ttft_s": 0.8445466760313138,
+        "decode_tps": 6.294581332949481,
+        "elapsed_s": 1.0033530299551785,
+        "incumbent_decode_tps": 6.344178416619063,
+        "decode_delta_percent": -0.7817731534733974,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            2.666176,
+            2.739536
+          ],
+          "draft_ms": [
+            14.244492,
+            14.405901
+          ],
+          "verify_ms": [
+            142.46544,
+            143.527274
+          ],
+          "reconcile_ms": [
+            0.873162,
+            0.883258
+          ]
+        }
+      },
+      {
+        "label": "after-prefill-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888208415,
+        "prefill_tps": 73.1810224968427,
+        "ttft_s": 1.1568650580011308,
+        "decode_tps": 14.068183339442692,
+        "elapsed_s": 2.2231246799929067,
+        "incumbent_decode_tps": 14.171192586575271,
+        "decode_delta_percent": -0.7268918723902118,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            5.342689,
+            5.467841
+          ],
+          "draft_ms": [
+            85.722385,
+            86.604469
+          ],
+          "verify_ms": [
+            955.04517,
+            961.771989
+          ],
+          "reconcile_ms": [
+            17.379348999999998,
+            17.497278
+          ]
+        }
+      },
+      {
+        "label": "after-decode-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887997393,
+        "prefill_tps": 73.1984130948907,
+        "ttft_s": 1.0632695589447394,
+        "decode_tps": 14.070260949282666,
+        "elapsed_s": 2.1293084759963676,
+        "incumbent_decode_tps": 14.174780455897377,
+        "decode_delta_percent": -0.7373624370402565,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10096578560
+          ],
+          "draft_initialization_ms": [
+            5.350529,
+            5.492289
+          ],
+          "draft_ms": [
+            85.737581,
+            86.627226
+          ],
+          "verify_ms": [
+            954.807172,
+            961.593262
+          ],
+          "reconcile_ms": [
+            17.353779,
+            17.503389
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": 0,
+      "early_stop": false
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 74.531
+    }
+  },
+  "coverage": {
+    "scope": "Observed original linear d2 paths only. No counterfactual rounds, branch acceptance trajectory or tree speed inferred. Diagnostic timing is excluded from selection.",
+    "groups": {
+      "p65": {
+        "drafted_rounds": 6,
+        "first_accepted": 4,
+        "first_rejections": 2,
+        "top2_covered_first_rejections": 1,
+        "coverage_fraction": 0.5,
+        "covered_positions": [
+          66
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 65,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 20668,
+            "top2": 15523,
+            "target_first": 2244,
+            "target_rank": 574
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 66,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 19846,
+            "top2": 6765,
+            "target_first": 6765,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 67,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11451,
+            "top2": 7419,
+            "target_first": 11451,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 70,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18,
+            "top2": 17,
+            "target_first": 18,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 73,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13715,
+            "top2": 1825,
+            "target_first": 13715,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 76,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35,
+            "top2": 37163,
+            "target_first": 35,
+            "target_rank": 1
+          }
+        ]
+      },
+      "p8192": {
+        "drafted_rounds": 98,
+        "first_accepted": 86,
+        "first_rejections": 12,
+        "top2_covered_first_rejections": 1,
+        "coverage_fraction": 0.08333333333333333,
+        "covered_positions": [
+          8279
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8192,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 11,
+            "top2": 12351,
+            "target_first": 4534,
+            "target_rank": 42
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8193,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 12,
+            "top2": 2149,
+            "target_first": 35704,
+            "target_rank": 4
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8194,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 89303,
+            "target_rank": 68
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8195,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8197,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 35704,
+            "top2": 12,
+            "target_first": 35704,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8199,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13914,
+            "top2": 11,
+            "target_first": 13914,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8202,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 14658,
+            "top2": 4886,
+            "target_first": 37208,
+            "target_rank": 9
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8203,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 14658,
+            "top2": 3817,
+            "target_first": 1528,
+            "target_rank": 10
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8204,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 198,
+            "top2": 11,
+            "target_first": 198,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8206,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 5745,
+            "top2": 5011,
+            "target_first": 5745,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8209,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 17668,
+            "top2": 81400,
+            "target_first": 33625,
+            "target_rank": 10
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8210,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18169,
+            "top2": 6607,
+            "target_first": 18169,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8213,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 381,
+            "top2": 958,
+            "target_first": 381,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8215,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 440,
+            "top2": 13,
+            "target_first": 440,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8217,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 198,
+            "top2": 795,
+            "target_first": 198,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8219,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 82,
+            "top2": 9888,
+            "target_first": 82,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8222,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 550,
+            "top2": 4277,
+            "target_first": 550,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8224,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 61038,
+            "top2": 25165,
+            "target_first": 61038,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8227,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 279,
+            "top2": 411,
+            "target_first": 279,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8230,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 310,
+            "top2": 948,
+            "target_first": 310,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8233,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 310,
+            "top2": 369,
+            "target_first": 310,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8236,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 25,
+            "top2": 13,
+            "target_first": 25,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8239,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 159029,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8242,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 220,
+            "top2": 12,
+            "target_first": 220,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8245,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8535,
+            "top2": 1865,
+            "target_first": 8535,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8248,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 64700,
+            "top2": 318,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8251,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35464,
+            "top2": 1723,
+            "target_first": 35464,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8254,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 77450,
+            "top2": 36029,
+            "target_first": 77450,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8257,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 256,
+            "top2": 53992,
+            "target_first": 256,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8260,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 1865,
+            "top2": 279,
+            "target_first": 1865,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8262,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 49219,
+            "top2": 86443,
+            "target_first": 49219,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8265,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 854,
+            "top2": 31659,
+            "target_first": 854,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8268,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 1118,
+            "top2": 5339,
+            "target_first": 9575,
+            "target_rank": 427
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8269,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 21568,
+            "top2": 198,
+            "target_first": 21568,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8271,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 198,
+            "top2": 1118,
+            "target_first": 198,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8273,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 220,
+            "top2": 12,
+            "target_first": 220,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8276,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8535,
+            "top2": 1865,
+            "target_first": 8535,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8279,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 25,
+            "top2": 64700,
+            "target_first": 64700,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8280,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8981,
+            "top2": 22461,
+            "target_first": 8981,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8283,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 220,
+            "top2": 12,
+            "target_first": 220,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8286,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8535,
+            "top2": 1865,
+            "target_first": 8535,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8289,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 64700,
+            "top2": 25,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8292,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35464,
+            "top2": 198,
+            "target_first": 35464,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8295,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 77450,
+            "top2": 36029,
+            "target_first": 77450,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8298,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 383,
+            "top2": 198,
+            "target_first": 383,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8301,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 49219,
+            "top2": 198,
+            "target_first": 49219,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8304,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 16,
+            "top2": 17,
+            "target_first": 16,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8306,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8535,
+            "top2": 1865,
+            "target_first": 8535,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8309,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 64700,
+            "top2": 25,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8312,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35464,
+            "top2": 6297,
+            "target_first": 35464,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8315,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 7700,
+            "top2": 3700,
+            "target_first": 35464,
+            "target_rank": 569
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8316,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 5097,
+            "top2": 496,
+            "target_first": 5097,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8319,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 5165,
+            "top2": 7465,
+            "target_first": 5165,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8322,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1865,
+            "top2": 220,
+            "target_first": 1865,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8325,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11,
+            "top2": 13,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8328,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 310,
+            "top2": 198,
+            "target_first": 310,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8331,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 21568,
+            "top2": 1118,
+            "target_first": 21568,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8334,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 9155,
+            "top2": 5222,
+            "target_first": 9155,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8337,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 321,
+            "top2": 13,
+            "target_first": 321,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8339,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 4534,
+            "top2": 8429,
+            "target_first": 4534,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8342,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 26,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8345,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 12,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8348,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 220,
+            "top2": 7696,
+            "target_first": 220,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8351,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 29921,
+            "top2": 3212,
+            "target_first": 29921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8354,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1752,
+            "top2": 64700,
+            "target_first": 1752,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8357,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 10486,
+            "top2": 10256,
+            "target_first": 10486,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8360,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13185,
+            "top2": 198,
+            "target_first": 13185,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8363,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1608,
+            "top2": 198,
+            "target_first": 1608,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8366,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1558,
+            "top2": 20086,
+            "target_first": 1558,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8369,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 10885,
+            "top2": 1788,
+            "target_first": 10885,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8372,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 4687,
+            "top2": 1528,
+            "target_first": 4687,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8375,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 6000,
+            "top2": 11,
+            "target_first": 50921,
+            "target_rank": 69
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8376,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8378,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 4954,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8381,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 75336,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8384,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8387,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8390,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8393,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8396,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8399,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8402,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8405,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8408,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8411,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8414,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8417,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 50921,
+            "top2": 5067,
+            "target_first": 45332,
+            "target_rank": 8612
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8418,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8420,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 11,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8423,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8426,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8429,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8432,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8435,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8438,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 61038,
+            "target_rank": 249
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8439,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8441,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 40355,
+            "target_first": 50921,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 8444,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50921,
+            "top2": 61038,
+            "target_first": 50921,
+            "target_rank": 1
+          }
+        ]
+      },
+      "p40000": {
+        "drafted_rounds": 105,
+        "first_accepted": 86,
+        "first_rejections": 19,
+        "top2_covered_first_rejections": 12,
+        "coverage_fraction": 0.631578947368421,
+        "covered_positions": [
+          40038,
+          40042,
+          40061,
+          40067,
+          40088,
+          40113,
+          40119,
+          40132,
+          40181,
+          40198,
+          40199,
+          40213
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40000,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 1156,
+            "top2": 3766,
+            "target_first": 1156,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40002,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 3766,
+            "top2": 3162,
+            "target_first": 3766,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40005,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 716,
+            "top2": 12182,
+            "target_first": 716,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40008,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 9017,
+            "top2": 9417,
+            "target_first": 9017,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40011,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1510,
+            "top2": 328,
+            "target_first": 1510,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40014,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18,
+            "top2": 16,
+            "target_first": 18,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40017,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2126,
+            "top2": 842,
+            "target_first": 2126,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40020,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2313,
+            "top2": 6859,
+            "target_first": 2313,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40023,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 9017,
+            "top2": 2830,
+            "target_first": 9017,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40026,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 14246,
+            "top2": 2313,
+            "target_first": 14246,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40028,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 318,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40030,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2790,
+            "top2": 17120,
+            "target_first": 2790,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40033,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2552,
+            "top2": 1528,
+            "target_first": 2552,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40036,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 28539,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40038,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 15977,
+            "top2": 9883,
+            "target_first": 9883,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40039,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11,
+            "top2": 318,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40042,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 30742,
+            "top2": 15494,
+            "target_first": 15494,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40043,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 364,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40046,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 1156,
+            "top2": 17457,
+            "target_first": 1156,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40048,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 524,
+            "top2": 2972,
+            "target_first": 524,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40050,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 264,
+            "top2": 449,
+            "target_first": 264,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40053,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 13,
+            "top2": 694,
+            "target_first": 466,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40054,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 3766,
+            "top2": 10579,
+            "target_first": 10897,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40055,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 264,
+            "top2": 449,
+            "target_first": 264,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40058,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 11,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40061,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 279,
+            "top2": 3018,
+            "target_first": 3018,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40062,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 383,
+            "top2": 279,
+            "target_first": 383,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40065,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 314,
+            "top2": 3766,
+            "target_first": 314,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40067,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 4474,
+            "top2": 1825,
+            "target_first": 1825,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40068,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 42427,
+            "top2": 48567,
+            "target_first": 42427,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40071,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 321,
+            "top2": 864,
+            "target_first": 321,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40074,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 12182,
+            "top2": 9417,
+            "target_first": 6775,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40075,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 314,
+            "top2": 11,
+            "target_first": 314,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40078,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 3766,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40080,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 17457,
+            "top2": 1156,
+            "target_first": 17457,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40083,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 4222,
+            "top2": 3428,
+            "target_first": 4222,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40085,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 279,
+            "top2": 728,
+            "target_first": 279,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40088,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 23868,
+            "top2": 25,
+            "target_first": 25,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40089,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 198,
+            "top2": 271,
+            "target_first": 198,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40092,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 220,
+            "top2": 49265,
+            "target_first": 220,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40094,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 53692,
+            "top2": 15771,
+            "target_first": 53692,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40097,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 5138,
+            "top2": 3418,
+            "target_first": 5138,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40100,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1439,
+            "top2": 279,
+            "target_first": 1439,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40103,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 9883,
+            "top2": 5426,
+            "target_first": 16981,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40104,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 364,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40107,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 220,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40110,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 8917,
+            "top2": 77006,
+            "target_first": 8917,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40113,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 279,
+            "top2": 332,
+            "target_first": 332,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40114,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 279,
+            "top2": 1141,
+            "target_first": 279,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40117,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 321,
+            "top2": 314,
+            "target_first": 321,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40119,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 28539,
+            "top2": 1727,
+            "target_first": 1727,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40120,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 7123,
+            "top2": 28539,
+            "target_first": 7123,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40123,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 279,
+            "top2": 1439,
+            "target_first": 279,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40126,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 11,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40129,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 159029,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40132,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 77006,
+            "top2": 16237,
+            "target_first": 16237,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40133,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 59610,
+            "top2": 332,
+            "target_first": 59610,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40136,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 1121,
+            "top2": 7543,
+            "target_first": 14061,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40137,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2785,
+            "top2": 1172,
+            "target_first": 2785,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40140,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 22005,
+            "top2": 13854,
+            "target_first": 22005,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40143,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 40,
+            "top2": 21365,
+            "target_first": 40,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40146,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 264,
+            "top2": 449,
+            "target_first": 264,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40148,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11782,
+            "top2": 74821,
+            "target_first": 11782,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40151,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2313,
+            "top2": 1428,
+            "target_first": 2313,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40154,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1528,
+            "top2": 2552,
+            "target_first": 1528,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40157,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 15588,
+            "top2": 1328,
+            "target_first": 15588,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40159,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 321,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40161,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 13522,
+            "top2": 4393,
+            "target_first": 13522,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40163,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 28539,
+            "top2": 5077,
+            "target_first": 28539,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40165,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 47,
+            "top2": 299,
+            "target_first": 47,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40168,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 387,
+            "top2": 1179,
+            "target_first": 387,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40171,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 387,
+            "top2": 1179,
+            "target_first": 387,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40174,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 321,
+            "top2": 279,
+            "target_first": 321,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40177,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 16484,
+            "top2": 32957,
+            "target_first": 23810,
+            "target_rank": 6
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40178,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 16484,
+            "top2": 5426,
+            "target_first": 16484,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40181,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 1257,
+            "top2": 26590,
+            "target_first": 26590,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40182,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 11,
+            "top2": 27980,
+            "target_first": 4687,
+            "target_rank": 3
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40183,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 11,
+            "top2": 5972,
+            "target_first": 11,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40185,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 50209,
+            "top2": 5426,
+            "target_first": 50209,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40188,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 24559,
+            "top2": 22005,
+            "target_first": 24559,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40191,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 19264,
+            "top2": 7440,
+            "target_first": 19264,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40193,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 321,
+            "top2": 13,
+            "target_first": 321,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40195,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13,
+            "top2": 364,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40198,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 19860,
+            "top2": 1536,
+            "target_first": 1536,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40199,
+            "proposed": 1,
+            "accepted_prefix": 0,
+            "top1": 29833,
+            "top2": 20098,
+            "target_first": 20098,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40200,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 310,
+            "top2": 494,
+            "target_first": 310,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40202,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 64700,
+            "top2": 303,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40205,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 256,
+            "top2": 262,
+            "target_first": 256,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40208,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 64700,
+            "top2": 594,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40210,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 1452,
+            "top2": 537,
+            "target_first": 1452,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40213,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 1167,
+            "top2": 1510,
+            "target_first": 1510,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40214,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 77,
+            "top2": 48,
+            "target_first": 77,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40217,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 16451,
+            "top2": 868,
+            "target_first": 16451,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40220,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 21,
+            "top2": 18,
+            "target_first": 21,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40223,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 22,
+            "top2": 33,
+            "target_first": 22,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40226,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 53,
+            "top2": 47419,
+            "target_first": 53,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40229,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 63,
+            "top2": 7561,
+            "target_first": 63,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40232,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 901,
+            "top2": 2616,
+            "target_first": 901,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40235,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 2441,
+            "top2": 2639,
+            "target_first": 2441,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40238,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 9221,
+            "top2": 3445,
+            "target_first": 9221,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40241,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 553,
+            "top2": 681,
+            "target_first": 553,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40244,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 256,
+            "top2": 220,
+            "target_first": 256,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40247,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 64700,
+            "top2": 318,
+            "target_first": 64700,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40249,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 19,
+            "top2": 17,
+            "target_first": 19,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 40252,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 12,
+            "top2": 14,
+            "target_first": 12,
+            "target_rank": 1
+          }
+        ]
+      },
+      "p65-nonstream": {
+        "drafted_rounds": 6,
+        "first_accepted": 4,
+        "first_rejections": 2,
+        "top2_covered_first_rejections": 1,
+        "coverage_fraction": 0.5,
+        "covered_positions": [
+          66
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 65,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 20668,
+            "top2": 15523,
+            "target_first": 2244,
+            "target_rank": 574
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 66,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 19846,
+            "top2": 6765,
+            "target_first": 6765,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 67,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11451,
+            "top2": 7419,
+            "target_first": 11451,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 70,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18,
+            "top2": 17,
+            "target_first": 18,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 73,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13715,
+            "top2": 1825,
+            "target_first": 13715,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 76,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35,
+            "top2": 37163,
+            "target_first": 35,
+            "target_rank": 1
+          }
+        ]
+      },
+      "raw-text": {
+        "drafted_rounds": 6,
+        "first_accepted": 6,
+        "first_rejections": 0,
+        "top2_covered_first_rejections": 0,
+        "coverage_fraction": null,
+        "covered_positions": [],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 5,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 13,
+            "top2": 11,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 7,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 760,
+            "top2": 57590,
+            "target_first": 760,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 10,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 9338,
+            "top2": 9564,
+            "target_first": 9338,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 13,
+            "proposed": 2,
+            "accepted_prefix": 1,
+            "top1": 13,
+            "top2": 11,
+            "target_first": 13,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 15,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 760,
+            "top2": 57590,
+            "target_first": 760,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 18,
+            "proposed": 1,
+            "accepted_prefix": 1,
+            "top1": 9338,
+            "top2": 11751,
+            "target_first": 9338,
+            "target_rank": 1
+          }
+        ]
+      },
+      "chat-stop": {
+        "drafted_rounds": 1,
+        "first_accepted": 1,
+        "first_rejections": 0,
+        "top2_covered_first_rejections": 0,
+        "coverage_fraction": null,
+        "covered_positions": [],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 20,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 248046,
+            "top2": 1710,
+            "target_first": 248046,
+            "target_rank": 1
+          }
+        ]
+      },
+      "after-prefill-cancel": {
+        "drafted_rounds": 6,
+        "first_accepted": 4,
+        "first_rejections": 2,
+        "top2_covered_first_rejections": 1,
+        "coverage_fraction": 0.5,
+        "covered_positions": [
+          66
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 65,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 20668,
+            "top2": 15523,
+            "target_first": 2244,
+            "target_rank": 574
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 66,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 19846,
+            "top2": 6765,
+            "target_first": 6765,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 67,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11451,
+            "top2": 7419,
+            "target_first": 11451,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 70,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18,
+            "top2": 17,
+            "target_first": 18,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 73,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13715,
+            "top2": 1825,
+            "target_first": 13715,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 76,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35,
+            "top2": 37163,
+            "target_first": 35,
+            "target_rank": 1
+          }
+        ]
+      },
+      "after-decode-cancel": {
+        "drafted_rounds": 6,
+        "first_accepted": 4,
+        "first_rejections": 2,
+        "top2_covered_first_rejections": 1,
+        "coverage_fraction": 0.5,
+        "covered_positions": [
+          66
+        ],
+        "rows": [
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 65,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 20668,
+            "top2": 15523,
+            "target_first": 2244,
+            "target_rank": 574
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 66,
+            "proposed": 2,
+            "accepted_prefix": 0,
+            "top1": 19846,
+            "top2": 6765,
+            "target_first": 6765,
+            "target_rank": 2
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 67,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 11451,
+            "top2": 7419,
+            "target_first": 11451,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 70,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 18,
+            "top2": 17,
+            "target_first": 18,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 73,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 13715,
+            "top2": 1825,
+            "target_first": 13715,
+            "target_rank": 1
+          },
+          {
+            "mtp_branch_coverage": true,
+            "entry_position": 76,
+            "proposed": 2,
+            "accepted_prefix": 2,
+            "top1": 35,
+            "top2": 37163,
+            "target_first": 35,
+            "target_rank": 1
+          }
+        ]
+      }
+    }
+  },
+  "performance_authority": "None for instrumented timing: D2H/ranking/logging are charged. Current v113 metrics unchanged.",
+  "inference": "Real first-token misses are covered, especially40K; sparse8K coverage motivates unchanged verifier row budget. No counterfactual acceptance trajectory, saved rounds or speed established.",
+  "audit_repair": "Initial standalone comparison incorrectly demanded fullGraph for tiny text/chat. Corrected it to compare all physical counts to v113 and require fullGraph only in supported context families, matching current production-facing auditor. Preserve first failure log. No model rerun or output change.",
+  "next_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-branch-coverage-20261020",
+  "evidence_sha256": {
+    ".q3x-work/mtp-branch-coverage-20261020/analyze.py": "e9ab054dc31e4e95d8a1aeaa69b2d5be4aed3c499a127bc9bee0d9b724591c97",
+    ".q3x-work/mtp-branch-coverage-20261020/build.log": "0c0fb5f19f01ced63fa89c6a089b601edb609e694a8f6275901b02d51e05d11e",
+    ".q3x-work/mtp-branch-coverage-20261020/closure-docs-check.log": "3b36475e83b687726d55f70b2fb61cd56772444c764fb6fd47bac11ab8c11dcf",
+    ".q3x-work/mtp-branch-coverage-20261020/compare.py": "24d15fb625653aac597a7e6c7ef60a18bf9cc564510bff0dfbaaca5f3bdd975e",
+    ".q3x-work/mtp-branch-coverage-20261020/coverage.json": "8830db746de1b996f1d231fd99b61c1adb067ea7e0c8dd26d21fc9141d32995b",
+    ".q3x-work/mtp-branch-coverage-20261020/coverage.log": "2633988911e3e3d6fb69e6882ba1c65238caa033dfbb555122c452b7369e4658",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/after-decode-cancel.json": "ce9f50bda53eac0996fa8ec4b53de55f1df45d905fda8f1ed0ae897158dcf52a",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/after-prefill-cancel.json": "0565da90d2b73f21522647791fd52eeecd1ebc29fe602af4d9c12a01a24c6644",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/audited-metrics.json": "5e159062e022dd944348e672a94761a772d925193e6b4837d0a9044ba723003d",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/cache-preparation.json": "53c4cd988f64f474cb7c39f037e80f40971b92b5d1cce5b7e12e78832ae63e51",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/chat-stop.json": "bd4d58004332904e6f6541fb9ecc3941345a2a01979002421c97db2966d7c641",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/cleanup.json": "06ae215f9f391e7310b14e81018325aa9f28b9bee4017636306c493b717e3fec",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/health.json": "970a9065ea03b0d53875df3fab214d8c9a66ff2bdd2cc1642511978b3035ea78",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/identity.json": "30ad3004dd7bd3944a2449f09653ac586a8dac255adfe41d1a6770733513347e",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/p40000.json": "8cae77573f6db76cef3bce6791b0736bbca2305e427640a1ea121cee368b8ac6",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/p65-nonstream.json": "b2a74176e3cbdddffc775bcd98c8a42376ea67fb4c97a113647e1fd1ebf3ce72",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/p65.json": "1d7cd47a561334beb4a9023eb23733aa82f5eb2d5e9c62fa0940315ebf8136cf",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/p8192.json": "0cde8f7a81c7fc2983769baa4382a0024404ce56450eca7d0305909f06f13004",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/preflight-console.log": "3a40eb133657dd7c57184e981815c732b4920336b67ca61b0b95cb14f1d4f8ea",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/preflight.json": "c7492f49b2c12472512e4267b0289b4a1fc80972768d443ba9b5461a873362a2",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/raw-text.json": "7702ebd5bf5df734236d1e19a2428179cb6a616da4418d0c5b500f91fe29636b",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/requests.jsonl": "e35102f5f69d2e624903463dfc7777ccf1c18356ab9795737321578e127b8a80",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/results.json": "1e75da81014cccc003b410ccaa9aa967e73d5126fe90501306dbbc6214175bba",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/server.log": "0857d6d8fbf55925dd23e96d3d9cfe8a050e41b33f2c00beab1a74e2e61b592d",
+    ".q3x-work/mtp-branch-coverage-20261020/d2/telemetry.log": "32c5f4f0885c2a0aca8979df43806325de9bf3f7ac17a733061f0ae2c7aa3801",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-comparison-r1.log": "e7781a690ec237aa00d93f719556dfde28da9118307318a40fd42b42c014597a",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-comparison.json": "e7781a690ec237aa00d93f719556dfde28da9118307318a40fd42b42c014597a",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-comparison.log": "514fb859e0d78992288b2af6e35e928fdda713bc90401bd90650fb1a8c4baae9",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-console.log": "0a1061bbdf729e977acb243a79652bf4e5386105a61e056900b3f1f833e68e7e",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-driver-result.json": "cc3f040330893c99443996540ed3cff211f307c74af640795549cdc2a450f183",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-driver.log": "e08ed7132056b22ec7f2eddaf85564fdca20d7b784fadc0d05a492453e8368e7",
+    ".q3x-work/mtp-branch-coverage-20261020/d2-process.json": "ab5bddbf00f7e5f36001fb16b2009e6f4595cc02c1ba9ccb1af21b420b15c72f",
+    ".q3x-work/mtp-branch-coverage-20261020/docs-check.log": "3b36475e83b687726d55f70b2fb61cd56772444c764fb6fd47bac11ab8c11dcf",
+    ".q3x-work/mtp-branch-coverage-20261020/finish.py": "01e72c13d0a2609f255a0473fd5ff816a06e3ca7996ba7b6a2ead9a0b074df39",
+    ".q3x-work/mtp-branch-coverage-20261020/original/include/q3x/server/evaluation_server.h": "2f4451bc44abb5357f27a492dec79debda3665678b54205a0d947060c1c9c5ad",
+    ".q3x-work/mtp-branch-coverage-20261020/original/src/runtime/mtp_device_internal.cpp": "e538e5cde15abe79b6bfe970760b84d764de6da8652ea06086fc0b2302c9ad53",
+    ".q3x-work/mtp-branch-coverage-20261020/original/src/runtime/mtp_device_internal.h": "4671857f4969b73a1dd2b3e59140a15b2db779ab7eb2139d9213573cdd3d22fb",
+    ".q3x-work/mtp-branch-coverage-20261020/original/src/server/evaluation_server.cpp": "920d2dc92629a801d72568bc30b62cb3437e39ae1022b1280ea50057e81df34d",
+    ".q3x-work/mtp-branch-coverage-20261020/original/tools/evaluation/validate_mtp_service.py": "cbebf746b102400bc5deb65fa2488add7c647a891c6ecdb5752a79903bdf91a6",
+    ".q3x-work/mtp-branch-coverage-20261020/restored-build.log": "090074b5961ce18975028e4a88596a30ce2d621789b71a82b9df6ab47c2928ad",
+    ".q3x-work/mtp-branch-coverage-20261020/run-api.py": "45f83344d7572192f46c63c9088566528da89129e37a5bd9e9a5b144e96786df",
+    ".q3x-work/mtp-branch-coverage-20261020/short-coverage.json": "a429c47b2129a11030e9842e1457943dd1fe91f2d5173c7fcf3a9f3a6de06a4f",
+    ".q3x-work/mtp-branch-coverage-20261020/source/changes.patch": "fc5c46edd3e907e5031095ec5422b89aed8f761fb43a0f8dd99f910b4c85f739",
+    ".q3x-work/mtp-branch-coverage-20261020/source/docs/DOCUMENT_REGISTRY.md": "7ee5e7552a802617f786242517a7f4503140264df7f48b91dfa9532eb9ff33a0",
+    ".q3x-work/mtp-branch-coverage-20261020/source/docs/MTP_ADMISSION.md": "5650f5b9848a6115364dd46e00f7e402082c760414ff53b0f06fb6da82a9ede4",
+    ".q3x-work/mtp-branch-coverage-20261020/source/docs/ROADMAP.md": "868988b4ce64645d087d7efd50252ce6dca6482862ac1a055fb59ee6b6fd4eb0",
+    ".q3x-work/mtp-branch-coverage-20261020/source/include/q3x/server/evaluation_server.h": "446fdc6aa99ecf3dbba801506fe6bbe85ff58913bf52b47ee533f01c72bdfe85",
+    ".q3x-work/mtp-branch-coverage-20261020/source/server": "7470832d99bbe3eefe2b13cb1c79ff5903c067f801362231adeac7f65bac86ec",
+    ".q3x-work/mtp-branch-coverage-20261020/source/src/runtime/mtp_device_internal.cpp": "02b6b1a88d5d50df2b86e7a84ff5a2adaef3318a8c1fdafdc0f5378e9b3c6db1",
+    ".q3x-work/mtp-branch-coverage-20261020/source/src/runtime/mtp_device_internal.h": "14bf178d3ecaad3fcd3bc0f6ff22a3be85812280206a5e67663f2b46b34d197d",
+    ".q3x-work/mtp-branch-coverage-20261020/source/src/server/evaluation_server.cpp": "855ac3808e510c0ae56cafde6379461efb7cc3e0d3f061ec0fcfb07e4ea34841",
+    ".q3x-work/mtp-branch-coverage-20261020/source/tools/evaluation/validate_mtp_service.py": "857c64e70a96ed56e33780d34a6ec40e5229483195a9dd5f3b59d67f905e1379",
+    ".q3x-work/mtp-branch-coverage-20261020/source-identity.json": "ccbcf089b08c72baa44f095be613d9036b707ba91470c9cb55274104d287c469",
+    ".q3x-work/mtp-branch-coverage-20261020/final-docs-check.log": "399369e32c8c90872dae7d79b0b80e4a4e5e3d10d4a475217d7dbd8bbb31b1c9",
+    ".q3x-work/mtp-branch-coverage-20261020/restored-build-r1.log": "d97850d04556dea7851f64ce38adb055fc217be321ea47bbeb2d9c735d43ad13",
+    ".q3x-work/mtp-branch-coverage-20261020/closure-preflight/cache-preparation.json": "14234cf24030e6a4992cc0172edc0a308040329300a83d5d591633557db45fac",
+    ".q3x-work/mtp-branch-coverage-20261020/closure-preflight/preflight-console.log": "120e93d3bc22d18d9e80f4643d00f89cc7d7801481353e4b8e66223236b8ea16",
+    ".q3x-work/mtp-branch-coverage-20261020/closure-preflight/preflight.json": "ee2120bff6b6d076cb5ba4202d8e968388e365480c076feec34ff08eca563cf0"
+  },
+  "restoration": {
+    "source_equals": "4633c9b for src/include/tests/tools/CMakeLists.txt",
+    "server_equals_v113": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+    "worktree_count": 47
+  }
+}

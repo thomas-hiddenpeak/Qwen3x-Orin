@@ -25,6 +25,33 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 budgeted alternate branch — active native composition
+
+The [completed first-token coverage screen](metadata/qwen36-27b-mtp-branch-coverage-2026-10-20.json)
+preserves eight d2 API/lifecycle outputs and original semantic work.
+Second-ranked private candidates cover 1/2 short, 1/12 8K and 12/19 40K
+first-token rejections on observed linear paths. These are coverage counts,
+not counterfactual saved rounds or speedups. Instrumented timings have no
+performance-selection authority; diagnostic source is removed and v113 restored.
+No further rank/width coverage scan is active.
+
+`WP-MTP-BUDGETED-BRANCH-20261020` selects one
+[fixed-node-budget tree composition](metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json).
+Keep configured maximum depth2/3 and original confidence stopping; replace only
+the final primary candidate with a first-token sibling when the sibling's
+probability exceeds the primary tail's joint path probability. Equal scores
+retain the chain. No extra verifier row or tunable threshold is added.
+This rule is selected before implementation and has no performance claim.
+
+The next two native implementation milestones must compose exact parent-index
+Conv/GDN, ancestor-only Attention, full selected-path state/KV publication,
+controller, Graph lifetime and route accounting, then return to d2 API; useful
+full direction unlocks d3. Extra top2/confidence and unused primary draft work
+are charged explicitly. Complete scalar path oracles cover every branch,
+EOS/cancel/reject and same-depth sibling isolation. Private numerical bounds,
+startup reserve, production boundary and full50%–200% goal remain intact.
+A negative whole runner or expired composition budget archives this version.
+
 ## 2026-10-20 canonical singleton state — closed neutral
 
 `WP-MTP-SINGLETON-CANONICAL-20261020` implemented one

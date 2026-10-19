@@ -1,0 +1,29 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_evidence": "docs/metadata/qwen36-27b-mtp-branch-coverage-2026-10-20.json",
+  "product_constraint": "Full50%\u2013200% realAPI Decode uplift; configured maximum depth2/3; exact target/greedy output; jointPrefill/TTFT/Decode/total.",
+  "status": "selected; not implemented",
+  "selection_rule": "Generate original primary chain with existing confidence0.4 stop and retain per-step top1 probabilities. Obtain first-step second-ranked token/probability from same complete head. For actual count m>=2, replace ONLY final primary node by first-token sibling iff log(p_first_second)>sum(log(p_primary_i),i=0..m-1). Equal scores and count1 retain linear. Fixed comparison, no tunable threshold/rank/width/depth scan or learned scoring. Maxdepth2/3 and original target row budget m+1 preserved.",
+  "charged_work": "Primary MTP steps remain m, including unused primary tail after substitution. Top2 selection and last-step confidence add cost, never assumed free. Witness distinguishes physical MTP steps, retained nodes and unused candidates.",
+  "topology": "Nodes0..m-1 retain primary prefix; node0=seed. Node m is original tail(parentm-1) or alternate first token(parent0, absoluteentry+1). <=4nodes; noM5 or extra recurrent snapshot slot.",
+  "state_contract": {
+    "gdn_conv": "Each node reads parent immutable GDN state; Conv restores parent state before sibling update. All output snapshots immutable. No sibling state contamination.",
+    "attention": "RoPE uses logical depth. Ordered QK/softmax/PV see committed prefix plus node ancestors only. Alternate logicalposition entry+1 may live in physicalslot entry+m; no primary sibling/descendant leakage. Preserve scalar arithmetic.",
+    "commit": "Select matching child from target prediction. Full selected GDN/Conv/hidden/logits and selected-path KV must be canonical before EACH observer; draft reconciles target hidden. EOS/cancel/failure/poison/reset exact.",
+    "graphs_memory": "Fixed parent topology at startup; linear graph remains for no substitution. No request allocation/capture. Existing<=4node bound; plan explicit KV staging and metadata, recheck8GiB reserve and graph ownership. No non-MTP changes."
+  },
+  "reference": "Medusa ancestor-only tree verification https://arxiv.org/abs/2401.10774; algorithm study only, no trained heads, imported code or dependency. Hybrid parent-state correctness requires independent native proof.",
+  "milestones": [
+    "Host controller/topology plus exact parent-state verifier. Exhaustive linear/branch/EOS/cancel/reject paths, complete scalar path state/logit comparison and sibling isolation.",
+    "Complete Graph/lifetime/route/resource composition, immediately real d2 P65/8K/40K API. Useful full direction unlocks d3. No performance inheritance from diagnostic."
+  ],
+  "bounds": {
+    "native_implementation_milestones": 2,
+    "correctness_repairs": 1,
+    "scans": false,
+    "rollback": "Archive after correctness failure beyond repair, expired composition budget or globally negative real API. Local wins cannot override whole runner."
+  },
+  "performance_gate": "Freeze binary and precise stop/retention protocol before first native API timing.",
+  "production_changed": false
+}
