@@ -1,0 +1,41 @@
+{
+  "work_package_id": "WP-MTP-CAPACITY-20261020",
+  "decision_unit": "architecture_candidate",
+  "architecture": "retained v122 EOS-frontier MTP candidate; delivery validation, no new performance mutation",
+  "source_parent": "b9157b9",
+  "product_constraint": "Full declared API range P+O-1<=44095 and O<=4096, no truncation, exact output, both compiled draft caps, bounded reserve and recovery. Preserve full50%-200% objective and cap2 short deficit.",
+  "origin": "docs/metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json",
+  "scope": "One fresh process per cap, cap3 then cap2. Three successful requests and one invalid boundary per process. No sustained-service or final performance qualification.",
+  "cases": [
+    "Frozen installed0.8.2 P40000/O4096 request, complete length-finished output.",
+    "60-second idle, frozen installed0.8.2 P44095/O1 request, no Decode claim. Same44095-token prompt with O2 must reject400 before generation.",
+    "60-second idle, same-cap frozen v122 P65/O16 recovery."
+  ],
+  "baseline_authority": "Corrected installed nonMTP0.8.2 independent numerical qualification, exact historical request/body/text/usage/finish/done; native output IDs absent. Cross-cap IDs are separately compared, not substituted for native numerical reference.",
+  "gates": [
+    "Per-process Jetson preflight/control ownership, sync/cache-drop result, sanitized temperatures; >90C operational stop. No cooling control.",
+    "Complete output/usage/finish/DONE and exact request hashes; complete MTP route, resource and physical-work receipts. Startup free>=8GiB and admitted compiledarena9508218624.",
+    "No request failure, hidden fallback, memory error or poisoned recovery; normal owned shutdown with key cleanup.",
+    "Record Prefill duration/rate, TTFT, Decode and total per request. O1 Decode is N/A. No speed-selection threshold or cap2 gap closure inferred."
+  ],
+  "stop_rule": "One process per cap. An actual correctness/capacity defect selects one explicit repair and affected rerun; environment/observer failures preserve completed attributable facts. No repeats merely for timing.",
+  "servers": {
+    "2": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap2",
+      "sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f"
+    },
+    "3": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap3",
+      "sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e"
+    }
+  },
+  "inputs": {
+    ".q3x-work/softmax-package-20261014/patch/results.json": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+    ".q3x-work/mtp-eos-frontier-20261020/regression-cap2/results.json": "9cb5a174908e50d851447eaf6f7b62eb9042d6fe98ea57ea3804bd256e4760d2",
+    ".q3x-work/mtp-eos-frontier-20261020/regression-cap3/results.json": "ec3c0bc5c433c17e0fa016db208d63208d89db08d47a14759e36a8157cf468bc"
+  },
+  "wrapper_sha256": "f043621b24aa6c9dc9f70618e6b5f6254f697dcee9a242e5221e4b5f1844af22",
+  "artifact_root": ".q3x-work/mtp-capacity-20261020",
+  "production_changed": false,
+  "remaining_after_pass": "Cap2 short>=1.5x still requires implementation; final repeated performance selection, sustained delivery and installation remain open."
+}

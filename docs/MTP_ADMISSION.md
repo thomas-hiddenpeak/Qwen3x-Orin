@@ -25,6 +25,22 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 MTP capacity — bounded delivery check active
+
+The [capacity protocol](metadata/qwen36-27b-mtp-capacity-design-2026-10-20.json)
+closes a remaining service-range question on the frozen retained v122 binaries:
+P40000/O4096, P44095/O1, over-capacity rejection and following short recovery,
+once per cap with60-second capacity spacing. Complete responses compare to the
+independently qualified installed0.8.2 reference; historical native output IDs
+are absent, so cross-cap ID equality is reported separately.
+
+This is delivery validation, not a replacement performance target or a new
+optimization. Cap2 short remains below1.5x. The source review finds no reason
+to reopen rejected combined decoder tables, input layouts or accumulation-chain
+splits. Preserve those closures while the capacity check advances the existing
+candidate toward the real service contract. No production switch is authorized
+by this bounded check alone.
+
 ## 2026-10-20 EOS frontier — composed and retained
 
 The [bounded design](metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json)
