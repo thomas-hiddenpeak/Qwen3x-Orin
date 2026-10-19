@@ -25,7 +25,7 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-20 EOS frontier — implemented, native/API validation next
+## 2026-10-20 EOS frontier — initial API direction positive
 
 The [host assessment](metadata/qwen36-27b-mtp-eos-frontier-assessment-2026-10-20.json)
 passes 44,280 finite-alphabet control/history cases. The
@@ -35,12 +35,18 @@ the preceding target prediction supplies the same EOS or mismatch fallback.
 A proposed EOS never directly terminates the request. Actual private steps
 remain separately accountable even when no proposal is submitted to verification.
 
-The [implementation milestone](metadata/qwen36-27b-mtp-eos-frontier-implementation-2026-10-20.json)
-composes zero-frontier verification, valid seed-cache reuse and explicit physical
-step receipts under v122 identities. Both sealed caps build and pass host CTest;
-the real C++ controller passes 1,375,905 checks. Native GPU state/logit/KV and
-API performance remain unvalidated. Extend the native oracle next, then return
-immediately to capability-4 and P65/O16.
+The [initial native/API return](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
+passes complete target state/logit/draft-KV comparisons, false and accepted EOS,
+EOS/cancel precedence and failure recovery at the recorded boundaries. Both
+caps preserve exact API output IDs. Capability-4 removes two target rows and
+one private step, improving Decode about16% against the frozen same-request MTP
+incumbent. P65 has no EOS event and cap2 remains below1.5x. Joint metrics belong
+to [Current Status](CURRENT_STATUS.md).
+
+Next, complete the other five affected EOS cases, representative noEOS response,
+and bothcap8K/40K and lifecycle regression. Do not repeat the completed native
+panel without a new correctness question. These initial single-process checks
+are not architecture retention or production qualification.
 One implementation and at most one correctness repair are allowed; no threshold
 scan. Cap 2 short closure, remaining qualification and production selection stay
 open. The completed capability panel is not repeated without a new question.

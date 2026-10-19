@@ -86,6 +86,11 @@ struct Scripted final : mtp::RoundBackend {
       std::uint32_t* ids, std::uint32_t& actual) noexcept override {
     return inner.propose_bounded(seed, n, ids, actual);
   }
+  bool propose_eos_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t stop, std::uint32_t* ids, std::uint32_t& actual,
+      bool& stopped) noexcept override {
+    return inner.propose_eos_bounded(seed, maximum, stop, ids, actual, stopped);
+  }
   bool verify(std::uint32_t seed, const std::uint32_t* ids, std::uint32_t n,
               std::uint32_t* predictions) noexcept override {
     return inner.verify(seed, ids, n, predictions) && !fail_after_verify;
@@ -150,12 +155,13 @@ void confidence_test() {
 }
 int main(int argc, char** argv) try {
   const bool draft_long = argc == 5 && std::string(argv[4]) == "--draft-long";
+  const bool eos_only = argc == 5 && std::string(argv[4]) == "--eos-only";
   const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
-  if (argc != 4 && !prefix_only && !draft_long) {
-    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long]\n"; return 2;
+  if (argc != 4 && !prefix_only && !draft_long && !eos_only) {
+    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long|--eos-only]\n"; return 2;
   }
 #if !defined(Q3X_MTP_WHOLE_CORE_TEST)
-  if (prefix_only || draft_long) return 2;
+  if (prefix_only || draft_long || eos_only) return 2;
 #endif
   const std::filesystem::path output(argv[3]);
   require(std::filesystem::is_directory(output), "output directory must exist");
@@ -329,7 +335,7 @@ int main(int argc, char** argv) try {
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   // Select every staged prefix before publishing a new round, then compare
   // complete recurrent/KV/hidden/logit state with independent scalar replay.
-  for (unsigned count : {1U, 2U, 3U, 4U}) {
+  if (!eos_only) for (unsigned count : {1U, 2U, 3U, 4U}) {
     require(bool(target->reset()) && draft.reset(), "prefix oracle reset");
     seed = initialize();
     std::array<std::uint32_t, 3> proposals{};
@@ -401,6 +407,89 @@ int main(int argc, char** argv) try {
               << " draft_prefix_kv=bitwise_equal seed_reuse_control=pass\n" << std::flush;
   }
 #endif
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  // Use actual private predictions as stop IDs to exercise the native EOS
+  // frontier without forced-token kernels or changing checkpoint arithmetic.
+  if (!prefix_only) for (unsigned warmup = eos_only ? 2U : 0U; warmup < 3; ++warmup)
+  for (unsigned cap : {2U, 3U}) {
+    const auto eos_initialize = [&]() {
+      auto token = initialize();
+      for (unsigned i = 0; i < warmup; ++i) {
+        std::uint32_t ignored = 0;
+        require(draft.step(token, mtp::TargetTransaction::hidden(*target), false, ignored),
+                "EOS warmup draft KV");
+        token = step(*target, token, true);
+      }
+      return token;
+    };
+    require(bool(target->reset()) && draft.reset(), "EOS probe reset");
+    seed = eos_initialize();
+    std::array<std::uint32_t, 3> probe{};
+    std::uint32_t probe_count = 0;
+    require(transaction.begin(cap + 1) &&
+            transaction.propose_bounded(seed, cap, probe.data(), probe_count), "EOS probe");
+    require(transaction.abort(), "EOS probe drain");
+    for (unsigned frontier = 0; frontier < probe_count; ++frontier) {
+      if (probe[frontier] == seed) continue;  // Controller rejects an already-stopped seed.
+      for (unsigned mode = 0; mode < 3; ++mode) {
+        require(bool(target->reset()) && draft.reset(), "EOS transaction reset");
+        seed = eos_initialize();
+        const auto reuse_before = transaction.seed_kv_reuses();
+        Scripted backend(transaction, expected);
+        backend.fail_after_verify = mode == 2;
+        mtp::RoundOptions opts;
+        opts.draft_length = cap;
+        opts.seed_token = seed;
+        opts.remaining_output = 10;
+        opts.available_target_rows = request->max_sequence_length() - request->current_position();
+        opts.vocabulary_size = 248320;
+        opts.stop_token = probe[frontier];
+        opts.confidence_lookahead = opts.eos_frontier = true;
+        const auto result = mtp::run_round(opts, backend,
+            mode == 1 ? +[](void*, std::uint32_t) noexcept { return false; } : nullptr, nullptr);
+        if (mode == 2) {
+          require(!result.ok() && result.abort_succeeded && target->poisoned() &&
+                  result.output_count == 0, "EOS failure must poison without publication");
+          require(bool(target->reset()) && draft.reset(), "EOS failure recovery reset");
+          require(eos_initialize() == expected[warmup], "EOS failure recovery prediction");
+          std::cout << "eos_warmup=" << warmup << " eos_cap=" << cap << " frontier=" << frontier
+                    << " failure_recovery=pass\n" << std::flush;
+          continue;
+        }
+        require(result.ok() && result.eos_frontier_stopped &&
+                result.proposed_tokens <= frontier && result.verified_rows == result.proposed_tokens + 1,
+                "EOS frontier work boundary");
+        require(transaction.seed_kv_reuses() == reuse_before + 1,
+                "EOS zero-frontier lost real seed KV reuse");
+        const auto state_bytes = live_state(*request, *target);
+        const auto keys = read_device(draft.keys(), draft.position() * 2048ULL);
+        const auto values = read_device(draft.values(), draft.position() * 2048ULL);
+        const auto position = draft.position();
+        require(bool(target->reset()) && draft.reset(), "EOS scalar reset");
+        require(eos_initialize() == expected[warmup], "EOS scalar seed");
+        auto token = seed;
+        for (unsigned i = 0; i < result.output_count; ++i) {
+          std::uint32_t ignored = 0;
+          require(draft.step(token, mtp::TargetTransaction::hidden(*target), false, ignored),
+                  "EOS independent draft KV replay");
+          token = step(*target, token, true);
+          require(token == result.output[i], "EOS output differs from scalar");
+        }
+        require(state_bytes == live_state(*request, *target), "EOS full target state/logits differ");
+        require(position == draft.position() && keys == read_device(draft.keys(), keys.size()) &&
+                values == read_device(draft.values(), values.size()), "EOS reconciled draft KV differs");
+        std::cout << "eos_warmup=" << warmup << " eos_cap=" << cap << " frontier=" << frontier << " mode=" << mode
+                  << " submitted=" << result.proposed_tokens << " output=" << result.output_count
+                  << " status=" << int(result.status)
+                  << " full_state_logits_draft_kv=bitwise_equal\n" << std::flush;
+      }
+    }
+  }
+#endif
+  if (eos_only) {
+    std::cout << "scope=warm_boundary_eos_state_logits_kv passed\n" << std::flush;
+    return 0;
+  }
   if (prefix_only) {
     std::cout << "scope=prefix_state_logits_only checks=10 passed\n" << std::flush;
     return 0;

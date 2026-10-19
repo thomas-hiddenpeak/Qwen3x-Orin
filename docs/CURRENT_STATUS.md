@@ -86,11 +86,28 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [EOS-frontier v122 source](metadata/qwen36-27b-mtp-eos-frontier-implementation-2026-10-20.json)
-is implemented and builds for both sealed caps. Host controller and candidate
-checks pass, but native GPU state and real API validation are pending. It is
-not a retained performance result. The frozen validated artifacts and metrics
-below remain the incumbent evidence; ordinary non-MTP production is unchanged.
+The [EOS-frontier v122 initial direction](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
+passes bounded native full-state/logit/draft-KV and failure-recovery checks and
+two exact-output API requests per cap. Accepted EOS and simultaneous observer
+cancellation preserve stop precedence. On capability-4, verification shrinks
+from6 to4 rows and private head work from4 to3 steps; the request still commits
+three Decode tokens in two rounds. Decode improves16.33% (cap2) and15.67%
+(cap3) against the frozen same-request MTP observations, not against nonMTP.
+
+Each row below is one v122 observation; Prefill includes draft initialization,
+TTFT/total are external. These are direction checks, not repeated selection.
+
+| Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 871 / 4 | 2.256 | 386.00 | 2.291 | 10.922 | 2.565 |
+| 3 | 871 / 4 | 2.252 | 386.70 | 2.287 | 10.905 | 2.562 |
+| 2 | 65 / 16 | 0.888 | 73.16 | 0.906 | 14.143 | 1.967 |
+| 3 | 65 / 16 | 0.888 | 73.17 | 0.906 | 14.989 | 1.907 |
+
+P65 has no EOS event; cap2 still misses1.5x. Other affected EOS cases,
+long-context/lifecycle regression and delivery qualification remain pending.
+V122 is not yet retained as the complete architecture. Ordinary nonMTP
+production and the frozen incumbent qualification below remain unchanged.
 
 The [sealed capability panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)
 passes once per cap: 98/98 complete responses and reference answers match,

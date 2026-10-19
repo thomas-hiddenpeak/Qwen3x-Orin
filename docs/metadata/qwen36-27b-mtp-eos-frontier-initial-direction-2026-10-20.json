@@ -1,0 +1,738 @@
+{
+  "work_package_id": "WP-MTP-EOS-FRONTIER-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json",
+  "runtime_source": "efa8649",
+  "decision": "Positive initial EOS API direction; continue remaining bounded regression. Not architecture retention, repeated selection or production promotion.",
+  "artifact_root": ".q3x-work/mtp-eos-frontier-20261020",
+  "native": {
+    "native-p65": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-p65"
+        ],
+        "binary_sha256": "d7b55fef69a05cc40326b70268874f7f311af7f55df2a5f9f94c10cc690e3e6a",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "efa86491fad3197da3729dfd63553e2bc3fccfb2",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.031
+      },
+      "EOS_state_checks": 10,
+      "EOS_failure_recoveries": 5,
+      "observations": [
+        "eos_cap=2 frontier=0 mode=0 submitted=0 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=2 frontier=0 mode=1 submitted=0 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=2 frontier=0 failure_recovery=pass",
+        "eos_cap=2 frontier=1 mode=0 submitted=1 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=2 frontier=1 mode=1 submitted=1 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=2 frontier=1 failure_recovery=pass",
+        "eos_cap=3 frontier=0 mode=0 submitted=0 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=0 mode=1 submitted=0 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=0 failure_recovery=pass",
+        "eos_cap=3 frontier=1 mode=0 submitted=1 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=1 mode=1 submitted=1 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=1 failure_recovery=pass",
+        "eos_cap=3 frontier=2 mode=0 submitted=2 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=2 mode=1 submitted=2 output=1 status=0 full_state_logits_draft_kv=bitwise_equal",
+        "eos_cap=3 frontier=2 failure_recovery=pass"
+      ],
+      "ordinary_transaction_state_checks": 17,
+      "ordinary_failure_recoveries": 5
+    },
+    "native-warm-p65": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-warm-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-warm-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/native-warm-p65",
+          "--eos-only"
+        ],
+        "binary_sha256": "0823cf6cd7d11e76e4bca9ecdc1b5aedd9c48a9c56e457789a51e9567bc7f815",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "efa86491fad3197da3729dfd63553e2bc3fccfb2",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.25
+      },
+      "EOS_state_checks": 8,
+      "EOS_failure_recoveries": 4,
+      "observations": [
+        "eos_warmup=2 eos_cap=2 frontier=0 mode=0 submitted=0 output=1 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=2 frontier=0 mode=1 submitted=0 output=1 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=2 frontier=0 failure_recovery=pass",
+        "eos_warmup=2 eos_cap=2 frontier=1 mode=0 submitted=1 output=2 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=2 frontier=1 mode=1 submitted=1 output=1 status=3 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=2 frontier=1 failure_recovery=pass",
+        "eos_warmup=2 eos_cap=3 frontier=0 mode=0 submitted=0 output=1 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=3 frontier=0 mode=1 submitted=0 output=1 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=3 frontier=0 failure_recovery=pass",
+        "eos_warmup=2 eos_cap=3 frontier=1 mode=0 submitted=1 output=2 status=2 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=3 frontier=1 mode=1 submitted=1 output=1 status=3 full_state_logits_draft_kv=bitwise_equal",
+        "eos_warmup=2 eos_cap=3 frontier=1 failure_recovery=pass"
+      ],
+      "ordinary_transaction_state_checks": 0,
+      "ordinary_failure_recoveries": 0
+    }
+  },
+  "api": {
+    "2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/api-cap2/api-key"
+        ],
+        "binary_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "4a4b41409f7e728605eda20abd609ce330cfcdc9f102794b05a0a20b18d40e90",
+        "driver_sha256": "c481147979e5761147ee16eebbe8dd03e3a0a7690a746a8a9eff78d2188a6cb8",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "efa86491fad3197da3729dfd63553e2bc3fccfb2",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.781
+      },
+      "scope": {
+        "panel": "EOS direction only: capability-4 then p65, not full capability or lifecycle qualification",
+        "wrapper_sha256": "ed6e9135518294de79ac5b85c7c16f6c5932c674ea433894239ee56d8788b5c8",
+        "exact_token_comparator": {
+          "capability": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap2",
+          "p65": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-cap2-20261020/cap2"
+        }
+      },
+      "joint_metrics": [
+        {
+          "stage": "capability-4",
+          "candidate": {
+            "label": "capability-4",
+            "prompt": 871,
+            "output": 4,
+            "prefill_s": 2.256459438,
+            "prefill_tps": 386.00295016692434,
+            "ttft_s": 2.2908243829151616,
+            "elapsed_s": 2.5653420039452612,
+            "decode_tps": 10.92187144476019,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 2,
+              "startup_free_bytes": 10141863936,
+              "prompt_rows": 871,
+              "draft_prefill_rows": 870,
+              "initialized": true,
+              "rounds": 2,
+              "proposal_policy": "eos-frontier-v122",
+              "eos_frontier_stops": 1,
+              "proposed": 2,
+              "accepted": 1,
+              "verified_rows": 4,
+              "committed_decode_tokens": 3,
+              "accepted_by_position": [
+                1,
+                0,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                1,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 3,
+              "draft_ordered_attention_steps": 3,
+              "entry_hidden_snapshots": 2,
+              "scalar_verify_rows": 1,
+              "direct_gdn_state_rows": 144,
+              "full_graph_rounds": 1,
+              "full_graph_rows": 3,
+              "graph_qk_updates": 16,
+              "seed_kv_reuses": 2,
+              "tail_kv_batches": 0,
+              "tail_kv_rows": 0,
+              "state_copy_bytes_elided": 384378880,
+              "draft_initialization_ms": 60.740447,
+              "draft_ms": 22.909771,
+              "verify_ms": 248.20701400000002,
+              "reconcile_ms": 3.4526120000000002,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "incumbent": {
+            "label": "capability-4",
+            "prompt": 871,
+            "output": 4,
+            "prefill_s": 2.2915926570000003,
+            "prefill_tps": 380.0850021662467,
+            "ttft_s": 2.311713503091596,
+            "elapsed_s": 2.631441054982133,
+            "decode_tps": 9.388804417815543,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 2,
+              "startup_free_bytes": 10234482688,
+              "prompt_rows": 871,
+              "draft_prefill_rows": 870,
+              "initialized": true,
+              "rounds": 2,
+              "proposed": 4,
+              "accepted": 2,
+              "verified_rows": 6,
+              "committed_decode_tokens": 3,
+              "accepted_by_position": [
+                2,
+                0,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 4,
+              "draft_ordered_attention_steps": 4,
+              "entry_hidden_snapshots": 2,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 288,
+              "full_graph_rounds": 2,
+              "full_graph_rows": 6,
+              "graph_qk_updates": 32,
+              "seed_kv_reuses": 2,
+              "tail_kv_batches": 0,
+              "tail_kv_rows": 0,
+              "state_copy_bytes_elided": 610871296,
+              "draft_initialization_ms": 60.109989,
+              "draft_ms": 29.117339,
+              "verify_ms": 286.679107,
+              "reconcile_ms": 3.617503,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "decode_ratio_to_incumbent": 1.163286714550748
+        },
+        {
+          "stage": "p65",
+          "candidate": {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.888483042,
+            "prefill_tps": 73.15840249880651,
+            "ttft_s": 0.9063908560201526,
+            "elapsed_s": 1.9669251890154555,
+            "decode_tps": 14.142590208740286,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 2,
+              "startup_free_bytes": 10141863936,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 7,
+              "proposal_policy": "eos-frontier-v122",
+              "eos_frontier_stops": 0,
+              "proposed": 12,
+              "accepted": 8,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                7,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                6,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 12,
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 7,
+              "scalar_verify_rows": 1,
+              "direct_gdn_state_rows": 864,
+              "full_graph_rounds": 6,
+              "full_graph_rows": 18,
+              "graph_qk_updates": 0,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 4,
+              "tail_kv_rows": 8,
+              "state_copy_bytes_elided": 1911557120,
+              "draft_initialization_ms": 5.469197,
+              "draft_ms": 86.32521299999999,
+              "verify_ms": 956.571743,
+              "reconcile_ms": 17.380025,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "incumbent": {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.89160507,
+            "prefill_tps": 72.90223237514789,
+            "ttft_s": 0.9102578039746732,
+            "elapsed_s": 1.9717884300043806,
+            "decode_tps": 14.129329853656174,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 2,
+              "startup_free_bytes": 10241482752,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 7,
+              "proposed": 12,
+              "accepted": 8,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                7,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                6,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 12,
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 7,
+              "scalar_verify_rows": 1,
+              "direct_gdn_state_rows": 864,
+              "full_graph_rounds": 6,
+              "full_graph_rows": 18,
+              "graph_qk_updates": 0,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 4,
+              "tail_kv_rows": 8,
+              "state_copy_bytes_elided": 1911557120,
+              "draft_initialization_ms": 5.597989,
+              "draft_ms": 87.414538,
+              "verify_ms": 956.446787,
+              "reconcile_ms": 17.403667,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "decode_ratio_to_incumbent": 1.0009384985148946
+        }
+      ],
+      "exact_output_token_comparisons": 2
+    },
+    "3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/api-cap3/api-key"
+        ],
+        "binary_sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "1baf68126e22f250b568f28f86127b4d54df1627d7314559d55f7943c3986ea2",
+        "driver_sha256": "c481147979e5761147ee16eebbe8dd03e3a0a7690a746a8a9eff78d2188a6cb8",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "efa86491fad3197da3729dfd63553e2bc3fccfb2",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 64.312
+      },
+      "scope": {
+        "panel": "EOS direction only: capability-4 then p65, not full capability or lifecycle qualification",
+        "wrapper_sha256": "ed6e9135518294de79ac5b85c7c16f6c5932c674ea433894239ee56d8788b5c8",
+        "exact_token_comparator": {
+          "capability": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap3",
+          "p65": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/cap3-repaired"
+        }
+      },
+      "joint_metrics": [
+        {
+          "stage": "capability-4",
+          "candidate": {
+            "label": "capability-4",
+            "prompt": 871,
+            "output": 4,
+            "prefill_s": 2.2524012060000005,
+            "prefill_tps": 386.6984255202001,
+            "ttft_s": 2.28662158397492,
+            "elapsed_s": 2.5616151499561965,
+            "decode_tps": 10.904870446649536,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 3,
+              "startup_free_bytes": 10221649920,
+              "prompt_rows": 871,
+              "draft_prefill_rows": 870,
+              "initialized": true,
+              "rounds": 2,
+              "proposal_policy": "eos-frontier-v122",
+              "eos_frontier_stops": 1,
+              "proposed": 2,
+              "accepted": 1,
+              "verified_rows": 4,
+              "committed_decode_tokens": 3,
+              "accepted_by_position": [
+                1,
+                0,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                1,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 3,
+              "draft_ordered_attention_steps": 3,
+              "entry_hidden_snapshots": 2,
+              "scalar_verify_rows": 1,
+              "direct_gdn_state_rows": 144,
+              "full_graph_rounds": 1,
+              "full_graph_rows": 3,
+              "graph_qk_updates": 16,
+              "seed_kv_reuses": 2,
+              "tail_kv_batches": 0,
+              "tail_kv_rows": 0,
+              "state_copy_bytes_elided": 384378880,
+              "draft_initialization_ms": 60.257308,
+              "draft_ms": 23.176429,
+              "verify_ms": 248.401298,
+              "reconcile_ms": 3.434016,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "incumbent": {
+            "label": "capability-4",
+            "prompt": 871,
+            "output": 4,
+            "prefill_s": 2.2597795460000003,
+            "prefill_tps": 385.4358278185778,
+            "ttft_s": 2.2799437718931586,
+            "elapsed_s": 2.5981188099831343,
+            "decode_tps": 9.427472427707078,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 3,
+              "startup_free_bytes": 10223697920,
+              "prompt_rows": 871,
+              "draft_prefill_rows": 870,
+              "initialized": true,
+              "rounds": 2,
+              "proposed": 4,
+              "accepted": 2,
+              "verified_rows": 6,
+              "committed_decode_tokens": 3,
+              "accepted_by_position": [
+                2,
+                0,
+                0
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                2,
+                0
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 4,
+              "draft_ordered_attention_steps": 4,
+              "entry_hidden_snapshots": 2,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 288,
+              "full_graph_rounds": 2,
+              "full_graph_rows": 6,
+              "graph_qk_updates": 32,
+              "seed_kv_reuses": 2,
+              "tail_kv_batches": 0,
+              "tail_kv_rows": 0,
+              "state_copy_bytes_elided": 610871296,
+              "draft_initialization_ms": 59.522014,
+              "draft_ms": 28.634453,
+              "verify_ms": 286.03492,
+              "reconcile_ms": 3.4552639999999997,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "decode_ratio_to_incumbent": 1.1567119957413428
+        },
+        {
+          "stage": "p65",
+          "candidate": {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.888328232,
+            "prefill_tps": 73.17115189917774,
+            "ttft_s": 0.9061832500156015,
+            "elapsed_s": 1.906803940073587,
+            "decode_tps": 14.98922041220524,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 3,
+              "startup_free_bytes": 10221649920,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 6,
+              "proposal_policy": "eos-frontier-v122",
+              "eos_frontier_stops": 0,
+              "proposed": 13,
+              "accepted": 9,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                1
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                5,
+                1
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                5,
+                1
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 13,
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 6,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 912,
+              "full_graph_rounds": 6,
+              "full_graph_rows": 19,
+              "graph_qk_updates": 0,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 4,
+              "tail_kv_rows": 9,
+              "state_copy_bytes_elided": 1908111360,
+              "draft_initialization_ms": 5.344386,
+              "draft_ms": 93.44115099999999,
+              "verify_ms": 890.4078059999999,
+              "reconcile_ms": 16.566385,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "incumbent": {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.891728776,
+            "prefill_tps": 72.89211893729444,
+            "ttft_s": 0.9103114570025355,
+            "elapsed_s": 1.9111045959871262,
+            "decode_tps": 14.986107937886011,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-full-graph-v112",
+              "draft_length": 3,
+              "startup_free_bytes": 10268819456,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 6,
+              "proposed": 13,
+              "accepted": 9,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                1
+              ],
+              "budget_policy": "output-tail-v119",
+              "requested_budget_histogram": [
+                0,
+                0,
+                5,
+                1
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                5,
+                1
+              ],
+              "draft_head": "nvfp4-block16-dp4a-v1",
+              "draft_integer_head_steps": 13,
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 6,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 912,
+              "full_graph_rounds": 6,
+              "full_graph_rows": 19,
+              "graph_qk_updates": 0,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 4,
+              "tail_kv_rows": 9,
+              "state_copy_bytes_elided": 1908111360,
+              "draft_initialization_ms": 5.419897,
+              "draft_ms": 94.666146,
+              "verify_ms": 889.455232,
+              "reconcile_ms": 16.509359,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          "decode_ratio_to_incumbent": 1.0002076906380315
+        }
+      ],
+      "exact_output_token_comparisons": 2
+    }
+  },
+  "native_scope": "P65 actual private proposal stop IDs: false EOS at indices0/1 for cap2 and0/1/2 for cap3; accepted EOS and first-observer cancellation at indices0/1 after two target steps for both caps. Confidence truncates cap3 probe at2 on that warm boundary. Four generic M1..4 prefix cases cover ten complete states. No claim of an accepted index2 EOS device case.",
+  "remaining": [
+    "Other five affected EOS requests and representative noEOS capability response for both caps.",
+    "8K/40K integration, auth/invalid/cancellation/recovery regressions under exact v122 servers.",
+    "Cap2 P65/O16 remains below1.5x; no EOS event occurs there, so this mechanism does not close that deficit.",
+    "Independent performance selection, capacity and sustained delivery; production remains nonMTP0.8.2."
+  ],
+  "limits": [
+    "One process per cap; historical same-request incumbent. No new nonMTP comparison or statistically repeated speedup claim.",
+    "Private arithmetic unchanged; original-weight numerical qualification retains prior scope. Native finite-prefix state checks do not claim all histories."
+  ],
+  "artifact_sha256": {
+    "run-direction.py": "ed6e9135518294de79ac5b85c7c16f6c5932c674ea433894239ee56d8788b5c8",
+    "run-native.py": "f0294ee05ccec759417f4a903e0c1d38937abdfc14b649cdb087e6b4f9cb087e",
+    "run-native-warm.py": "a4068b606092fd929824be710ed7a4c48f0da7733bd7200096df971bf4ce1424",
+    "record-direction.py": "0b13f3f1b3ff5ae59f78c8b65afd6abcbda9b35a106837d25abe306daf337932",
+    "source/native-test.patch": "386501ce3a11e67b3c25d534824caf4bdfa325db8b972f604362d72541b9c7d8",
+    "source/native-test-warm.patch": "434679652948bb26164581aef76d5d2f3bf897e6a513b675c3b54e45bb80bd19",
+    "native-p65/run.log": "fda69a42a59468acfd0a418514725ee7df1e9f3b296d21a74ed1758de1e9c96b",
+    "native-p65/identity.json": "7eeccdebb8e41eb1ef30c221ab48eb785390bfa1228756cc6017fde1ed681892",
+    "native-p65/cleanup.json": "dd7077722788f1d3c99c83a589d3936fc4c7b9ebc268cb8f3e86650e6357ab18",
+    "native-p65/preflight.json": "04277c34ee2fe1db51d76eae66f72f4ac575d2e4c619a9f4b03543c26fea8f64",
+    "native-p65/cache-preparation.json": "81f146adce444ec9bb1b90065f4e11c52280228156fd683174f43c4676c5ae94",
+    "native-warm-p65/run.log": "9cdb44bf84b2e3bf5ed7f7f44c104796c76d58e96707127eef282df4786d92ff",
+    "native-warm-p65/identity.json": "baf9f73d24a40042bdcaaf5c3984be8ffcdd019dd6e2a67b5b1888c8addd6b69",
+    "native-warm-p65/cleanup.json": "33fde225799372c2ecf027c6df4df0cb5795bdd5b2e48e939fea30e0ea05a527",
+    "native-warm-p65/preflight.json": "ad7d2131a17609fc350f9f0d2333f653288d5a0d1b0d8c441a1179c946dc5f2a",
+    "native-warm-p65/cache-preparation.json": "9af2c75faf3887b9d9e1e3b9f32086000782ec3176be39da7e3acbe5fac23052",
+    "api-cap2/server.log": "b602e34c25206434753138ed5586e799e4e80fe558c2fe471806b2c704fbe87b",
+    "api-cap2/identity.json": "e3cbcfe1a2c8de405021b0af5b42df3f044c3c53d5d5872dff02c399dbdfee3f",
+    "api-cap2/health.json": "136152dd8533dbcd438c18800c08389e65491fefb52fd2e656bf093bdf763361",
+    "api-cap2/cleanup.json": "6d732329c1689bc8e8df5105c136ffaa14b733ecca2c055a5eff662f64891f7a",
+    "api-cap2/preflight.json": "a45420e00575f1803c4ea7da68ceb70d5e8f80b5edac3594635e61a84c91a138",
+    "api-cap2/cache-preparation.json": "881217297f529073f2eeaf94151f5f0fd7c49ee9a82a1ef7bcd354548dcd0d82",
+    "api-cap2/results.json": "8a90e15d7d29fc216a9386cccbacf7f986918b7be6d989f4337c55db332ea7a0",
+    "api-cap2/audited-metrics.json": "ba8d25590530dd6d3946295e6735d136f451e8e30f1451ee2aab97893bb1f78b",
+    "api-cap2/direction-scope.json": "d144ed945bcb978b486854bb271ea12bf4216111782bebc97a0d1037efaa664c",
+    "api-cap3/server.log": "62b73a66cd72724fcfd92490014958b3ac36edc0e8d113bc940cd3fe231a32a8",
+    "api-cap3/identity.json": "b60c5d0d969f7a833a41f2bb9daaa4f5481a93f471b12b8005f1765863aa729c",
+    "api-cap3/health.json": "19d7acd65faf949047fd0900a4035471512b232d7815da942dd7a09af35432a7",
+    "api-cap3/cleanup.json": "310315c6a892c4198dfc6230f8c979cd39643e40319b7cf4725ba9fabf402872",
+    "api-cap3/preflight.json": "48129856c1e43523f6980291a43cb3e30ef9a0337caa776b097a4fac0a04f011",
+    "api-cap3/cache-preparation.json": "8b2112af15406231df0669db014396be1eaea0483123d21d3d990473a16d5642",
+    "api-cap3/results.json": "221f7627d2a41973409e943ffeb509fbaa73c81766e2af8182b82ae35b0c9b82",
+    "api-cap3/audited-metrics.json": "47fd0d990b4a01124997120303f23299582734e53bafef282857fcfa91007a5a",
+    "api-cap3/direction-scope.json": "4c391167eeaf79e40704688c926f42f7adaac10a659bc8e8ad38364bb0413a0d"
+  }
+}
