@@ -92,13 +92,17 @@ candidates cover 1/2, 1/12 and 12/19 first-token rejections at short/8K/40K on
 observed linear paths. Diagnostic source is removed; no speedup is inferred.
 The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) is implemented and passes
 51,369 host assertions plus AddressSanitizer/UBSan. It is linked only into a
-host test; native tree verification and service integration remain unfinished.
+host test; controller/runtime composition and service integration remain unfinished.
 Current generation and performance remain v113; no new speedup is claimed.
 The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) passes 30 synthetic tree replays,
 252 linear regression replays and bounded GPU sanitizer checks. It remains
-unselected by the service; full hybrid-state and real-model validation are pending.
+unselected by the service. Native tree state qualification is described below.
 The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json) separately passes scalar Q/gate and
 complete-cache checks; it likewise has no current service or speedup authority.
+The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json) passes nine selected complete target/draft states
+at each of P65/P513, with following-step sibling isolation and linear lifecycle
+regression. Automatic selection, complete tree Graphs and API integration remain
+pending. These are correctness results, not new acceptance or performance data.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request

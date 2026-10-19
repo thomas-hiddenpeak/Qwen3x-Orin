@@ -72,8 +72,16 @@ synthetic Attention correctness only. The [tree position/preprocessing prerequis
 now preserves scalar Q/gate and complete cache bytes in 14 tree Graph cases;
 21 linear regression cases and bounded GPU sanitizer checks also pass. The last
 node's logical RoPE position is entry+1 while its physical K/V slot remains the
-tail. This is still an isolated entry: parent Conv/GDN, canonical KV commit,
-full-model state oracles and service integration remain unfinished.
+tail. The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json) now composes parent Conv/GDN and
+canonical selected-path KV publication in an explicit `verify_tree` entry.
+The final node reads the seed GDN snapshot and restores its Conv history;
+`commit_node` validates parent continuity, restores complete state/logits,
+relocates alternate K/V and reconciles draft history before returning. It reuses
+the original snapshot slots. P65/P513 selected-state and following-step scalar
+oracles pass, as does the original linear transaction/lifecycle regression.
+This remains direct execution of the tree body. Automatic proposal selection,
+full-tree Graph capture, native controller lifecycle and service integration
+remain unfinished; tiny/cross-family tree entry is explicitly rejected.
 
 ## 2026-10-20 canonical singleton state — closed neutral
 

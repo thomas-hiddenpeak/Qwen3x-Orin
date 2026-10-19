@@ -1,0 +1,136 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "source_parent": "b1cddee0a76aa681b26fd1d981b65b6bbae51e3a",
+  "status": "dependency_only; native parent-state and selected-path commit admission passed; service composition unfinished",
+  "product_constraint": "50%-200% same-workload real-API Decode improvement, exact target/greedy output and joint Prefill/TTFT/Decode/request-total reporting.",
+  "implementation": [
+    "TargetTransaction implements parent-index commit and explicit verify_tree entry. Existing linear commit delegates to the same validated node publication path.",
+    "Alternate last node reads immutable seed GDN snapshot; seed Conv snapshot is restored before sibling update. Layer-major projection and target arithmetic unchanged.",
+    "Alternate selection copies its 16-layer K/V tail rows to canonical entry+1 before synchronized complete recurrent/hidden/full-logit publication. Draft cache uses selected parent target hidden.",
+    "Uses existing four physical nodes/five snapshot slots and device-input workspace. Tree verifier currently executes body directly, without full-tree graph capture. No service or automatic proposal selection."
+  ],
+  "validation": {
+    "tree": {
+      "prompts": [
+        65,
+        513
+      ],
+      "selected_complete_states_per_prompt": 9,
+      "topologies": "M3/M4, primary and alternate selections; alternate case includes real seed-cache proposal/reuse",
+      "oracle": "Independent same-history original scalar target and full-step draft replay. Complete Conv/GDN/live16-layerK/V/hidden/full248320logits and draftK/V byte equality; one following scalar step per case also exact.",
+      "remaining_scope": "Scripted proposals, not natural acceptance or API timing. Tree controller EOS/cancel/failure has host coverage; full native tree service lifecycle still required."
+    },
+    "linear": {
+      "complete_prefixes": 10,
+      "transactions": 15,
+      "verify_failure_recoveries": 4,
+      "initialization_cancel_recoveries": 8
+    }
+  },
+  "runs": {
+    "tree-p65": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p65",
+          "--tree-only"
+        ],
+        "binary_sha256": "00111b3c424091a44c2149b5f08d0a09100c451e2cd3a322171f3e6a9679b9ac",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b1cddee0a76aa681b26fd1d981b65b6bbae51e3a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 63.312
+      },
+      "artifact_sha256": {
+        "identity.json": "309588c22b135177e32300ecc9d5f86a18fab1d9c077ef3947daaeb7b7b0edbb",
+        "cache-preparation.json": "fe5debb10c610c44e1a2a13511292cee519e87980bdf346641d2eee8f23bc284",
+        "cleanup.json": "61bd38d46ab24f2b99406d89a30ae5249d7f51be88cc6664924cbf5bdf553952",
+        "run.log": "b00dfa3a2eb41ec96b5362f62dfe16a66e67b953b6bd44384e2b1c359bfcc4eb",
+        "preflight-console.log": "16556fc128ab5f014c0fa8884d4b213d277bcea5fbb1065f2099a9333883a08d",
+        "telemetry.log": "e38a5912f979ccd40b60c56fba0844b4b7ee765086c8159770ad8c13a557a855",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "preflight.json": "a270ded00ad73793a65de186db02b02b4d9fe1f236d25922d4a60b74f25bfb9e"
+      }
+    },
+    "tree-p513": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p513/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p513/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/tree-p513",
+          "--tree-only"
+        ],
+        "binary_sha256": "00111b3c424091a44c2149b5f08d0a09100c451e2cd3a322171f3e6a9679b9ac",
+        "prompt_sha256": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b1cddee0a76aa681b26fd1d981b65b6bbae51e3a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.5
+      },
+      "artifact_sha256": {
+        "identity.json": "12096f706509df1bd39ca30882fe05059a59247718556c541c525151d2d44c70",
+        "cache-preparation.json": "cc0002bf4ae877157086ccb3517a799ae498b425a66518e815379aa57a223689",
+        "cleanup.json": "beafdb0c54e2676bd9cf3ee6e5f1dac9ef25300129be469352edcdb73128b521",
+        "run.log": "06b760d2a1dea00f369ddde1675b0d8d3b4ac315191fe9c33ea8ac16af25cacf",
+        "preflight-console.log": "02f4d1e5ebb457feff75cba5fc4d0a0f2b64ace0ef88103862852b23712494af",
+        "telemetry.log": "5296f42c69a3d29e789e6d5779f9173c3cd9713a54ff4dabf584ab434f8bf268",
+        "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "preflight.json": "969c339b20759dc60a9a1fd867f43d21091416ba864604eb2617e6bbcab2e331"
+      }
+    },
+    "linear-p65": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/linear-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/linear-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/linear-p65"
+        ],
+        "binary_sha256": "00111b3c424091a44c2149b5f08d0a09100c451e2cd3a322171f3e6a9679b9ac",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b1cddee0a76aa681b26fd1d981b65b6bbae51e3a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.187
+      },
+      "artifact_sha256": {
+        "identity.json": "8c4b05801c4080e535c93fa5a3a33c24321ed43856709a05f597855b3732578e",
+        "cache-preparation.json": "410181bcd0bc32e0a57aec72fb48c77c2c0ea9f93349ff198f2e256db2b0d131",
+        "cleanup.json": "9999709a2b53a451cf5e226377059d44d9e03e64257973c3c1bb40fbb18fb4a6",
+        "run.log": "a63e2078d88891061824ea6504375ab94c0ebe0353c45c1f7c5366af1ed25660",
+        "preflight-console.log": "55ded924fb127d69bcf15da87cdedea8e35003a78336e84a029087fb124b2f9e",
+        "telemetry.log": "85f70eb71b2064ecf369a11ddeac3d22a2c3f366200615fc2460a6d78a5142fa",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "preflight.json": "c6665ae7ee0b752fd1d2f3da22255b562e0548efb23a964ac54a2ca7c2d7e31d"
+      }
+    }
+  },
+  "source_sha256": {
+    "src/runtime/mtp_device_internal.h": "5e60032d665a0b96006f15ca1346d1863d9ff6117994413814689c6d0a5d4aeb",
+    "src/runtime/mtp_device_internal.cpp": "7a64d1a0f01a3c0910e6a000c02e311c774401ec3832ecb459839fc3742d8d53",
+    "src/runtime/mtp_verify_internal.cpp": "b7bf294fd6b2277574b702e87d422e3b374e17506b2f3d771079de79306657e3",
+    "tests/mtp_device_test.cpp": "ef1967219deef2d242d12adaa6c0be785907fa606903b786ec8fe2b82a754fe4"
+  },
+  "remaining": "Automatic fixed-budget top2/probability proposal selection; tiny/cross-family policy; complete startup tree Graph/lifetime/resource/route accounting; native controller lifecycle; immediate d2 short/8K/40K API return, useful direction unlocks d3.",
+  "budget": "Original two native implementation milestones plus one correctness repair remain unchanged. No expansion to new policy/geometry scans.",
+  "production_changed": false,
+  "new_performance_claim": false
+}

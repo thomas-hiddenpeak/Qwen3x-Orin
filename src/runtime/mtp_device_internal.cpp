@@ -658,6 +658,8 @@ bool TargetTransaction::begin(std::uint32_t rows) noexcept {
   seed_cache_valid_ = false;
   verified_ = false;
   committed_ = 0;
+  committed_node_ = kTreeEntryParent;
+  alternate_tail_ = false;
   prepared_tail_rows_ = 0;
   draft_.discard_prepared_kv();
   entry_position_ = state_.current_position();
@@ -698,6 +700,24 @@ bool TargetTransaction::propose_bounded(std::uint32_t seed, std::uint32_t maximu
   rows_ = actual + 1;
   return true;
 }
+bool TargetTransaction::proposal_parents(std::uint32_t count, TreeParents& parents) const noexcept {
+  if (!active_ || count + 1 != rows_) return false;
+  parents.fill(kTreeEntryParent);
+  for (std::uint32_t i = 1; i <= count; ++i)
+    parents[i] = alternate_tail_ && i == count ? 0 : i - 1;
+  return true;
+}
+bool TargetTransaction::verify_tree(std::uint32_t seed, const std::uint32_t* draft,
+    std::uint32_t count, std::uint32_t* predictions) noexcept {
+  if (!active_ || verified_ || !multirow_ || count < 2 || count > 3 ||
+      count + 1 != rows_ || !draft || draft[0] == draft[count - 1]) return false;
+  // The first composition uses the proved device-input Attention families.
+  // Tiny/cross-family and production selection remain explicitly unimplemented.
+  if (!graph_inputs_ || entry_position_ + 1 < 65 ||
+      (entry_position_ + 1 < 512 && entry_position_ + rows_ > 511)) return false;
+  alternate_tail_ = true;
+  return verify(seed, draft, count, predictions);
+}
 bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
                                std::uint32_t count, std::uint32_t* predictions) noexcept {
   if (!active_ || verified_ || count + 1 != rows_ || !draft || !predictions) return false;
@@ -726,12 +746,20 @@ bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
   return true;
 }
 bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending) noexcept {
-  if (!active_ || !verified_ || rows != committed_ + 1 || rows > rows_ ||
-      predictions_[rows - 1] != pending ||
-      (rows > 1 && inputs_[rows - 1] != predictions_[rows - 2])) return false;
+  if (alternate_tail_ || rows == 0) return false;
+  return commit_node(rows - 1, rows, pending);
+}
+bool TargetTransaction::commit_node(std::uint32_t node, std::uint32_t rows,
+    std::uint32_t pending) noexcept {
+  if (!active_ || !verified_ || rows != committed_ + 1 || node >= rows_ ||
+      predictions_[node] != pending) return false;
+  const auto parent = node == 0 ? kTreeEntryParent :
+      (alternate_tail_ && node + 1 == rows_ ? 0U : node - 1);
+  if (parent != committed_node_ || (rows == 1 && node != 0) ||
+      (rows > 1 && inputs_[node] != predictions_[parent])) return false;
   // The seed has already been committed/reused. Do not rebuild it, or
   // prepare future rows before the first observer can cancel.
-  if (multirow_ && rows == 2) {
+  if (multirow_ && !alternate_tail_ && rows == 2) {
     std::uint32_t valid_rows = 1;
     while (valid_rows < rows_ && inputs_[valid_rows] == predictions_[valid_rows - 1])
       ++valid_rows;
@@ -747,8 +775,16 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
       tail_kv_rows_ += tail;
     }
   }
-  auto* src = static_cast<const char*>(snapshots_) + rows * slot_bytes_;
+  auto* src = static_cast<const char*>(snapshots_) + (node + 1) * slot_bytes_;
   auto stream = static_cast<cudaStream_t>(target_.stream_);
+  if (alternate_tail_ && node + 1 == rows_) {
+    for (unsigned layer = 3; layer < 64; layer += 4) {
+      for (auto* cache : {target_.views_.key_cache[layer], target_.views_.value_cache[layer]})
+        if (cudaMemcpyAsync(cache + (entry_position_ + 1ULL) * 1024,
+              cache + (entry_position_ + node) * 1024ULL, 2048,
+              cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return false;
+    }
+  }
   if (cudaMemcpyAsync(static_cast<char*>(state_.arena_data()) + recurrent_offset_, src,
                        recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaMemcpyAsync(target_.views_.hidden[1], src + recurrent_bytes_, 2 * H,
@@ -757,18 +793,19 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
                        2 * V, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaStreamSynchronize(stream) != cudaSuccess) return false;
   const auto* previous_hidden = reinterpret_cast<const std::uint16_t*>(
-      static_cast<const char*>(snapshots_) + (rows - 1) * slot_bytes_ + recurrent_bytes_);
+      static_cast<const char*>(snapshots_) + (node == 0 ? 0 : parent + 1) * slot_bytes_ + recurrent_bytes_);
   if (rows == 1 && seed_cache_valid_) {
     if (draft_.position() != entry_position_) return false;
     ++seed_kv_reuses_;
     seed_cache_valid_ = false;
   } else if (prepared_tail_rows_) {
     if (!draft_.commit_prepared_kv(rows - 1)) return false;
-  } else if (!draft_.append_kv(inputs_[rows - 1], previous_hidden)) return false;
+  } else if (!draft_.append_kv(inputs_[node], previous_hidden)) return false;
   if (!state_.set_sequence_length(entry_position_ + rows)) return false;
   target_.trace_valid_ = false;
   target_.retained_prefill_hidden_valid_ = false;
   committed_ = rows;
+  committed_node_ = node;
   return true;
 }
 bool TargetTransaction::finish() noexcept {

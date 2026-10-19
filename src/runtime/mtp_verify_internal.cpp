@@ -69,8 +69,14 @@ bool TargetTransaction::enqueue_gdn_block(unsigned first, unsigned count) noexce
       auto* state_output = static_cast<std::uint16_t*>(
           prefix_region(row, v.gdn_state[layer], state_bytes));
       const auto* state_input = row ? static_cast<const std::uint16_t*>(
-          prefix_region(row - 1, v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
+          prefix_region(alternate_tail_ && row + 1 == count ? 0 : row - 1,
+              v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
       if (!state_input || !state_output) return false;
+      if (alternate_tail_ && row + 1 == count) {
+        const auto* parent_conv = prefix_region(0, v.conv_state[layer], 10240 * 3 * 2);
+        if (!parent_conv || !ok(cudaMemcpyAsync(v.conv_state[layer], parent_conv,
+              10240 * 3 * 2, cudaMemcpyDeviceToDevice, stream))) return false;
+      }
       if (!ok(launch_causal_conv1d_silu_update_reference_cuda(v.projection[0] + row * 10240,
             a->conv1d.data, v.conv_state[layer], v.projection[0] + row * 10240, {}, stream)) ||
           !ok(launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
@@ -251,7 +257,7 @@ bool TargetTransaction::enqueue_multirow(bool full_graph, bool short_graph) noex
           !project(a->k_proj, v.hidden[1], key) ||
           !project(a->v_proj, v.hidden[1], value)) return false;
       if (full_graph) {
-        if (!ok(launch_mtp_graph_preprocess(v.projection[0], key, value,
+        if (!ok((alternate_tail_ ? launch_mtp_tree_graph_preprocess : launch_mtp_graph_preprocess)(v.projection[0], key, value,
               a->q_norm.data, a->k_norm.data, v.rope_cos, v.rope_sin,
               static_cast<const MtpVerifyDeviceInputs*>(graph_inputs_), rows_,
               v.projection[3], v.key_cache[layer], v.value_cache[layer], stream))) return false;
@@ -274,7 +280,7 @@ bool TargetTransaction::enqueue_multirow(bool full_graph, bool short_graph) noex
           state_.plan().prefill_chunk_size * 17408ULL * sizeof(std::uint16_t);
       const bool batch_attention = full_graph ? !short_graph :
           (rows_ > 1 && entry_position_ + 1 >= 512 && probability_bytes <= available_bytes);
-      if (full_graph && !ok(launch_mtp_graph_attention(v.projection[3],
+      if (full_graph && !ok((alternate_tail_ ? launch_mtp_tree_graph_attention : launch_mtp_graph_attention)(v.projection[3],
             v.key_cache[layer], v.value_cache[layer],
             static_cast<const MtpVerifyDeviceInputs*>(graph_inputs_),
             short_graph ? 512 - rows_ : state_.max_sequence_length() - rows_ + 1,
@@ -458,7 +464,7 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     ~DrainOnFailure() { if (!drained) (void)cudaStreamSynchronize(stream); }
   } drain{stream, drained};
   const bool short_graph = entry_position_ + 1 >= 65 && entry_position_ + rows_ <= 511;
-  const bool use_graph = full_graphs_ && rows_ >= 2 &&
+  const bool use_graph = !alternate_tail_ && full_graphs_ && rows_ >= 2 &&
       (short_graph || entry_position_ + 1 >= 512);
   std::array<Bf16GreedyArgmaxResult, 4> local_results{};
   auto* results = local_results.data();
@@ -481,6 +487,13 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     if (cudaMemcpyAsync(graph_inputs_, input, sizeof(*input), cudaMemcpyHostToDevice,
           stream) != cudaSuccess || cudaGraphLaunch(entry.executable, stream) != cudaSuccess)
       return false;
+  } else if (alternate_tail_) {
+    if (!graph_host_ || !graph_inputs_) return false;
+    auto* input = static_cast<MtpVerifyDeviceInputs*>(graph_host_);
+    *input = {}; input->position = entry_position_;
+    for (unsigned row = 0; row < rows_; ++row) input->token_ids[row] = inputs_[row];
+    if (cudaMemcpyAsync(graph_inputs_, input, sizeof(*input), cudaMemcpyHostToDevice,
+          stream) != cudaSuccess || !enqueue_multirow(true, short_graph)) return false;
   } else if (!enqueue_multirow(false, false)) return false;
   if (cudaMemcpyAsync(results, reinterpret_cast<char*>(target_.views_.fp32_scratch) + 512,
         rows_ * sizeof(*results), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
