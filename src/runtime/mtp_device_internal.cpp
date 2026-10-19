@@ -1,5 +1,6 @@
 #include "mtp_device_internal.h"
 #include "mtp_prefill_internal.h"
+#include "mtp_draft_integer_head_internal.h"
 #if defined(Q3X_ENABLE_FUSED_DECODE)
 #include "decode_fused_gqa_internal.h"
 #endif
@@ -183,6 +184,7 @@ struct Draft::Impl {
   bool poisoned = false;
   bool ordered_attention = false;
   std::uint64_t ordered_attention_steps = 0;
+  std::uint64_t integer_head_steps = 0;
   int error = 0;
   std::uint16_t *concat, *residual, *normalized, *branch, *final_hidden;
   std::uint16_t *q_gate, *query, *gate, *attention, *mlp_gate, *mlp_up;
@@ -291,6 +293,7 @@ const std::uint16_t* Draft::hidden() const noexcept { return impl_->final_hidden
 const std::uint16_t* Draft::keys() const noexcept { return impl_->key; }
 const std::uint16_t* Draft::values() const noexcept { return impl_->value; }
 int Draft::error() const noexcept { return impl_->error; }
+std::uint64_t Draft::integer_head_steps() const noexcept { return impl_->integer_head_steps; }
 std::uint64_t Draft::ordered_attention_steps() const noexcept {
   return impl_->ordered_attention_steps;
 }
@@ -305,6 +308,7 @@ bool Draft::reset() noexcept {
   auto& p = *impl_;
   discard_prepared_kv();
   p.ordered_attention_steps = 0;
+  p.integer_head_steps = 0;
   if (!p.call(cudaStreamSynchronize(p.stream))) return false;
   if (!p.call(cudaMemsetAsync(p.key, 0, 2048ULL * p.capacity, p.stream)) ||
       !p.call(cudaMemsetAsync(p.value, 0, 2048ULL * p.capacity, p.stream)) ||
@@ -473,8 +477,11 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
       !call(launch_residual_add_reference_cuda(p.residual, p.branch, H, p.residual, p.stream)) ||
       !p.norm(p.residual, 12, p.final_hidden)) return false;
   if (with_logits) {
-    if (!call(launch_projection_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
-               p.base.lm_head(), p.final_hidden, p.scratch, p.scratch_count, p.logits, p.stream)) ||
+    const auto* head = std::get_if<NvFp4LinearWeight>(&p.base.lm_head());
+    if (!head) return p.call(cudaErrorInvalidValue);
+    if (!call(launch_mtp_integer_draft_head(head->packed_weight, head->block_scale,
+               head->weight_scale_2, p.final_hidden, V, H, p.scratch,
+               p.scratch_count * sizeof(float), p.logits, p.stream)) ||
         !call(launch_bf16_greedy_argmax_cuda(p.logits, V, p.argmax, p.stream))) return false;
     Bf16GreedyArgmaxResult host{};
     if (confidence &&
@@ -486,6 +493,7 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
     if (host.has_nonfinite || host.index >= V ||
         (confidence && (!std::isfinite(*confidence) || *confidence <= 0 || *confidence > 1))) return p.call(cudaErrorInvalidValue);
     prediction = host.index;
+    ++p.integer_head_steps;
   } else {
     if (!call(cudaStreamSynchronize(p.stream))) return false;
     prediction = 0;

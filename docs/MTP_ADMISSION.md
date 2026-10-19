@@ -25,6 +25,41 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 private integer vocabulary — API direction complete
+
+`WP-MTP-INTEGER-HEAD-20261020` selects one
+[packed integer dataflow](metadata/qwen36-27b-mtp-integer-head-design-2026-10-20.json)
+for the complete private draft vocabulary. Preserve canonical NVFP4 weight
+bytes; map codes to exact signed integers, quantize each input group of sixteen,
+and accumulate four integer dot products before applying that group's original
+scale. Reuse 6400 dead scratch bytes with no weight expansion or omitted rows.
+This explicitly changes private head arithmetic, not target state or committed
+outputs. Independent complete-logit FP64 error must remain within 2%.
+The [completed native admission](metadata/qwen36-27b-mtp-integer-head-native-2026-10-20.json)
+passes exhaustive packed-code and integer-dot checks, nine complete real-weight
+vectors (FP64 maximum relative L2 0.6592%), guarded changing-input Graph replay,
+and bounded root memory/race/synchronization checks. P65 preserves ten complete
+prefixes, fifteen transactions, failure recovery and unchanged hidden/KV captures.
+The private stream owns quantization and projection; confidence may reuse its
+scratch only after projection retires. Nonfinite inputs propagate to the
+existing finiteness failure path. Actual successful head calls are counted.
+
+The [complete API return](metadata/qwen36-27b-mtp-integer-head-api-2026-10-20.json)
+passes all sixteen d2/d3 API/lifecycle requests with exact committed output.
+All timing requests attest integer-head calls equal to proposed tokens. Short
+and 8K work is unchanged; each 40K policy accepts one additional token and removes
+one round/two verifier rows, so gains include acceptance changes. D2 Decode is
+14.149/15.635/11.853 token/s; joint Prefill/TTFT/Decode/total and d3 observations
+belong to [Current Status](CURRENT_STATUS.md#mtp-development-status).
+
+Retain v113 through the next complete architecture API return or archival.
+This is one-process-per-policy direction, not repeated selection or production
+promotion. No integer-head quantizer/geometry/profile scan follows. Short d2
+still needs approximately 17.903 ms of Decode savings to reach 1.5x against the
+faster fresh non-MTP observation. The 40K d2 observation crosses 1.5x, but the full
+50%–200% goal remains unmet and final repetition remains required. Production
+stays non-MTP; target semantics and private error bound remain unchanged.
+
 ## 2026-10-14 complete verifier Graph — bounded API retention complete
 
 `WP-MTP-FULL-GRAPH-20261014` selects the

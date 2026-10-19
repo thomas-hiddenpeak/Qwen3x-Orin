@@ -1,0 +1,585 @@
+{
+  "date": "2026-10-20",
+  "source_parent": "0425f88",
+  "work_package_id": "WP-MTP-INTEGER-HEAD-20261020",
+  "architecture_candidate_id": "AC-MTP-INTEGER-HEAD-v113",
+  "decision_unit": "architecture_candidate",
+  "authority": "one-process-per-policy API direction; no repeated selection or release authority",
+  "native_evidence": "docs/metadata/qwen36-27b-mtp-integer-head-native-2026-10-20.json",
+  "candidate_profile": "q3x.sm87.admission.mtp-integer-head-api.v113",
+  "server_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+  "comparator": "Same-day v112 and installed non-MTP repeated observations from docs/metadata/qwen36-27b-mtp-full-graph-repeat-2026-10-20.json",
+  "joint_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.892150581,
+      "prefill_tps": 72.85765585350215,
+      "ttft_s": 0.9106398220174015,
+      "decode_tps": 14.14897114978091,
+      "elapsed_s": 1.970780857023783,
+      "incumbent_decode_tps": 14.020930796951687,
+      "decode_delta_percent": 0.9132086498641057,
+      "draft": 2,
+      "nonmtp_median_decode_tps": 9.590556581946018,
+      "speedup_vs_nonmtp": 1.4753024007403277,
+      "delta_vs_v112_median_percent": 0.9302018149619729,
+      "remaining_decode_ms_to_1_5x_conservative": 17.9033496666664
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.298094627999998,
+      "prefill_tps": 473.57817009162454,
+      "ttft_s": 17.32029006292578,
+      "decode_tps": 15.635467587236855,
+      "elapsed_s": 33.62962295196485,
+      "incumbent_decode_tps": 15.495192310601162,
+      "decode_delta_percent": 0.9052825794212405,
+      "draft": 2,
+      "nonmtp_median_decode_tps": 9.219908379830414,
+      "speedup_vs_nonmtp": 1.6958376312546877,
+      "delta_vs_v112_median_percent": 0.9010785083650052,
+      "remaining_decode_ms_to_1_5x_conservative": 0
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.58209387500001,
+      "prefill_tps": 432.0489883714028,
+      "ttft_s": 92.61731007497292,
+      "decode_tps": 11.852969593254283,
+      "elapsed_s": 114.132490991964,
+      "incumbent_decode_tps": 11.670423555337011,
+      "decode_delta_percent": 1.5641766303656768,
+      "draft": 2,
+      "nonmtp_median_decode_tps": 7.86444887070439,
+      "speedup_vs_nonmtp": 1.507158325792848,
+      "delta_vs_v112_median_percent": 1.550283112443207,
+      "remaining_decode_ms_to_1_5x_conservative": 0
+    },
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8917271780000001,
+      "prefill_tps": 72.89224956200673,
+      "ttft_s": 0.9101537639508024,
+      "decode_tps": 13.720601694558706,
+      "elapsed_s": 2.0033489509951323,
+      "incumbent_decode_tps": 13.569766344192598,
+      "decode_delta_percent": 1.1115545142062144,
+      "draft": 3,
+      "nonmtp_median_decode_tps": 9.590556581946018,
+      "speedup_vs_nonmtp": 1.4306366452586698,
+      "delta_vs_v112_median_percent": 1.0900389147298295,
+      "remaining_decode_ms_to_1_5x_conservative": 51.00211066666645
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.344991578,
+      "prefill_tps": 472.29772140048493,
+      "ttft_s": 17.367050687083974,
+      "decode_tps": 14.674702485330707,
+      "elapsed_s": 34.74414855509531,
+      "incumbent_decode_tps": 14.537273647392075,
+      "decode_delta_percent": 0.9453549631934344,
+      "draft": 3,
+      "nonmtp_median_decode_tps": 9.219908379830414,
+      "speedup_vs_nonmtp": 1.591632137845672,
+      "delta_vs_v112_median_percent": 1.0004065433763198,
+      "remaining_decode_ms_to_1_5x_conservative": 0
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.744987692,
+      "prefill_tps": 431.29015373679675,
+      "ttft_s": 92.77986537409015,
+      "decode_tps": 11.173108311376648,
+      "elapsed_s": 115.60411759000272,
+      "incumbent_decode_tps": 11.007628008342717,
+      "decode_delta_percent": 1.50332390328336,
+      "draft": 3,
+      "nonmtp_median_decode_tps": 7.86444887070439,
+      "speedup_vs_nonmtp": 1.42071090995292,
+      "delta_vs_v112_median_percent": 1.5223210087318861,
+      "remaining_decode_ms_to_1_5x_conservative": 1208.9063366666674
+    }
+  ],
+  "policies": {
+    "2": {
+      "complete_output_and_usage_equal_nonmtp_and_v112": true,
+      "all_generated_ids_equal_v112": true,
+      "private_acceptance_changes_allowed_and_reported": true,
+      "physical_counters_match_actual_verifier_work": true,
+      "completed_requests": 8,
+      "server_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.892150581,
+          "prefill_tps": 72.85765585350215,
+          "ttft_s": 0.9106398220174015,
+          "decode_tps": 14.14897114978091,
+          "elapsed_s": 1.970780857023783,
+          "incumbent_decode_tps": 14.020930796951687,
+          "decode_delta_percent": 0.9132086498641057,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10019667968,
+              10145718272
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              12
+            ],
+            "draft_initialization_ms": [
+              5.509772,
+              5.454666
+            ],
+            "draft_ms": [
+              96.44648500000001,
+              87.193625
+            ],
+            "verify_ms": [
+              955.3267999999999,
+              955.2385310000001
+            ],
+            "reconcile_ms": [
+              17.304814999999998,
+              17.373451000000003
+            ]
+          }
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.298094627999998,
+          "prefill_tps": 473.57817009162454,
+          "ttft_s": 17.32029006292578,
+          "decode_tps": 15.635467587236855,
+          "elapsed_s": 33.62962295196485,
+          "incumbent_decode_tps": 15.495192310601162,
+          "decode_delta_percent": 0.9052825794212405,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10019667968,
+              10145718272
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              187
+            ],
+            "draft_initialization_ms": [
+              555.867467,
+              549.616703
+            ],
+            "draft_ms": [
+              1533.3956500000002,
+              1386.2916779999996
+            ],
+            "verify_ms": [
+              14622.862977999997,
+              14620.652988
+            ],
+            "reconcile_ms": [
+              295.5971019999999,
+              297.1908079999999
+            ]
+          }
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.58209387500001,
+          "prefill_tps": 432.0489883714028,
+          "ttft_s": 92.61731007497292,
+          "decode_tps": 11.852969593254283,
+          "elapsed_s": 114.132490991964,
+          "incumbent_decode_tps": 11.670423555337011,
+          "decode_delta_percent": 1.5641766303656768,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10019667968,
+              10145718272
+            ],
+            "rounds": [
+              106,
+              105
+            ],
+            "proposed": [
+              201,
+              200
+            ],
+            "accepted": [
+              149,
+              150
+            ],
+            "verified_rows": [
+              307,
+              305
+            ],
+            "accepted_by_position": [
+              [
+                86,
+                63,
+                0
+              ],
+              [
+                86,
+                64,
+                0
+              ]
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                11,
+                95,
+                0
+              ],
+              [
+                0,
+                10,
+                95,
+                0
+              ]
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              200
+            ],
+            "draft_ordered_attention_steps": [
+              201,
+              200
+            ],
+            "entry_hidden_snapshots": [
+              106,
+              105
+            ],
+            "direct_gdn_state_rows": [
+              14736,
+              14640
+            ],
+            "full_graph_rounds": [
+              106,
+              105
+            ],
+            "full_graph_rows": [
+              307,
+              305
+            ],
+            "graph_qk_updates": [
+              1696,
+              1680
+            ],
+            "seed_kv_reuses": [
+              106,
+              105
+            ],
+            "tail_kv_batches": [
+              63,
+              64
+            ],
+            "tail_kv_rows": [
+              126,
+              128
+            ],
+            "state_copy_bytes_elided": [
+              31545706496,
+              31315768320
+            ],
+            "draft_initialization_ms": [
+              2708.530216,
+              2679.740603
+            ],
+            "draft_ms": [
+              1884.5871459999996,
+              1715.9247019999998
+            ],
+            "verify_ms": [
+              19663.17873299999,
+              19496.801134
+            ],
+            "reconcile_ms": [
+              296.82081799999986,
+              296.0035179999999
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 74.906
+      }
+    },
+    "3": {
+      "complete_output_and_usage_equal_nonmtp_and_v112": true,
+      "all_generated_ids_equal_v112": true,
+      "private_acceptance_changes_allowed_and_reported": true,
+      "physical_counters_match_actual_verifier_work": true,
+      "completed_requests": 8,
+      "server_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+      "rows": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8917271780000001,
+          "prefill_tps": 72.89224956200673,
+          "ttft_s": 0.9101537639508024,
+          "decode_tps": 13.720601694558706,
+          "elapsed_s": 2.0033489509951323,
+          "incumbent_decode_tps": 13.569766344192598,
+          "decode_delta_percent": 1.1115545142062144,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10018914304,
+              10120024064
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              15
+            ],
+            "draft_initialization_ms": [
+              5.615741,
+              5.654435
+            ],
+            "draft_ms": [
+              121.278215,
+              109.74660800000001
+            ],
+            "verify_ms": [
+              966.5318519999998,
+              966.533915
+            ],
+            "reconcile_ms": [
+              16.798904,
+              16.635685999999996
+            ]
+          }
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.344991578,
+          "prefill_tps": 472.29772140048493,
+          "ttft_s": 17.367050687083974,
+          "decode_tps": 14.674702485330707,
+          "elapsed_s": 34.74414855509531,
+          "incumbent_decode_tps": 14.537273647392075,
+          "decode_delta_percent": 0.9453549631934344,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10018914304,
+              10120024064
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              226
+            ],
+            "draft_initialization_ms": [
+              572.440274,
+              576.367033
+            ],
+            "draft_ms": [
+              1858.013275,
+              1688.4339240000002
+            ],
+            "verify_ms": [
+              15392.344989000007,
+              15397.035437
+            ],
+            "reconcile_ms": [
+              286.3270890000002,
+              286.92919399999977
+            ]
+          }
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.744987692,
+          "prefill_tps": 431.29015373679675,
+          "ttft_s": 92.77986537409015,
+          "decode_tps": 11.173108311376648,
+          "elapsed_s": 115.60411759000272,
+          "incumbent_decode_tps": 11.007628008342717,
+          "decode_delta_percent": 1.50332390328336,
+          "changed_mtp_fields": {
+            "startup_free_bytes": [
+              10018914304,
+              10120024064
+            ],
+            "rounds": [
+              90,
+              89
+            ],
+            "proposed": [
+              245,
+              244
+            ],
+            "accepted": [
+              165,
+              166
+            ],
+            "verified_rows": [
+              335,
+              333
+            ],
+            "accepted_by_position": [
+              [
+                73,
+                51,
+                41
+              ],
+              [
+                73,
+                52,
+                41
+              ]
+            ],
+            "proposal_histogram": [
+              [
+                0,
+                6,
+                13,
+                71
+              ],
+              [
+                0,
+                5,
+                13,
+                71
+              ]
+            ],
+            "draft_head": [
+              null,
+              "nvfp4-block16-dp4a-v1"
+            ],
+            "draft_integer_head_steps": [
+              null,
+              244
+            ],
+            "draft_ordered_attention_steps": [
+              245,
+              244
+            ],
+            "entry_hidden_snapshots": [
+              90,
+              89
+            ],
+            "direct_gdn_state_rows": [
+              16080,
+              15984
+            ],
+            "full_graph_rounds": [
+              90,
+              89
+            ],
+            "full_graph_rows": [
+              335,
+              333
+            ],
+            "graph_qk_updates": [
+              1440,
+              1424
+            ],
+            "seed_kv_reuses": [
+              90,
+              89
+            ],
+            "tail_kv_batches": [
+              51,
+              52
+            ],
+            "tail_kv_rows": [
+              143,
+              145
+            ],
+            "state_copy_bytes_elided": [
+              32396544000,
+              32166605824
+            ],
+            "draft_initialization_ms": [
+              2788.40486,
+              2810.217771
+            ],
+            "draft_ms": [
+              2299.93395,
+              2107.220000999999
+            ],
+            "verify_ms": [
+              20574.467732000005,
+              20423.457503999998
+            ],
+            "reconcile_ms": [
+              286.60463500000003,
+              287.22348999999986
+            ]
+          }
+        }
+      ],
+      "driver_terminal": {
+        "returncode": 0,
+        "early_stop": false
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.468
+      }
+    }
+  },
+  "retained_as": "Bounded next development composition; next complete architecture API return or archival, no head geometry/quantizer/profile scan.",
+  "attribution": "Short/8K acceptance/work remain equal. At40K each policy accepts one additional draft token, verifies two fewer rows and executes one fewer round. Gains combine faster private head and changed private proposals/confidence; never attribute all to kernel execution.",
+  "production_changed": false,
+  "full_goal_achieved": false,
+  "limitation": "P40 d2 single observation crosses1.5x fresh non-MTP, but short d2 remains below and repetition is still required before full-goal/production claims.",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-integer-head-20261020/artifact-manifest.json",
+    "sha256": "4aadd1167512e749226829d243ea99448be812caa87878312057172cca7cfdd7",
+    "count": 160,
+    "bytes": 65723748
+  }
+}

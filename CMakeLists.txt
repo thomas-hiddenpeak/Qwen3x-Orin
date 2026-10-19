@@ -906,7 +906,7 @@ add_library(q3x::engine ALIAS q3x_engine)
 if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
   target_sources(q3x_engine PRIVATE src/runtime/mtp_service_internal.cpp
     src/runtime/mtp_device_internal.cpp src/runtime/mtp_control.cpp
-    src/model/mtp_weights_internal.cpp src/runtime/mtp_prefill_internal.cu
+    src/model/mtp_weights_internal.cpp src/runtime/mtp_prefill_internal.cu src/runtime/mtp_draft_integer_head_internal.cu
     src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
     src/runtime/mtp_verify_attention_internal.cu)
   set_target_properties(q3x_engine PROPERTIES CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
@@ -1130,6 +1130,12 @@ if(BUILD_TESTING)
   target_include_directories(q3x_mtp_graph_inputs_test PRIVATE include src/runtime)
   set_target_properties(q3x_mtp_graph_inputs_test PROPERTIES
     CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
+  add_executable(q3x_mtp_integer_head_test EXCLUDE_FROM_ALL
+    tests/mtp_integer_head_cuda_test.cu)
+  target_include_directories(q3x_mtp_integer_head_test PRIVATE include src/runtime)
+  target_link_libraries(q3x_mtp_integer_head_test PRIVATE q3x_kernels)
+  set_target_properties(q3x_mtp_integer_head_test PROPERTIES
+    CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
   # Host-only MTP prerequisites. No MTP symbol/selector enters the installed
   # engine or the ordinary BUILD_TESTING=OFF service.
   add_executable(q3x_mtp_control_test
@@ -1147,7 +1153,7 @@ if(BUILD_TESTING)
       tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
       src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
       src/runtime/mtp_verify_attention_internal.cu
-      src/runtime/mtp_prefill_internal.cu
+      src/runtime/mtp_prefill_internal.cu src/runtime/mtp_draft_integer_head_internal.cu
       src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
     target_include_directories(q3x_mtp_device_test PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include)
     target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
@@ -1158,7 +1164,7 @@ if(BUILD_TESTING)
         tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
         src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
         src/runtime/mtp_verify_attention_internal.cu
-        src/runtime/mtp_prefill_internal.cu
+        src/runtime/mtp_prefill_internal.cu src/runtime/mtp_draft_integer_head_internal.cu
         src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
       target_include_directories(q3x_mtp_whole_core_test PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include)
       target_compile_definitions(q3x_mtp_whole_core_test PRIVATE Q3X_MTP_WHOLE_CORE_TEST=1)

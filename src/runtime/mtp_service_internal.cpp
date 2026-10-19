@@ -154,6 +154,7 @@ std::string Service::report_json() const {
       << r.accepted_by_position[1] << ',' << r.accepted_by_position[2] << ']'
       << ",\"confidence_threshold\":0.4,\"proposal_histogram\":[" << r.proposal_histogram[0]
       << ',' << r.proposal_histogram[1] << ',' << r.proposal_histogram[2] << ',' << r.proposal_histogram[3] << ']'
+      << ",\"draft_head\":\"nvfp4-block16-dp4a-v1\",\"draft_integer_head_steps\":" << draft_.integer_head_steps()
       << ",\"draft_ordered_attention_steps\":" << draft_.ordered_attention_steps()
       << ",\"entry_hidden_snapshots\":" << transaction_.entry_snapshots()
       << ",\"scalar_verify_rows\":" << transaction_.scalar_verify_rows()

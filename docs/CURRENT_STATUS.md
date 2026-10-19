@@ -86,54 +86,64 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-Current isolated source composes the complete 64-layer verifier into six
-startup-owned CUDA Graphs with validated device token/position inputs. Profile
-is `q3x.sm87.admission.mtp-full-graph-api.v112`, measured ELF
-`32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec`.
-The [native admission](metadata/qwen36-27b-mtp-full-graph-native-2026-10-20.json)
-preserves complete target state/logits at P65/P513/P8192 and the unchanged private
-draft capture. The [API return](metadata/qwen36-27b-mtp-full-graph-api-2026-10-20.json)
-passes all sixteen d2/d3 API/lifecycle requests. Generated IDs, responses and
-acceptance/work counters match v101; the six timing requests attest full Graph
-coverage. Minimum startup free memory is 10,006,945,792 bytes, above 8 GiB.
+Current isolated source retains the complete verifier Graph and adds a private
+integer draft vocabulary projection. Profile is
+`q3x.sm87.admission.mtp-integer-head-api.v113`, measured ELF
+`4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366`.
+Canonical NVFP4 weights remain unchanged; blockwise signed integer dot products
+consume quantized private activations, then restore the original scales and
+publish BF16 logits. All vocabulary entries are evaluated. Target arithmetic,
+state and committed output remain exact. The implementation reuses 6400 dead
+scratch bytes and adds no weight copy or request allocation.
 
-The [bounded reverse-order validation](metadata/qwen36-27b-mtp-full-graph-repeat-2026-10-20.json)
-is complete. Eighteen fresh API requests pass output, identity, route, work,
-resource and cleanup checks. Combining the same-day forward pairs with the
-reverse pairs gives two observations per MTP binary/policy/workload. Candidate
-Decode minima exceed v101 maxima in all six buckets. Median increments over
-v101 are 0.38%–0.53%; retain v112 as the development incumbent and close this
-Graph validation package. This is bounded engineering retention, not a fully
-prospective release experiment, a confidence-interval claim or production
-qualification. No further Graph parameter/profile scan follows.
+The [numerical admission](metadata/qwen36-27b-mtp-integer-head-native-2026-10-20.json)
+passes all 65,536 packed code cases, integer dot checks, complete-logit guards,
+changing-input Graph replay and bounded memory/race/synchronization checks.
+Nine authenticated historical inputs have maximum full-vector relative L2
+0.6592% against independent original-weight FP64, below the private 2% bound;
+all nine argmax results match the scalar head. P65 passes ten complete prefixes,
+fifteen transactions and four verifier-failure recoveries. Six hidden/KV capture
+hashes equal v112. This numerical scope does not claim every future private
+proposal or confidence value is identical.
 
-Two fresh installed 0.8.2 non-MTP processes bracket the reverse-order runs.
-The following table gives per-metric medians of two observations on the same
-request/binary/policy. Prefill includes draft initialization; TTFT and total are
-external. P65 uses O16; 8K/40K use O256. The final column compares Decode with
-the fresh non-MTP median. Complete raw ranges and individual rows are preserved
-in the evidence. Prefill/TTFT variation is not attributed to unchanged Prefill
-code, and Decode gains do not prove stable end-to-end gains over v101.
+The [API return](metadata/qwen36-27b-mtp-integer-head-api-2026-10-20.json)
+passes all sixteen d2/d3 API/lifecycle requests, matching committed token IDs
+and responses to v112/non-MTP. Short/8K acceptance and work are unchanged.
+At 40K, each policy accepts one additional draft token, performs one fewer round
+and verifies two fewer rows. Performance combines faster draft computation and
+changed private proposals/confidence, rather than kernel execution alone.
+
+The following 2026-10-20 candidate rows are **one process per policy**, not
+repeated selection or release qualification. Non-MTP rows are the medians of
+two fresh installed 0.8.2 processes from the
+[preceding bounded validation](metadata/qwen36-27b-mtp-full-graph-repeat-2026-10-20.json).
+Prefill includes draft initialization; TTFT and total are external. The final
+column compares Decode with that same-request non-MTP median.
 
 | P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs non-MTP |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 65 / 16 | non-MTP | 0.887 | 73.29 | 0.909 | 9.591 | 2.473 | — |
 | 8192 / 256 | non-MTP | 16.783 | 488.10 | 16.806 | 9.220 | 44.465 | — |
 | 40000 / 256 | non-MTP | 89.988 | 444.50 | 90.023 | 7.864 | 122.450 | — |
-| 65 / 16 | d2 | 0.891 | 72.98 | 0.913 | 14.019 | 1.983 | +46.17% |
-| 8192 / 256 | d2 | 17.342 | 472.39 | 17.364 | 15.496 | 33.820 | +68.07% |
-| 40000 / 256 | d2 | 92.796 | 431.05 | 92.831 | 11.672 | 114.679 | +48.41% |
-| 65 / 16 | d3 | 0.891 | 72.96 | 0.917 | 13.573 | 2.022 | +41.52% |
-| 8192 / 256 | d3 | 17.340 | 472.42 | 17.363 | 14.529 | 34.914 | +57.59% |
-| 40000 / 256 | d3 | 92.738 | 431.32 | 92.773 | 11.006 | 115.945 | +39.94% |
+| 65 / 16 | d2 | 0.892 | 72.86 | 0.911 | 14.149 | 1.971 | +47.53% |
+| 8192 / 256 | d2 | 17.298 | 473.58 | 17.320 | 15.635 | 33.630 | +69.58% |
+| 40000 / 256 | d2 | 92.582 | 432.05 | 92.617 | 11.853 | 114.132 | +50.72% |
+| 65 / 16 | d3 | 0.892 | 72.89 | 0.910 | 13.721 | 2.003 | +43.06% |
+| 8192 / 256 | d3 | 17.345 | 472.30 | 17.367 | 14.675 | 34.744 | +59.16% |
+| 40000 / 256 | d3 | 92.745 | 431.29 | 92.780 | 11.173 | 115.604 | +42.07% |
 
-**The full-range 50%–200% objective remains unmet.** D2 remains faster than d3.
-Against the more conservative candidate-minimum/non-MTP-maximum comparison,
-d2 is 1.461x/1.680x/1.484x at P65/8K/40K. It still needs approximately
-27.945 ms removed from short Decode and 236.358 ms from 40K Decode to reach
-1.5x on those workloads. The next work must address these real API budgets
-through a new bounded architecture, not extend Graph measurement. Production
-and the ordinary installed non-MTP route remain unchanged.
+**The full-range 50%–200% objective remains unmet.** D2's 40K observation now
+crosses 1.5x, but short Decode still needs approximately 17.903 ms removed against
+the conservative faster non-MTP observation. D3 remains slower. Keep v113 as
+a bounded constituent of the next complete architecture API return or archive
+it; no head quantizer, geometry or profile scan follows. A repeated final
+comparison remains necessary before goal or production claims. The ordinary
+installed production service stays non-MTP.
+
+The preceding v112 Graph increment was independently retained by the bounded
+reverse-order validation linked above (0.38%–0.53% median Decode improvements
+versus v101). Its exact state/Graph ownership remains active; its historical
+metrics are preserved in that record rather than mixed into this candidate.
 
 ### Preceding v101 reference
 

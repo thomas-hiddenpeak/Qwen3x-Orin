@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-INTEGER-HEAD-20261020",
+  "architecture_candidate_id": "AC-MTP-INTEGER-HEAD-v113",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "0425f88",
+  "origin": "Owner full-range 50%-200% MTP goal; conservative v112 d2 residual Decode budgets 27.945ms short /236.358ms P40000.",
+  "route": "Private Draft::step full 248320x5120 lm_head only, original authenticated canonical NVFP4 payload; all vocabulary rows. Target and existing private MLP unchanged.",
+  "mechanism": "NVFP4 codes map exactly to signed integer 2*FP4 in [-12,12] via packed byte permutations. Quantize each BF16 input group of16 to symmetric signed INT8 with FP32 maxabs/127, RNE. Four DP4A operations form an exact INT32 group dot. Apply original E4M3 block scale and activation scale in FP32, sum groups and reduce warp, apply original tensor scale/2 then BF16 publish.",
+  "ownership": "One fixed four-output-row128-thread CTA; each warp one output, lane-strided groups. 6400bytes of existing dead private scratch stages5120 INT8 activation bytes plus320 FP32 scales; no added weight copy, request allocation or output omission.",
+  "mathematics": "Private approximation/reassociation is explicit. Independent original-weight FP64 complete-logit relative L2 <=0.02 on nine authenticated historical rows. Preserve exact target state/logits, committed IDs, transaction/observer semantics. Nonfinite input group yields NaN scale and output, failing existing finiteness handling.",
+  "distinction": "Not the rejected BF16 MMA/repacked head, shortlist, or W8A8 private MLP precision scan. Original4-bit weight bytes remain untouched; blockwise integer arithmetic replaces per-weight floating-point products only in private vocabulary.",
+  "reference": {
+    "instruction": "https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__INTRINSIC__INT.html",
+    "translation": "CUDA signed DP4A is available on SM87; no upstream kernel imported. Prior repository Marlin/BF16 head dataflow records retained for contrast."
+  },
+  "budget": "Historical real API private head ~0.874s at P40 d2 is a diagnostic opportunity, not a prediction or claim this alone closes both residual gaps.",
+  "validation": [
+    "Exhaustive packed code decode and integer dots; guarded complete real-weight logits and Graph input replay; memcheck/racecheck/synccheck bounded panels",
+    "Independent FP64 bound first, then current P65 whole-state/transactions and candidate real API d2 against retained v112, d3 only on useful d2 direction",
+    "Short slowdown>3% or nonpositive8K/40K closes; all output/state/resource contracts remain hard gates"
+  ],
+  "limit": "One fixed dataflow, no quantizer/group/tile/launch/profile scan. Numerical kernel admission in this milestone; complete native/API composition next milestone or archive. At most one correctness repair.",
+  "artifacts": ".q3x-work/mtp-integer-head-20261020",
+  "production_changed": false
+}

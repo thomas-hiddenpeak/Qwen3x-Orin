@@ -83,6 +83,7 @@ def audit(out, records, draft):
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
                   m['verifier'] == 'multirow-full-graph-v112', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
+        q.require(m['draft_head'] == 'nvfp4-block16-dp4a-v1' and m['draft_integer_head_steps'] == m['proposed'], 'private integer head coverage')
         hits = m['draft_ordered_attention_steps']
         q.require(0 <= hits <= m['proposed'], 'draft ordered work count')
         if w['prompt_tokens'] >= 512:
@@ -158,7 +159,7 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-full-graph-api.v112' if args.draft_length else q.PROFILE
+    q.PROFILE = 'q3x.sm87.admission.mtp-integer-head-api.v113' if args.draft_length else q.PROFILE
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']

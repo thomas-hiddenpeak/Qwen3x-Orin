@@ -61,6 +61,7 @@ class Draft {
   const std::uint16_t* values() const noexcept;
   int error() const noexcept;
   std::uint64_t ordered_attention_steps() const noexcept;
+  std::uint64_t integer_head_steps() const noexcept;
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

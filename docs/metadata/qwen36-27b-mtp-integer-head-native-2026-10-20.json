@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-INTEGER-HEAD-20261020",
+  "architecture_candidate_id": "AC-MTP-INTEGER-HEAD-v113",
+  "scope": "Numerical and native admission only; API decision recorded separately",
+  "source": {
+    "oracle": "afba7435f997e514d50ce48b44146b7564827c95f8ad03d1ffdd9cd4f4ed9773",
+    "CMakeLists.txt": "1576ec3eb519a2184d5017117dac9989edb27f591920e55643e4adeade56852e",
+    "server": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+    "changes.patch": "e8897df9b1deab1a3e2492506dacaadecb3a08a3135cc3d41ac42910e719e649",
+    "tests/mtp_integer_head_cuda_test.cu": "3fbb79e01c8b2e4d63feaadd717f3e217e58daa0081bb255ec0a167e57f7b4c0",
+    "docs/DOCUMENT_REGISTRY.md": "0f06ba1ebc1a996110eef274ffdb1295b2c1d5a670716998f0a5635ff621c32b",
+    "docs/ROADMAP.md": "58f0ea577081493562cb027cb5a95e58bbc0579e38c3f84a0f19841c0c2c17de",
+    "docs/MTP_ADMISSION.md": "85716a13b41145d46dd9fc4f489ed3011ae16663e7d5da477e02e63120ab603e",
+    "include/q3x/server/evaluation_server.h": "2f4451bc44abb5357f27a492dec79debda3665678b54205a0d947060c1c9c5ad",
+    "src/server/evaluation_server.cpp": "920d2dc92629a801d72568bc30b62cb3437e39ae1022b1280ea50057e81df34d",
+    "src/runtime/mtp_device_internal.h": "4671857f4969b73a1dd2b3e59140a15b2db779ab7eb2139d9213573cdd3d22fb",
+    "src/runtime/mtp_draft_integer_head_internal.cu": "60f2e2230c43f23df8b164c2ced794c91d7f1ef14a156db78a2d080f04c1b785",
+    "src/runtime/mtp_draft_integer_head_internal.h": "3c80934744872f96c7b9c967e819e017db4918a13fb09b04665735487fd9c372",
+    "src/runtime/mtp_service_internal.cpp": "7e310b0bf8dd14f1eb16325dfaba1e948c6ce28cbfb06c12506e525e0504eba4",
+    "src/runtime/mtp_device_internal.cpp": "e538e5cde15abe79b6bfe970760b84d764de6da8652ea06086fc0b2302c9ad53",
+    "tools/evaluation/validate_mtp_service.py": "cbebf746b102400bc5deb65fa2488add7c647a891c6ecdb5752a79903bdf91a6"
+  },
+  "full_vocabulary_rows": 9,
+  "fp64_bound": 0.02,
+  "fp64_max_relative_l2": 0.006591921394659946,
+  "head_argmax_equal_scalar_rows": 9,
+  "packed_code_cases": 65536,
+  "integer_dot_checks": 131072,
+  "changing_input_graph_replays": 3,
+  "sanitizers": {
+    "memcheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "racecheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "synccheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    }
+  },
+  "native_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 67.625
+  },
+  "complete_prefix_checks": 10,
+  "transactions": 15,
+  "verify_failure_recoveries": 4,
+  "private_capture": {
+    "all_six_captures_equal_v112": true,
+    "sha256": {
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-hidden.bf16": "462b593f29976fb0edf1ce258828ab0d5c5297a3fc046d380e9b27cd05ffc083",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0"
+    },
+    "scope": "Private hidden/KV and target capture unchanged; new head independently checked by complete FP64 panel."
+  },
+  "registers": {
+    "project": 40,
+    "quantize": 21,
+    "stack_local_shared_bytes": 0
+  },
+  "production_changed": false
+}
