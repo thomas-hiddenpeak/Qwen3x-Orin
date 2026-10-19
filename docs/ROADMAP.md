@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 current short verifier budget — diagnostic closed
+
+The [one-capture protocol](metadata/qwen36-27b-mtp-v113-short-budget-design-2026-10-20.json)
+is [complete](metadata/qwen36-27b-mtp-v113-short-budget-2026-10-20.json).
+Frozen v113 P65/O16 d2 preserves all16 output tokens, response and work counts.
+In the instrumented interval from first verifier FP8 through the last kernel,
+multirow projection families total802.211ms: Gate/Up307.106ms, FP8308.891ms,
+Down153.124ms and vocabulary33.091ms. This is diagnostic attribution, not a
+new unprofiled phase budget, hardware bound or speed claim.
+
+The native singleton embedding-to-argmax interval is104.624ms with104.050ms
+of kernel execution and0.574ms outside kernels. It does not support treating
+singleton host submission as the remaining17.903ms saving. Existing v96 already
+selected native over generic M1. No singleton Graph-only retry is selected.
+Standalone A/B kernels total9.882ms; v76's batching was already neutral.
+Gate/Up fusion and NV prefetch lineages remain closed. The trace does not
+reopen their parameter searches merely because their families are dominant.
+
+Close collection now. The next implementation must change major projection
+execution under the exact numerical contract and return promptly to the API;
+no implementation is selected by this diagnostic alone. V113, joint metrics,
+production and the full50%–200% objective remain unchanged.
+
 ## 2026-10-20 complete private draft Graph — closed neutral API direction
 
 The [complete private-step design](metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json)

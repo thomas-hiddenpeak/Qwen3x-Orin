@@ -1,0 +1,13 @@
+{
+  "work_package_id": "WP-MTP-V113-SHORT-BUDGET-20261020",
+  "decision_unit": "diagnostic",
+  "source_parent": "4ef378ecf8d39a585f56c301ac7796a010d57010",
+  "goal": "same-workload MTP Decode50%-200%, d2/d3 with exact target/output and joint Prefill/TTFT/Decode/total",
+  "question": "Which current short-request target verifier family owns the remaining17.903ms gap after private complete-step Graph gave no useful whole-API gain? Prior latest node trace is v94P40000, not current short v113.",
+  "protocol": "Exactly one same-frozen-v113 P65/O16 d2 API Nsight Systems node trace, with same-response/token/work comparison. No runtime changes. Separate singleton scalar target from multirow verifier, private draft and reconciliation.",
+  "binary_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+  "unprofiled_anchor": "docs/metadata/qwen36-27b-mtp-integer-head-api-2026-10-20.json",
+  "bounds": "One capture and analysis; no NCU replay, parameter scan, timing-baseline replacement or production promotion. Use attribution to select one different dataflow or explicitly reject an already-closed lineage.",
+  "artifacts": ".q3x-work/mtp-v113-short-budget-20261020",
+  "production_changed": false
+}

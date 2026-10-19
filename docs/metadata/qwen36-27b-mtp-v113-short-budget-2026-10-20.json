@@ -1,0 +1,308 @@
+{
+  "work_package_id": "WP-MTP-V113-SHORT-BUDGET-20261020",
+  "decision_unit": "diagnostic",
+  "status": "closed after one exact-output API capture",
+  "design": "docs/metadata/qwen36-27b-mtp-v113-short-budget-design-2026-10-20.json",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-integer-head-20261020/source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-v113-short-budget-20261020/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+    "git": "4ef378ecf8d39a585f56c301ac7796a010d57010",
+    "driver_sha256": "0d7c8841760b2b9af1f9f0018effcd3a029f770ec90802d5446fb677c05368e6",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-V113-SHORT-BUDGET-20261020; one node-traced same-v113-ELF completed P65/O16 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "output_comparison": {
+    "equal": true,
+    "fields": [
+      "request_sha256",
+      "text",
+      "usage",
+      "finish",
+      "done"
+    ],
+    "prior": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-integer-head-20261020/d2/p65.json"
+  },
+  "work_comparison": {
+    "exact": true,
+    "fields": [
+      "generated_token_ids",
+      "prompt_token_ids_u32le_sha256",
+      "completion_tokens",
+      "target_prefill_complete"
+    ],
+    "mtp_fields": [
+      "draft_length",
+      "rounds",
+      "proposed",
+      "accepted",
+      "verified_rows",
+      "committed_decode_tokens",
+      "accepted_by_position",
+      "proposal_histogram",
+      "scalar_verify_rows",
+      "full_graph_rounds",
+      "full_graph_rows",
+      "draft_integer_head_steps"
+    ]
+  },
+  "analysis": {
+    "scope": "One node-instrumented real API capture, first verifier FP8 node through last generation kernel. Includes all target verification and later draft/reconciliation; excludes first proposal and pre-verifier entry work. Not an unprofiled or complete Decode latency bound.",
+    "start_ns": 971035520,
+    "end_ns": 2036281920,
+    "interval_s": 1.0652464,
+    "families": {
+      "verify_gate_up": {
+        "seconds": 0.30710572799999986,
+        "calls": 768
+      },
+      "verify_fp8_canonical": {
+        "seconds": 0.22736281599999972,
+        "calls": 864
+      },
+      "verify_down_packed": {
+        "seconds": 0.12797916799999998,
+        "calls": 318
+      },
+      "other": {
+        "seconds": 0.10404019200000005,
+        "calls": 1135
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 0.08152819199999999,
+        "calls": 384
+      },
+      "draft_vocabulary_integer": {
+        "seconds": 0.036174208,
+        "calls": 20
+      },
+      "verify_vocabulary": {
+        "seconds": 0.033090784,
+        "calls": 6
+      },
+      "target_gdn": {
+        "seconds": 0.026606175999999985,
+        "calls": 912
+      },
+      "verify_down_canonical": {
+        "seconds": 0.025144640000000006,
+        "calls": 66
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 0.020821280000000005,
+        "calls": 65
+      },
+      "draft_mlp_int8": {
+        "seconds": 0.014820064000000003,
+        "calls": 30
+      },
+      "residual_norm": {
+        "seconds": 0.010062911999999995,
+        "calls": 768
+      },
+      "target_ab_pair": {
+        "seconds": 0.009882080000000012,
+        "calls": 864
+      },
+      "draft_vocabulary": {
+        "seconds": 0.004416768,
+        "calls": 1
+      },
+      "target_conv": {
+        "seconds": 0.0028884159999999974,
+        "calls": 912
+      },
+      "draft_pv": {
+        "seconds": 0.0012807679999999998,
+        "calls": 26
+      },
+      "draft_qk": {
+        "seconds": 0.00020780800000000003,
+        "calls": 26
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.000101568,
+        "calls": 26
+      }
+    },
+    "graph_partition": {
+      "graph:verify_gate_up": {
+        "seconds": 0.30710572799999986,
+        "calls": 768
+      },
+      "graph:verify_fp8_canonical": {
+        "seconds": 0.22736281599999972,
+        "calls": 864
+      },
+      "graph:verify_down_packed": {
+        "seconds": 0.12797916799999998,
+        "calls": 318
+      },
+      "non_graph:other": {
+        "seconds": 0.09970752000000005,
+        "calls": 513
+      },
+      "graph:verify_fp8_sidecar": {
+        "seconds": 0.08152819199999999,
+        "calls": 384
+      },
+      "non_graph:draft_vocabulary_integer": {
+        "seconds": 0.036174208,
+        "calls": 20
+      },
+      "graph:verify_vocabulary": {
+        "seconds": 0.033090784,
+        "calls": 6
+      },
+      "graph:verify_down_canonical": {
+        "seconds": 0.025144640000000006,
+        "calls": 66
+      },
+      "graph:target_gdn": {
+        "seconds": 0.025075327999999984,
+        "calls": 864
+      },
+      "non_graph:draft_matrix_including_reconcile": {
+        "seconds": 0.020821280000000005,
+        "calls": 65
+      },
+      "non_graph:draft_mlp_int8": {
+        "seconds": 0.014820064000000003,
+        "calls": 30
+      },
+      "graph:residual_norm": {
+        "seconds": 0.010062911999999995,
+        "calls": 768
+      },
+      "graph:target_ab_pair": {
+        "seconds": 0.009882080000000012,
+        "calls": 864
+      },
+      "non_graph:draft_vocabulary": {
+        "seconds": 0.004416768,
+        "calls": 1
+      },
+      "graph:other": {
+        "seconds": 0.004332671999999996,
+        "calls": 622
+      },
+      "graph:target_conv": {
+        "seconds": 0.0026608959999999972,
+        "calls": 864
+      },
+      "non_graph:target_gdn": {
+        "seconds": 0.0015308479999999998,
+        "calls": 48
+      },
+      "non_graph:draft_pv": {
+        "seconds": 0.0012807679999999998,
+        "calls": 26
+      },
+      "non_graph:target_conv": {
+        "seconds": 0.00022752000000000002,
+        "calls": 48
+      },
+      "non_graph:draft_qk": {
+        "seconds": 0.00020780800000000003,
+        "calls": 26
+      },
+      "non_graph:softmax_target_and_draft": {
+        "seconds": 0.000101568,
+        "calls": 26
+      }
+    },
+    "copies": [
+      {
+        "kind": 1,
+        "graph": false,
+        "calls": 5,
+        "bytes": 160,
+        "seconds": 1.664e-06
+      },
+      {
+        "kind": 2,
+        "graph": false,
+        "calls": 22,
+        "bytes": 252,
+        "seconds": 3.1744e-05
+      },
+      {
+        "kind": 8,
+        "graph": false,
+        "calls": 54,
+        "bytes": 1263316992,
+        "seconds": 0.01348592
+      },
+      {
+        "kind": 8,
+        "graph": true,
+        "calls": 918,
+        "bytes": 62208144,
+        "seconds": 0.002110816
+      }
+    ],
+    "observed_gpu_kernel_copy_union_s": 1.04907392,
+    "outside_observed_union_s": 0.01617248,
+    "count_contract": {
+      "target_gdn_and_conv_calls": 912,
+      "verified_rows": 19,
+      "gdn_layers": 48
+    },
+    "limitations": [
+      "Graph-node instrumentation may extend graph scheduling and measured request intervals; no speedup or normal-run idle ceiling.",
+      "Kernel duration is not a memory/instruction/stall hardware-cause measurement.",
+      "This capture does not select a new numerical, runtime or production path."
+    ],
+    "sqlite_sha256": "11ddc204a8f6faeb91ec8c29428d12813dd862f179af15bdf3981869e533924e",
+    "singleton": {
+      "scope": "native embedding through completed native greedy argmax, excludes entry/commit/cache reconciliation",
+      "start_ns": 1929005344,
+      "end_ns": 2033629248,
+      "interval_ms": 104.623904,
+      "kernel_ms": 104.050016,
+      "outside_kernel_ms": 0.573888,
+      "kernel_calls": 437,
+      "gdn_calls": 48,
+      "conv_calls": 48,
+      "inference": "This instrumented interval does not support treating ordinary singleton host submission as17.903ms removable overhead. It is not a bound on another numerical/dataflow architecture."
+    },
+    "projection_family_ms": 802.2113279999995,
+    "lineage_checks": {
+      "singleton_graph": "Not selected: this trace shows native singleton mostly busy on GPU; generic M1 was already slower before retained native-singleton route. No graph-only overhead hypothesis supported.",
+      "ab_batch": "Previously closed v76; current864 calls total9.882ms, less than17.903ms gap even before any required arithmetic. No launch/grid retry.",
+      "gate_pair": "Previously closed v33/v97, including shared input ring and exact BF16GateUpSiLU. Dominant family status alone does not reopen it.",
+      "prefetch": "FP8 native hints retained; NV register and native-prefetch lineages already closed. No hint/stage scan."
+    },
+    "decision": "Close diagnostic after one capture. Remaining short opportunity belongs primarily to projection execution, not state-copy, A/B launch, private submission or singleton Graph-only changes. No runtime selected and no goal completion."
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 61.781
+  },
+  "performance_authority": "None. Node instrumentation changes scheduling/timing. Existing unprofiled v113 Prefill/TTFT/Decode/total remain the current observations.",
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_achieved": false,
+  "artifacts": ".q3x-work/mtp-v113-short-budget-20261020",
+  "files": {
+    ".q3x-work/mtp-v113-short-budget-20261020/profile.py": "0d7c8841760b2b9af1f9f0018effcd3a029f770ec90802d5446fb677c05368e6",
+    ".q3x-work/mtp-v113-short-budget-20261020/analyze.py": "dbc187d050c02f87580d801a5a55208a521cd9a4a24df8c2a4644a12a381ea0a",
+    ".q3x-work/mtp-v113-short-budget-20261020/finish-analysis.py": "b71219adcee36d3d6090c7784116275dc405201c7ff2b14b49e097875e07187c",
+    ".q3x-work/mtp-v113-short-budget-20261020/analysis.json": "2bbfd7439ea16c09949b137be9dd7eb9a64e6035041fe9d5d1fe4b846fff99a9",
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/capture.nsys-rep": "04de98b9c12490d60400a859a8a1fed2619b5a799b0a1d8aed8d7ef2bb625e8e",
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/capture.sqlite": "11ddc204a8f6faeb91ec8c29428d12813dd862f179af15bdf3981869e533924e",
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/witness.json": "4fbe475580efd57a226ee0a37065eaaddc23999c172bbf83613d224b0bf5d2af",
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/identity.json": "39d2ec5e27577dd0381afcc8b55ea79bb3d3c376dc39bf87ff6c045fb47810fd",
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/preflight.json": "8bf073764a70f7e435d489eb936e094897a6cb83ea5156dc392405b9f44d911f"
+  }
+}
