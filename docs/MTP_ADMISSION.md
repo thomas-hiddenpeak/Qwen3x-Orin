@@ -25,7 +25,7 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-14 complete verifier Graph — active composition
+## 2026-10-14 complete verifier Graph — API direction complete
 
 `WP-MTP-FULL-GRAPH-20261014` selects the
 [complete verifier dataflow](metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json).
@@ -49,10 +49,31 @@ preserve complete outputs, long-path probabilities, padding and guards; the
 static entry is checked separately. Root memory/race/synchronization checks
 pass on the bounded long-path panel. The explicit `q3x_mtp_graph_attention_test` GPU regression
 target covers the same 63-graph/252-replay sequence against the static entry.
-This is `dependency_only`: no request calls the new entry yet and no API
-performance is claimed. The next milestone must complete dynamic embedding,
-exact K/V publication, capsule/results ownership and full verifier capture;
-the following milestone must return the composition to the real API or archive it.
+The [full verifier composition](metadata/qwen36-27b-mtp-full-graph-composition-design-2026-10-20.json)
+now binds six startup-owned graphs, a fixed device token/position capsule and
+pinned input/results storage. Exact dynamic embedding and Q/K preprocessing
+publish K/V at the actual position; the captured body preserves complete prefix
+snapshots and full logits. Long replay updates sixteen QK grid extents. Graph
+objects outlive borrowed parameter arrays; destruction drains before release.
+Tiny, singleton and cross-family transactions retain explicit fallback routes.
+
+The [native admission](metadata/qwen36-27b-mtp-full-graph-native-2026-10-20.json)
+passes 21 complete embedding/preprocess/cache cases and bounded memory, race
+and synchronization checks. P65, P513 and P8192 pass all ten complete prefix
+state/logit checks with actual Graph execution; P65 also passes fifteen
+transactions, four verifier-failure recoveries and eight initialization-cancel
+recoveries. Six P65 draft capture hashes match v101, preserving that capture's
+independent FP64 qualification. This is numerical admission, not speed selection.
+The [completed API return](metadata/qwen36-27b-mtp-full-graph-api-2026-10-20.json)
+passes all sixteen d2/d3 API/lifecycle requests, matching v101/non-MTP output
+and v101 acceptance/work counters. Compared with fresh v101 processes, d2
+Decode changes +0.392%/+0.546%/+0.411% at P65/8K/40K; d3 changes
++0.410%/+0.447%/+0.356%. Complete joint metrics belong to
+[Current Status](CURRENT_STATUS.md#mtp-development-status). These are single
+process direction observations; no noise-qualified selection or production
+promotion is claimed. Retain v112 only through the next matched repeated API
+selection with a fresh non-MTP denominator, or archive it. No parameter scan
+follows. The complete 50%–200% objective remains active and unmet.
 
 ## 2026-10-14 private BF16 Down — closed without API gain
 

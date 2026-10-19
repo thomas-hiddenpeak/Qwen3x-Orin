@@ -89,6 +89,9 @@ class TargetTransaction final : public RoundBackend {
                                     bool committed_service_handoff = false) noexcept;
   const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
   std::uint64_t entry_snapshots() const noexcept { return entry_snapshots_; }
+  std::uint64_t full_graph_rounds() const noexcept { return full_graph_rounds_; }
+  std::uint64_t full_graph_rows() const noexcept { return full_graph_rows_; }
+  std::uint64_t graph_qk_updates() const noexcept { return graph_qk_updates_; }
   std::uint64_t scalar_verify_rows() const noexcept { return scalar_verify_rows_; }
   std::uint64_t direct_gdn_rows() const noexcept { return direct_gdn_rows_; }
   std::uint64_t seed_kv_reuses() const noexcept { return seed_kv_reuses_; }
@@ -106,6 +109,13 @@ class TargetTransaction final : public RoundBackend {
   bool abort() noexcept override;
  private:
   bool verify_multirow(std::uint32_t* predictions) noexcept;
+  bool enqueue_multirow(bool full_graph, bool short_graph) noexcept;
+  bool prepare_full_graphs() noexcept;
+  void release_full_graphs() noexcept;
+  void* full_graphs_ = nullptr;
+  void* graph_inputs_ = nullptr;
+  void* graph_host_ = nullptr;
+  std::uint64_t full_graph_rounds_ = 0, full_graph_rows_ = 0, graph_qk_updates_ = 0;
   bool enqueue_gdn_block(unsigned first_layer, unsigned rows) noexcept;
   bool prepare_gdn_graphs() noexcept;
   void release_gdn_graphs() noexcept;

@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "decision_unit": "architecture_candidate",
+  "milestone": 2,
+  "status": "declared",
+  "source_parent": "6bed3ef",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json",
+  "candidate_profile": "q3x.sm87.admission.mtp-full-graph-api.v112",
+  "ownership": "Six startup captured full verifier graphs (M2/3/4 x short/long), original graphs retained while kernel parameter pointers are borrowed. A startup-owned 32-byte device capsule and64-byte pinned host input/results buffer. Device argmax rows occupy dead final fp32_scratch. No request allocation/capture. Existing five immutable prefix slots unchanged.",
+  "kv": "Project K/V into disjoint bounded slices of projection1, exact256-lane Q/K normalize/RoPE with original BF16 publication, then CTA-ordered copy of transformed K and unchanged V into actual cache row. Query/gate rows retain12288 stride. All28heads per row independent.",
+  "execution": "Capture the existing64layer verifier body, inline GDN segment enqueue during capture; dynamic embedding and Attention inputs, full logits snapshots and contiguous argmax. Replay updates16QK grid extents for long family, uploads one validated capsule, launches one graph and reads results once. Tiny/cross-family/small-arena paths remain explicit incumbent routes; singleton staysnative.",
+  "proof": "No expression/reduction/state boundary changes. Synthetic preprocessing/embedding checks plus existing changing-length Attention suite, then real-model P65 complete state/transactions and P513/P8192 full prefixes before API. Source-private route counters attest full graph rounds/rows/QK updates.",
+  "upward_budget": "Current exact v101 short/40K floor gaps31.201/348.446ms; reduction of per-operator CPU submission is an architecture hypothesis, not a guaranteed gain. No target change.",
+  "expiry": "Complete full ownership/state admission in this milestone; immediate d2 API return in this or next milestone. Useful full direction unlocks d3. Negative API removes composition and unused prereq.",
+  "artifacts": ".q3x-work/mtp-full-graph-composition-20261020",
+  "production_changed": false
+}

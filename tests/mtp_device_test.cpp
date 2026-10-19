@@ -343,8 +343,21 @@ int main(int argc, char** argv) try {
       require(transaction.propose(proposed_seed, count - 1, ignored_proposals.data()),
               "prefix reuse admission proposal");
     }
+    const auto prior_graph_rows = transaction.full_graph_rows();
+    const auto prior_qk_updates = transaction.graph_qk_updates();
     require(transaction.verify(seed, proposals.data(), count - 1, predictions.data()),
             "multi-row staged prefix verification");
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+    const bool expect_graph = count > 1 && (prompt.size() + 1 >= 512 ||
+        (prompt.size() + 1 >= 65 && prompt.size() + count <= 511));
+    require(transaction.full_graph_rows() - prior_graph_rows == (expect_graph ? count : 0),
+            "complete verifier graph route missing or unexpected");
+    require(transaction.graph_qk_updates() - prior_qk_updates ==
+        (expect_graph && prompt.size() + 1 >= 512 ? 16 : 0), "QK graph grid update coverage");
+    std::cout << "verify_rows=" << count << " full_graph_rows="
+              << transaction.full_graph_rows() - prior_graph_rows << " qk_grid_updates="
+              << transaction.graph_qk_updates() - prior_qk_updates << std::endl;
+#endif
     std::vector<std::vector<char>> prefix_states, prefix_keys, prefix_values;
     for (unsigned i = 0; i < count; ++i) {
       require(predictions[i] == expected[i + 1] &&

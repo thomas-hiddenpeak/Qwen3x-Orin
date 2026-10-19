@@ -26,6 +26,20 @@ int launch_mtp_graph_attention(const std::uint16_t* query,
     unsigned rows, void* workspace, std::size_t workspace_bytes,
     std::uint16_t* output, void* stream) noexcept;
 
+// Startup graph helpers. The owning transaction validates actual tokens and
+// positions before upload. K/V staging is bounded by rows * 1024 elements;
+// query/gate output retains the existing interleaved-row stride of 12288.
+int launch_mtp_graph_embedding(const std::uint16_t* embedding,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* output, void* stream) noexcept;
+int launch_mtp_graph_preprocess(const std::uint16_t* q_gate,
+    std::uint16_t* key_stage, const std::uint16_t* value_stage,
+    const std::uint16_t* q_norm, const std::uint16_t* k_norm,
+    const float* cosines, const float* sines,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* query_gate, std::uint16_t* key_cache,
+    std::uint16_t* value_cache, void* stream) noexcept;
+
 // Identifies the sole shape-dependent grid in long Attention. A graph owner
 // may update gridDim.x = ceil((position + rows) / 128) before replay, preserving
 // every other node parameter and the captured graph's lifetime.

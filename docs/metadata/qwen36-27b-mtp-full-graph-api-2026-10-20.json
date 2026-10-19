@@ -1,0 +1,716 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "decision_unit": "architecture_candidate",
+  "authority": "single-process direction only; no mirrored selection or release promotion",
+  "candidate_profile": "q3x.sm87.admission.mtp-full-graph-api.v112",
+  "server_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec",
+  "protocol": {
+    "scope": "fresh same-model and same-request direction comparison",
+    "incumbent_server": ".q3x-work/mtp-mlp-register-20261014/source/server",
+    "incumbent_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "workloads": [
+      [
+        65,
+        16
+      ],
+      [
+        8192,
+        256
+      ],
+      [
+        40000,
+        256
+      ]
+    ],
+    "long_context_spacing_seconds": 60,
+    "history_note": "Historical v101 measurements remain frozen; their copied driver uses30s long-case spacing. This package explicitly sets60s for both fresh panels. Historical responses remain output oracles, not new throughput measurements.",
+    "stop": "Candidate d2 short>3% regression or nonpositive8K/40K compared to these fresh incumbent metrics stops further stages; outputs and state remain hard gates. Fresh non-MTP repetition remains needed before any final goal/release claim."
+  },
+  "native_record": "docs/metadata/qwen36-27b-mtp-full-graph-native-2026-10-20.json",
+  "policies": {
+    "2": {
+      "comparison": {
+        "complete_output_and_usage_equal_nonmtp_and_v101": true,
+        "all_generated_ids_equal_v101": true,
+        "all_acceptance_and_work_counters_equal_v101": true,
+        "physical_counters_match_actual_verifier_work": true,
+        "completed_requests": 8,
+        "server_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec",
+        "rows": [
+          {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.890460024,
+            "prefill_tps": 72.99597763863233,
+            "ttft_s": 0.9093526339856908,
+            "decode_tps": 14.016209514568935,
+            "elapsed_s": 1.9794320029905066,
+            "incumbent_decode_tps": 13.961541220231611,
+            "decode_delta_percent": 0.3915634633381515,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10080141312,
+                10006945792
+              ],
+              "full_graph_rounds": [
+                null,
+                6
+              ],
+              "full_graph_rows": [
+                null,
+                18
+              ],
+              "graph_qk_updates": [
+                null,
+                0
+              ],
+              "draft_initialization_ms": [
+                5.559617,
+                5.580345
+              ],
+              "draft_ms": [
+                97.099053,
+                97.156421
+              ],
+              "verify_ms": [
+                959.6984230000002,
+                955.215054
+              ],
+              "reconcile_ms": [
+                17.252712000000002,
+                17.406741
+              ]
+            }
+          },
+          {
+            "label": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.347322384,
+            "prefill_tps": 472.2342629405301,
+            "ttft_s": 17.369600245030597,
+            "decode_tps": 15.496483533459568,
+            "elapsed_s": 33.82526946102735,
+            "incumbent_decode_tps": 15.412293122790745,
+            "decode_delta_percent": 0.5462549277909012,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10080141312,
+                10006945792
+              ],
+              "full_graph_rounds": [
+                null,
+                98
+              ],
+              "full_graph_rows": [
+                null,
+                285
+              ],
+              "graph_qk_updates": [
+                null,
+                1568
+              ],
+              "draft_initialization_ms": [
+                563.013256,
+                565.438762
+              ],
+              "draft_ms": [
+                1538.6372150000007,
+                1539.8998659999995
+              ],
+              "verify_ms": [
+                14705.993988999999,
+                14614.932434999999
+              ],
+              "reconcile_ms": [
+                295.8502160000001,
+                295.40237100000013
+              ]
+            }
+          },
+          {
+            "label": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.66933205900001,
+            "prefill_tps": 431.6422608348262,
+            "ttft_s": 92.70421435905155,
+            "decode_tps": 11.673616914013307,
+            "elapsed_s": 114.54995481995866,
+            "incumbent_decode_tps": 11.62580757802115,
+            "decode_delta_percent": 0.4112345372251136,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10080141312,
+                10006945792
+              ],
+              "full_graph_rounds": [
+                null,
+                106
+              ],
+              "full_graph_rows": [
+                null,
+                307
+              ],
+              "graph_qk_updates": [
+                null,
+                1696
+              ],
+              "draft_initialization_ms": [
+                2742.775689,
+                2748.446234
+              ],
+              "draft_ms": [
+                1885.3464559999995,
+                1888.9511079999995
+              ],
+              "verify_ms": [
+                19749.849704999993,
+                19654.789117
+              ],
+              "reconcile_ms": [
+                294.063357,
+                295.034376
+              ]
+            }
+          }
+        ],
+        "driver_terminal": {
+          "returncode": 0,
+          "early_stop": false
+        },
+        "cleanup": {
+          "success": true,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 76.375
+        }
+      },
+      "fresh_incumbent": {
+        "rows": [
+          {
+            "stage": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.8915353940000001,
+            "prefill_tps": 72.90792988976946,
+            "decode_tps": 13.961541220231611,
+            "ttft_s": 0.9102029709611088,
+            "elapsed_s": 1.9844248099252582,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 2,
+              "startup_free_bytes": 10080141312,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 7,
+              "proposed": 12,
+              "accepted": 8,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                6,
+                0
+              ],
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 7,
+              "scalar_verify_rows": 1,
+              "direct_gdn_state_rows": 864,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 4,
+              "tail_kv_rows": 8,
+              "state_copy_bytes_elided": 1911557120,
+              "draft_initialization_ms": 5.559617,
+              "draft_ms": 97.099053,
+              "verify_ms": 959.6984230000002,
+              "reconcile_ms": 17.252712000000002,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          {
+            "stage": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.331908102999996,
+            "prefill_tps": 472.6542485291644,
+            "decode_tps": 15.412293122790745,
+            "ttft_s": 17.3540037519997,
+            "elapsed_s": 33.899532818002626,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 2,
+              "startup_free_bytes": 10080141312,
+              "prompt_rows": 8192,
+              "draft_prefill_rows": 8191,
+              "initialized": true,
+              "rounds": 98,
+              "proposed": 187,
+              "accepted": 157,
+              "verified_rows": 285,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                86,
+                71,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                9,
+                89,
+                0
+              ],
+              "draft_ordered_attention_steps": 187,
+              "entry_hidden_snapshots": 98,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 13680,
+              "seed_kv_reuses": 98,
+              "tail_kv_batches": 71,
+              "tail_kv_rows": 142,
+              "state_copy_bytes_elided": 29253216256,
+              "draft_initialization_ms": 563.013256,
+              "draft_ms": 1538.6372150000007,
+              "verify_ms": 14705.993988999999,
+              "reconcile_ms": 295.8502160000001,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          {
+            "stage": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.74526033800001,
+            "prefill_tps": 431.28888586030547,
+            "decode_tps": 11.62580757802115,
+            "ttft_s": 92.7800643730443,
+            "elapsed_s": 114.71559313603211,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 2,
+              "startup_free_bytes": 10080141312,
+              "prompt_rows": 40000,
+              "draft_prefill_rows": 39999,
+              "initialized": true,
+              "rounds": 106,
+              "proposed": 201,
+              "accepted": 149,
+              "verified_rows": 307,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                86,
+                63,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                11,
+                95,
+                0
+              ],
+              "draft_ordered_attention_steps": 201,
+              "entry_hidden_snapshots": 106,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 14736,
+              "seed_kv_reuses": 106,
+              "tail_kv_batches": 63,
+              "tail_kv_rows": 126,
+              "state_copy_bytes_elided": 31545706496,
+              "draft_initialization_ms": 2742.775689,
+              "draft_ms": 1885.3464559999995,
+              "verify_ms": 19749.849704999993,
+              "reconcile_ms": 294.063357,
+              "cancelled": false,
+              "failed": false
+            }
+          }
+        ],
+        "decode_tps": {
+          "p65": 13.961541220231611,
+          "p8192": 15.412293122790745,
+          "p40000": 11.62580757802115
+        },
+        "cleanup": {
+          "success": true,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 76.375
+        }
+      }
+    },
+    "3": {
+      "comparison": {
+        "complete_output_and_usage_equal_nonmtp_and_v101": true,
+        "all_generated_ids_equal_v101": true,
+        "all_acceptance_and_work_counters_equal_v101": true,
+        "physical_counters_match_actual_verifier_work": true,
+        "completed_requests": 8,
+        "server_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec",
+        "rows": [
+          {
+            "label": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.890849876,
+            "prefill_tps": 72.96403328005852,
+            "ttft_s": 0.9167998048942536,
+            "decode_tps": 13.575542613759495,
+            "elapsed_s": 2.0216870869044214,
+            "incumbent_decode_tps": 13.520154223497885,
+            "decode_delta_percent": 0.40967276960011123,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10132348928,
+                10035785728
+              ],
+              "full_graph_rounds": [
+                null,
+                6
+              ],
+              "full_graph_rows": [
+                null,
+                21
+              ],
+              "graph_qk_updates": [
+                null,
+                0
+              ],
+              "draft_initialization_ms": [
+                5.498835,
+                5.443825
+              ],
+              "draft_ms": [
+                121.29486299999999,
+                121.355391
+              ],
+              "verify_ms": [
+                971.262851,
+                966.3302939999999
+              ],
+              "reconcile_ms": [
+                16.568794,
+                16.540949
+              ]
+            }
+          },
+          {
+            "label": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.341429433999995,
+            "prefill_tps": 472.39473719153636,
+            "ttft_s": 17.363850211026147,
+            "decode_tps": 14.521426188689102,
+            "elapsed_s": 34.92441597802099,
+            "incumbent_decode_tps": 14.456804023782697,
+            "decode_delta_percent": 0.4470017356539957,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10132348928,
+                10035785728
+              ],
+              "full_graph_rounds": [
+                null,
+                85
+              ],
+              "full_graph_rows": [
+                null,
+                311
+              ],
+              "graph_qk_updates": [
+                null,
+                1360
+              ],
+              "draft_initialization_ms": [
+                559.766054,
+                547.267522
+              ],
+              "draft_ms": [
+                1864.223124,
+                1865.2870130000001
+              ],
+              "verify_ms": [
+                15483.867879999998,
+                15402.517039
+              ],
+              "reconcile_ms": [
+                286.0261480000001,
+                287.8460869999999
+              ]
+            }
+          },
+          {
+            "label": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.654823067,
+            "prefill_tps": 431.70985250358143,
+            "ttft_s": 92.69015474105254,
+            "decode_tps": 11.003508459696963,
+            "elapsed_s": 115.86620543303434,
+            "incumbent_decode_tps": 10.96448140760509,
+            "decode_delta_percent": 0.35594070199074235,
+            "changed_mtp_fields": {
+              "verifier": [
+                "multirow-mlp-register-v101",
+                "multirow-full-graph-v112"
+              ],
+              "startup_free_bytes": [
+                10132348928,
+                10035785728
+              ],
+              "full_graph_rounds": [
+                null,
+                90
+              ],
+              "full_graph_rows": [
+                null,
+                335
+              ],
+              "graph_qk_updates": [
+                null,
+                1440
+              ],
+              "draft_initialization_ms": [
+                2726.237929,
+                2665.398152
+              ],
+              "draft_ms": [
+                2306.844443,
+                2306.0765580000007
+              ],
+              "verify_ms": [
+                20659.273145000003,
+                20578.427526
+              ],
+              "reconcile_ms": [
+                285.86727099999985,
+                285.590647
+              ]
+            }
+          }
+        ],
+        "driver_terminal": {
+          "returncode": 0,
+          "early_stop": false
+        },
+        "cleanup": {
+          "success": true,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 75.843
+        }
+      },
+      "fresh_incumbent": {
+        "rows": [
+          {
+            "stage": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.892281599,
+            "prefill_tps": 72.84695781337075,
+            "decode_tps": 13.520154223497885,
+            "ttft_s": 0.9108851669589058,
+            "elapsed_s": 2.020195742021315,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 3,
+              "startup_free_bytes": 10132348928,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 6,
+              "proposed": 15,
+              "accepted": 9,
+              "verified_rows": 21,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                3,
+                2
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                3,
+                3
+              ],
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 6,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 1008,
+              "seed_kv_reuses": 6,
+              "tail_kv_batches": 3,
+              "tail_kv_rows": 8,
+              "state_copy_bytes_elided": 2059106304,
+              "draft_initialization_ms": 5.498835,
+              "draft_ms": 121.29486299999999,
+              "verify_ms": 971.262851,
+              "reconcile_ms": 16.568794,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          {
+            "stage": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.327822133,
+            "prefill_tps": 472.7657022978515,
+            "decode_tps": 14.456804023782697,
+            "ttft_s": 17.349930883035995,
+            "elapsed_s": 34.988977872999385,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 3,
+              "startup_free_bytes": 10132348928,
+              "prompt_rows": 8192,
+              "draft_prefill_rows": 8191,
+              "initialized": true,
+              "rounds": 85,
+              "proposed": 226,
+              "accepted": 170,
+              "verified_rows": 311,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                73,
+                57,
+                40
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                11,
+                7,
+                67
+              ],
+              "draft_ordered_attention_steps": 226,
+              "entry_hidden_snapshots": 85,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 14928,
+              "seed_kv_reuses": 85,
+              "tail_kv_batches": 57,
+              "tail_kv_rows": 154,
+              "state_copy_bytes_elided": 30189888512,
+              "draft_initialization_ms": 559.766054,
+              "draft_ms": 1864.223124,
+              "verify_ms": 15483.867879999998,
+              "reconcile_ms": 286.0261480000001,
+              "cancelled": false,
+              "failed": false
+            }
+          },
+          {
+            "stage": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.63152442199998,
+            "prefill_tps": 431.81843599779944,
+            "decode_tps": 10.96448140760509,
+            "ttft_s": 92.66655658301897,
+            "elapsed_s": 115.92508114909288,
+            "mtp": {
+              "enabled": true,
+              "verifier": "multirow-mlp-register-v101",
+              "draft_length": 3,
+              "startup_free_bytes": 10132348928,
+              "prompt_rows": 40000,
+              "draft_prefill_rows": 39999,
+              "initialized": true,
+              "rounds": 90,
+              "proposed": 245,
+              "accepted": 165,
+              "verified_rows": 335,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                73,
+                51,
+                41
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                6,
+                13,
+                71
+              ],
+              "draft_ordered_attention_steps": 245,
+              "entry_hidden_snapshots": 90,
+              "scalar_verify_rows": 0,
+              "direct_gdn_state_rows": 16080,
+              "seed_kv_reuses": 90,
+              "tail_kv_batches": 51,
+              "tail_kv_rows": 143,
+              "state_copy_bytes_elided": 32396544000,
+              "draft_initialization_ms": 2726.237929,
+              "draft_ms": 2306.844443,
+              "verify_ms": 20659.273145000003,
+              "reconcile_ms": 285.86727099999985,
+              "cancelled": false,
+              "failed": false
+            }
+          }
+        ],
+        "decode_tps": {
+          "p65": 13.520154223497885,
+          "p8192": 14.456804023782697,
+          "p40000": 10.96448140760509
+        },
+        "cleanup": {
+          "success": true,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 76.187
+        }
+      }
+    }
+  },
+  "production_changed": false,
+  "full_goal_achieved": false,
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-full-graph-composition-20261020/artifact-manifest.json",
+    "sha256": "66e2d1dbb155dd50c7bccf078220128e49eeddbe978a9e4287ee9e7fbcad070d",
+    "count": 235,
+    "bytes": 84573900
+  }
+}

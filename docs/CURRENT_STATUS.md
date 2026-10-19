@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-10-14
+  last_reviewed: 2026-10-20
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-10-14. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-20. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -86,7 +86,42 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-Current isolated source retains the GDN graphs, Gate/Up input ring, fixed 0.4
+Current isolated source composes the complete 64-layer verifier into six
+startup-owned CUDA Graphs with validated device token/position inputs. Profile
+is `q3x.sm87.admission.mtp-full-graph-api.v112`, measured ELF
+`32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec`.
+The [native admission](metadata/qwen36-27b-mtp-full-graph-native-2026-10-20.json)
+preserves complete target state/logits at P65/P513/P8192 and the unchanged private
+draft capture. The [API return](metadata/qwen36-27b-mtp-full-graph-api-2026-10-20.json)
+passes all sixteen d2/d3 API/lifecycle requests. Generated IDs, responses and
+acceptance/work counters match v101; the six timing requests attest full Graph
+coverage. Minimum startup free memory is 10,006,945,792 bytes, above 8 GiB.
+
+These 2026-10-20 measurements compare one fresh process per policy and binary,
+with 60-second long-request spacing. They are direction observations, not
+mirrored architecture selection or release qualification. Prefill includes draft
+initialization; TTFT and total are external. The final column compares Decode
+to the freshly measured v101 of the same policy, not non-MTP.
+
+| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs fresh v101 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.890 | 73.00 | 0.909 | 14.016 | 1.979 | +0.392% |
+| 8192 / 256 | d2 | 17.347 | 472.23 | 17.370 | 15.496 | 33.825 | +0.546% |
+| 40000 / 256 | d2 | 92.669 | 431.64 | 92.704 | 11.674 | 114.550 | +0.411% |
+| 65 / 16 | d3 | 0.891 | 72.96 | 0.917 | 13.576 | 2.022 | +0.410% |
+| 8192 / 256 | d3 | 17.341 | 472.39 | 17.364 | 14.521 | 34.924 | +0.447% |
+| 40000 / 256 | d3 | 92.655 | 431.71 | 92.690 | 11.004 | 115.866 | +0.356% |
+
+The composition is retained as the next bounded development candidate. Its
+approximately 0.36%–0.55% Decode increments require mirrored confirmation before
+architecture selection; they do not establish the requested full-range
+1.5x–3x result. D2 remains faster than d3 on this panel. The next milestone is a
+matched repeated API decision with a fresh non-MTP denominator, or archival;
+no Graph geometry/profile scan is authorized. Production remains non-MTP.
+
+### Preceding v101 reference
+
+The preceding v101 source retains the GDN graphs, Gate/Up input ring, fixed 0.4
 lookahead, corrected softmax, exact short Attention, lazy accepted-tail KV
 batching and native singleton transaction. Private draft Gate/Up/Down now use
 fixed group128 INT8 weights decoded directly into BF16 MMA registers. FC,
@@ -127,7 +162,7 @@ unchanged Prefill implementation.
 | 40000 / 256 | d3 | 92.818 | 430.95 | 92.853 | 10.954 | 116.134 |
 
 D2 reaches 1.456x/1.671x/1.476x non-MTP Decode at P65/8K/40K; d3 reaches 1.409x/1.567x/1.392x.
-**The full 1.5x–3x objective remains unmet.** D2 still needs approximately
+**The full 1.5x–3x objective remains unmet.** At v101, d2 needed approximately
 0.031 seconds removed from short Decode and 0.348 seconds from 40K Decode.
 Product targets and numerical contracts remain intact; the ordinary installed
 production service remains non-MTP.

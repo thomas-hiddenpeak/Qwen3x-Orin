@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "scope": "Full verifier composition numerical admission; API selection recorded separately",
+  "identity": {
+    "oracle": "1fcc40b14a77944f5e25b5b5ad13e3de79cb97bff7def1e578f7e40899bb477d",
+    "CMakeLists.txt": "617609c61b817badebcb0d067b908e77974e664ea26b8ad32429c269a8c835b2",
+    "server": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec",
+    "inputs-test": "7ac25b50907c00541bf69810220a56880ab0306388b32e9d83772133512ee576",
+    "changes.patch": "b6e294623a7e171317a19344ff22ed994965eaadc4f9fc3000256d2d0edc7040",
+    "tests/mtp_graph_inputs_cuda_test.cu": "59d426b84a36b771979dc51e73dea05486f5d86dac53b026e7338182108c265b",
+    "tests/mtp_graph_attention_cuda_test.cu": "f68b1b694debc9149b37c699878d32113f38f5112730812d65a661b9f84c6f05",
+    "tests/mtp_device_test.cpp": "97cf1dfd371f497ee8f86239329a15aa0ac86d4670c6fa588515d1af467b4499",
+    "include/q3x/server/evaluation_server.h": "646624bc159bfc8398e5d83e81751c06d17fdfe52586d25a9673dbfc79094fe8",
+    "src/server/evaluation_server.cpp": "733135352e9d9e6eac5ad9897ef18ba0910f2f3ad268d09ce47265fd3a6b72dc",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "f17fe9c15ea066a5eb1859e16016dc1eca9e95008bc8a195b07f5cd3d9165767",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "2314e910c7429a3cdb9bc226671ffae55a31339d3023541602fcc4c73cb848b0",
+    "src/runtime/mtp_prefill_internal.h": "81a2267092cc99959ae14739e25f328f7689f72f4810ca5e816cf2fafbdcad98",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "e9a3ff8b786ba8d723ef2a69d9b9147b7f1e581d0c0b18f2b212ed3fcb3a318d",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "6b135c40fee7db57a2ece33c8de7ee3b93947b9be1ed06895975e59158a5d40e",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "6dbfe0f18529964feae507754e155d29144a45f31918b7477cccc2ba474ff807",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "69af74862d7ec602f73088499dc37bd275503f59a81d3200ce5b0173c01d6659",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/mtp_verify_graph_internal.h": "a8367ba274543a72cfa9cbb6b038e4798cb4e9d9c7e960e0e568809c62cec9f0",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "6ed1304c122c9569476246d8f98f522f1f0830f7ab12045ea1c2f89a70c6af5a",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "d1324478e6daf6f23256c2b3f29f549d9c63a68688e5b514aff835e02e7d5a6e",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "27cb89e2b9918d64d9a901ff03c8c433203d44ba32cc072853b29407639729bf",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "src/kernels/reference/decode_ops.cu": "5cf7b20a77360d47a680f0bfa3fa1baa5e4496bf2c550a88b79f2b4ccaf09da0",
+    "tools/evaluation/validate_mtp_service.py": "81dd1ee8d24d5467aadd4c29dc3a81b078598522f5c52ab1c285356f0b681326"
+  },
+  "inputs_cases": 21,
+  "sanitizers": [
+    "memcheck",
+    "racecheck",
+    "synccheck"
+  ],
+  "real_model": {
+    "p65": {
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.218
+      },
+      "log": ".q3x-work/mtp-full-graph-composition-20261020/p65/run.log"
+    },
+    "p513": {
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.625
+      },
+      "log": ".q3x-work/mtp-full-graph-composition-20261020/p513/run.log"
+    },
+    "p8192": {
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.968
+      },
+      "log": ".q3x-work/mtp-full-graph-composition-20261020/p8192/run.log"
+    }
+  },
+  "draft": {
+    "all_six_captures_equal_v101": true,
+    "capture_sha256": {
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-hidden.bf16": "462b593f29976fb0edf1ce258828ab0d5c5297a3fc046d380e9b27cd05ffc083",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0"
+    },
+    "prior_independent_fp64": ".q3x-work/mtp-mlp-register-20261014/oracle-p65/independent-draft-oracle.json",
+    "prior_reference_sha256": "38b841ea42e3fe4186a873024841f3ad2abaf4ef43f393529d58457fd1922546",
+    "scope": "Unchanged private draft and P65 teacher-forced capture; no new long-context recursive FP64 claim."
+  },
+  "production_changed": false
+}

@@ -544,7 +544,9 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
   }
   try {
     check(!multirow_ || prepare_gdn_graphs(), "MTP fixed GDN graph preparation");
+    check(!multirow_ || !whole_core || prepare_full_graphs(), "MTP full verifier graph preparation");
   } catch (...) {
+    release_full_graphs();
     release_gdn_graphs();
     if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
     snapshots_ = nullptr;
@@ -553,6 +555,7 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
 }
 TargetTransaction::~TargetTransaction() {
   if (active_) (void)abort();
+  release_full_graphs();
   release_gdn_graphs();
   if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
 }
@@ -588,6 +591,7 @@ bool TargetTransaction::initialize_whole_core_prefill(
   seed_cache_valid_ = false;
   entry_snapshots_ = direct_gdn_rows_ = seed_kv_reuses_ = scalar_verify_rows_ = 0;
   tail_kv_batches_ = tail_kv_rows_ = 0;
+  full_graph_rounds_ = full_graph_rows_ = graph_qk_updates_ = 0;
   prepared_tail_rows_ = 0;
   const auto fail = [this]() noexcept { (void)abort(); return false; };
   auto stream = static_cast<cudaStream_t>(target_.stream_);

@@ -611,3 +611,146 @@ bool is_mtp_graph_qk_kernel(const void* function) noexcept {
          function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<4, true>);
 }
 }  // namespace q3x::runtime::mtp_detail
+
+namespace q3x::runtime::mtp_detail {
+namespace {
+__global__ void mtp_graph_embedding_kernel(const std::uint16_t* embedding,
+    const MtpVerifyDeviceInputs* parameters, std::uint16_t* output) {
+  const unsigned column = blockIdx.x * 256 + threadIdx.x;
+  const unsigned row = blockIdx.y;
+  if (column < 5120)
+    output[row * 5120 + column] =
+        embedding[std::size_t(parameters->token_ids[row]) * 5120 + column];
+}
+__global__ void mtp_graph_preprocess_kernel(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const MtpVerifyDeviceInputs* parameters,
+    const std::uint16_t* value_stage,
+    std::uint16_t* key_cache, std::uint16_t* value_cache) {
+  constexpr unsigned kFullPreprocessQueryHeads = 24, kFullPreprocessKvHeads = 4;
+  constexpr unsigned kFullPreprocessHeadDimension = 256, kThreads = 256;
+  constexpr unsigned kQwenRotaryDimension = 64;
+  const std::size_t first_position = parameters->position;
+  constexpr std::size_t kCombinedHeads =
+      kFullPreprocessQueryHeads + kFullPreprocessKvHeads;
+  __shared__ float partial[kThreads];
+
+  const std::size_t combined_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token = combined_head / kCombinedHeads;
+  const std::size_t token_head = combined_head - token * kCombinedHeads;
+  const bool is_query = token_head < kFullPreprocessQueryHeads;
+  const std::size_t head =
+      is_query ? token_head : token_head - kFullPreprocessQueryHeads;
+  const std::size_t dimension = threadIdx.x;
+
+  std::size_t packed_offset = 0U;
+  const std::uint16_t* weight = nullptr;
+  float value = 0.0F;
+  if (is_query) {
+    packed_offset =
+        token * 12288 + head * kFullPreprocessHeadDimension + dimension;
+    const std::size_t interleaved_offset =
+        (token * kFullPreprocessQueryHeads + head) *
+            (2U * kFullPreprocessHeadDimension) +
+        dimension;
+    value = decode_bf16_device(interleaved_q_gate[interleaved_offset]);
+    gate_output[packed_offset] =
+        interleaved_q_gate[interleaved_offset +
+                           kFullPreprocessHeadDimension];
+    weight = q_weight;
+  } else {
+    packed_offset =
+        (token * kFullPreprocessKvHeads + head) *
+            kFullPreprocessHeadDimension +
+        dimension;
+    value = decode_bf16_device(key[packed_offset]);
+    weight = k_weight;
+  }
+
+  float sum = 0.0F;
+  sum = fmaf(value, value, sum);
+  partial[threadIdx.x] = sum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(partial[0] /
+                 static_cast<float>(kFullPreprocessHeadDimension) +
+             epsilon);
+  const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
+  const std::uint16_t normalized =
+      encode_bf16_device(value * inverse_rms * gamma);
+  std::uint16_t* const normalized_output = is_query ? query_output : key;
+  normalized_output[packed_offset] = normalized;
+
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  __syncthreads();
+  if (dimension < kHalfRotary) {
+    std::uint16_t* const head_output =
+        normalized_output + packed_offset - dimension;
+    const std::size_t table_offset =
+        (first_position + token) * kHalfRotary + dimension;
+    const float cosine = cosines[table_offset];
+    const float sine = sines[table_offset];
+    const float first = decode_bf16_device(head_output[dimension]);
+    const float second =
+        decode_bf16_device(head_output[dimension + kHalfRotary]);
+    // Spell out which product is rounded before the FFMA. This is the exact
+    // instruction order emitted for qk_partial_neox_rope_tile above.
+    const float rotated_first = fmaf(first, cosine, -(second * sine));
+    const float rotated_second = fmaf(second, cosine, first * sine);
+    head_output[dimension] = encode_bf16_device(rotated_first);
+    head_output[dimension + kHalfRotary] =
+        encode_bf16_device(rotated_second);
+  }
+  // Each K head owns its complete cache destination. Retire all RoPE writes
+  // before copying that head; no cross-CTA dependency or rounding is added.
+  __syncthreads();
+  if (!is_query) {
+    const std::size_t destination = (first_position + token) * 1024 +
+        head * kFullPreprocessHeadDimension + dimension;
+    key_cache[destination] = key[packed_offset];
+    value_cache[destination] = value_stage[packed_offset];
+  }
+}
+
+
+}  // namespace
+int launch_mtp_graph_embedding(const std::uint16_t* embedding,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* output, void* opaque) noexcept {
+  if (!embedding || !parameters || !output || rows < 2 || rows > 4)
+    return cudaErrorInvalidValue;
+  mtp_graph_embedding_kernel<<<dim3(20, rows), 256, 0,
+      static_cast<cudaStream_t>(opaque)>>>(embedding, parameters, output);
+  return cudaGetLastError();
+}
+int launch_mtp_graph_preprocess(const std::uint16_t* q_gate,
+    std::uint16_t* key_stage, const std::uint16_t* value_stage,
+    const std::uint16_t* q_norm, const std::uint16_t* k_norm,
+    const float* cosines, const float* sines,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* query_gate, std::uint16_t* key_cache,
+    std::uint16_t* value_cache, void* opaque) noexcept {
+  if (!q_gate || !key_stage || !value_stage || !q_norm || !k_norm ||
+      !cosines || !sines || !parameters || !query_gate || !key_cache ||
+      !value_cache || rows < 2 || rows > 4) return cudaErrorInvalidValue;
+  mtp_graph_preprocess_kernel<<<28 * rows, 256, 0,
+      static_cast<cudaStream_t>(opaque)>>>(q_gate, key_stage, q_norm, k_norm,
+      1.e-6F, query_gate, query_gate + 6144, cosines, sines, parameters,
+      value_stage, key_cache, value_cache);
+  return cudaGetLastError();
+}
+}  // namespace q3x::runtime::mtp_detail

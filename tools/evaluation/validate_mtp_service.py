@@ -81,7 +81,7 @@ def audit(out, records, draft):
             q.require(digest == w['prompt_token_ids_u32le_sha256'], 'prompt identity')
         m = w['mtp']; q.require(m['enabled'] and m['initialized'] and not m['failed'], 'MTP state')
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
-                  m['verifier'] == 'multirow-mlp-register-v101', 'route identity')
+                  m['verifier'] == 'multirow-full-graph-v112', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
         hits = m['draft_ordered_attention_steps']
         q.require(0 <= hits <= m['proposed'], 'draft ordered work count')
@@ -110,6 +110,15 @@ def audit(out, records, draft):
         q.require(0 <= m['tail_kv_batches'] <= m['rounds'] and
                   2*m['tail_kv_batches'] <= m['tail_kv_rows'] <= 3*m['tail_kv_batches'] and
                   m['tail_kv_rows'] <= m['proposed'], 'lazy tail KV batch coverage')
+        q.require(0 <= m['full_graph_rounds'] <= m['rounds'] - m['scalar_verify_rows'] and
+                  0 <= m['full_graph_rows'] <= m['verified_rows'] - m['scalar_verify_rows'] and
+                  m['graph_qk_updates'] % 16 == 0 and
+                  0 <= m['graph_qk_updates'] <= 16*m['full_graph_rounds'], 'graph counter bounds')
+        if w['prompt_tokens'] >= 512 or (w['prompt_tokens'] >= 64 and w['prompt_tokens'] + w['completion_tokens'] <= 511):
+            q.require(m['full_graph_rounds'] == m['rounds'] - m['scalar_verify_rows'] and
+                      m['full_graph_rows'] == m['verified_rows'] - m['scalar_verify_rows'] and
+                      m['graph_qk_updates'] == (16*m['full_graph_rounds'] if w['prompt_tokens'] >= 512 else 0),
+                      'complete verifier graph physical coverage')
         q.require(m['state_copy_bytes_elided'] == m['rounds']*78943232 +
                   (m['verified_rows']-m['scalar_verify_rows'])*75497472, 'state copy elimination accounting')
         q.require(w['prefill_ms'] >= m['draft_initialization_ms'] >= 0, 'draft Prefill excluded')
@@ -149,7 +158,7 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-mlp-register-api.v101' if args.draft_length else q.PROFILE
+    q.PROFILE = 'q3x.sm87.admission.mtp-full-graph-api.v112' if args.draft_length else q.PROFILE
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']
@@ -214,7 +223,7 @@ def main():
                 for k in ('request_sha256', 'text', 'usage', 'finish', 'done'):
                     q.require(result[k] == base[k], 'baseline mismatch '+label+' '+k)
             q.save(out / 'results.json', client.records)
-            if p >= 8192: time.sleep(30)
+            if p >= 8192: time.sleep(60)
         client.request(q.body_for('The capital of France is', 16), label='raw-text')
         chat = {'model': q.MODEL_ID, 'messages': [{'role': 'user', 'content': '只回答数字1，不要解释。'}],
                 'temperature': 0, 'max_tokens': 32, 'stream': True, 'stream_options': {'include_usage': True}}
