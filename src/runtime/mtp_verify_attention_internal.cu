@@ -638,7 +638,9 @@ int launch_mtp_tree_graph_attention(const std::uint16_t* query,
 bool is_mtp_graph_qk_kernel(const void* function) noexcept {
   return function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<2, true>) ||
          function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<3, true>) ||
-         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<4, true>);
+         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<4, true>) ||
+         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<3, true, true>) ||
+         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<4, true, true>);
 }
 }  // namespace q3x::runtime::mtp_detail
 

@@ -1,0 +1,87 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "source_parent": "7b23d8661ae1b4e6508c0e774e187533275d607b",
+  "status": "dependency_only; startup tree Graph composition admitted; service API return still required",
+  "product_constraint": "50%-200% same-workload real-API Decode improvement with exact committed output and joint Prefill/TTFT/Decode/total reporting.",
+  "implementation": "Explicit constructor tree_graphs opt-in captures four fixed whole-verifier plans: rows3/4 times short/long. Existing six linear plans remain. Fixed capsule and prefix buffers reused, no request capture/allocation. Captured alternate parent-state addresses remain immutable; long replay updates sixteen QK grid extents. Owner retains graph templates/parameter storage until drained destruction. Existing service does not opt in.",
+  "validation": "P65 and P513: nine selected full target/draft states each, four following scalar steps each, all bitwise equal to scalar same-history oracle. Each tree case asserts full_graph_rows increases by physical row count and long path updates exactly16QK nodes. Measured free device memory exceeds8GiB in both processes. No new target arithmetic or private draft quantization.",
+  "runs": {
+    "graph-p65": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p65",
+          "--tree-only"
+        ],
+        "binary_sha256": "7c4c2e837df1b779cbc8e6d97925ebf75b46bb48126900700686984662559eb2",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "7b23d8661ae1b4e6508c0e774e187533275d607b",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.125
+      },
+      "free_device_bytes": 9920765952,
+      "artifact_sha256": {
+        "identity.json": "83537fcad34034c011ac84321ff46a8acd8e016dbd3657db8af49a4da6ee9502",
+        "cache-preparation.json": "99ae3f9b47cbfdac3069bdd801fd9148c156c7ade32fb8d78f93b1b6e3b09b6a",
+        "cleanup.json": "31b942cd690c50bd60baa7aaf7c97ba93ae0ad243ea89da8811a75446d715942",
+        "run.log": "e9d93ecbc742487845ee27ac312317fe16da27d6c19ea96fe4a29fee806ac404",
+        "preflight-console.log": "7479732691798c1c32e3f05c0fcaa8618d761fb4c211ab4583f8745e7a1e91e4",
+        "telemetry.log": "7a181d4b243df720adb7cfbcb0e221f83933e4a8e7b07c3d3e8389197d4fdf2b",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "preflight.json": "3ef42fdabee2e945f55527f1964c8e4c053a7135280bd365aa3574c797d082a3"
+      }
+    },
+    "graph-p513": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p513/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p513/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-budgeted-branch-20261020/graph-p513",
+          "--tree-only"
+        ],
+        "binary_sha256": "7c4c2e837df1b779cbc8e6d97925ebf75b46bb48126900700686984662559eb2",
+        "prompt_sha256": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "7b23d8661ae1b4e6508c0e774e187533275d607b",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 67.062
+      },
+      "free_device_bytes": 9895788544,
+      "artifact_sha256": {
+        "identity.json": "1a05b8e2e19ebcee9760d0fb6b56214980770ba04e6aa893ffd59bc85f878c8e",
+        "cache-preparation.json": "de2e8ba1a84f3b967dfda27e619ca36d60539f9c2f3c9a43186a0021551460af",
+        "cleanup.json": "6c1b35715e5a3f5b5ce78fec9d2fe691e82f1aad227ef5eb1b01e505a30ed452",
+        "run.log": "195ba18c7ee7cdcb5ed532b2f37a085f950c58c6a8ea4e7fab20fc2542c1b6f4",
+        "preflight-console.log": "1dbdff2b7a38474456d821bb9584d2f0325471293fe1c75def1ad5282c0f264e",
+        "telemetry.log": "168e29ac04eaf462e7aa77bc6472b83582c5cbe031d562b8cfd0a8ff900ca88f",
+        "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "preflight.json": "63c49a4cd7cf64012b4bf05f5b877aec6dcefee0729e3b7e564b27e24931758d"
+      }
+    }
+  },
+  "source_sha256": {
+    "src/runtime/mtp_device_internal.h": "4339f6f5661d5f7e5262d2dabc19cd8fbbac40120794f02fc829b3db8b2bce3a",
+    "src/runtime/mtp_device_internal.cpp": "e27c219fa2c50b103d8a11c11888594fec7614825749bc14adf43395af092eef",
+    "src/runtime/mtp_verify_internal.cpp": "87c93281d7207fc6f30fe3e918ae70f9ad2d846726036f261cd06af3ac552d35",
+    "src/runtime/mtp_verify_attention_internal.cu": "e8f40aa3d03eb928bc50ad064988339192d8cbd41e719d2f3b8cb80e3968a267",
+    "tests/mtp_device_test.cpp": "bf32f41578c60cc1b2f420c924ad0971ecae379eef7e4a8827c6b809e641b234"
+  },
+  "remaining": "Complete automatic fixed-budget top2/probability proposal selection, native tree controller/lifecycle, tiny/cross-family policy and service route/work accounting; freeze API decision protocol and immediately run d2 short/8K/40K, useful direction unlocks d3.",
+  "budget": "Original native milestone2 is in progress; this prerequisite does not reset/extend the two-milestone plus one-repair budget.",
+  "new_performance_claim": false,
+  "production_changed": false
+}

@@ -79,9 +79,14 @@ The final node reads the seed GDN snapshot and restores its Conv history;
 relocates alternate K/V and reconciles draft history before returning. It reuses
 the original snapshot slots. P65/P513 selected-state and following-step scalar
 oracles pass, as does the original linear transaction/lifecycle regression.
-This remains direct execution of the tree body. Automatic proposal selection,
-full-tree Graph capture, native controller lifecycle and service integration
-remain unfinished; tiny/cross-family tree entry is explicitly rejected.
+The [startup tree Graph composition](metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json) adds four explicit startup plans for M3/M4 and
+short/long Attention alongside six linear plans. Templates and kernel parameter
+storage retain the existing lifetime owner; long replay updates sixteen QK
+extents. P65/P513 full-state scalar oracles pass with attested full Graph rows,
+and actual free device memory remains above 8GiB. Existing service construction
+does not opt in. Automatic proposal selection, native controller lifecycle and
+service integration remain unfinished; tiny/cross-family tree entry is explicitly
+rejected until the service policy is composed.
 
 ## 2026-10-20 canonical singleton state — closed neutral
 

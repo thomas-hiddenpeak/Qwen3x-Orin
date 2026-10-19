@@ -72,7 +72,8 @@ class Draft {
 // Neither local mode alone has API acceleration or production authority.
 class TargetTransaction final : public TreeRoundBackend {
  public:
-  TargetTransaction(ReferenceRunner&, RequestState&, Draft&, bool multirow = false);
+  TargetTransaction(ReferenceRunner&, RequestState&, Draft&, bool multirow = false,
+                    bool tree_graphs = false);
   ~TargetTransaction();
   TargetTransaction(const TargetTransaction&) = delete;
   TargetTransaction& operator=(const TargetTransaction&) = delete;
@@ -128,6 +129,7 @@ class TargetTransaction final : public TreeRoundBackend {
   void release_gdn_graphs() noexcept;
   std::array<void*, 48> gdn_graphs_{};
   bool multirow_ = false;
+  bool tree_graphs_ = false;
   bool snapshot(std::uint32_t slot) noexcept;
   ReferenceRunner& target_;
   RequestState& state_;

@@ -376,7 +376,7 @@ struct FullVerifierGraph {
   std::array<cudaGraphNode_t, 16> qk_nodes{};
   std::array<cudaKernelNodeParams, 16> qk_parameters{};
 };
-struct FullVerifierGraphs { std::array<FullVerifierGraph, 6> entries{}; };
+struct FullVerifierGraphs { std::array<FullVerifierGraph, 10> entries{}; };
 }
 
 void TargetTransaction::release_full_graphs() noexcept {
@@ -406,17 +406,20 @@ bool TargetTransaction::prepare_full_graphs() noexcept {
   if (!owner) return false;
   full_graphs_ = owner;
   const auto saved_rows = rows_;
+  const auto saved_alternate = alternate_tail_;
   const auto fail = [&]() noexcept {
-    rows_ = saved_rows; release_full_graphs(); return false;
+    rows_ = saved_rows; alternate_tail_ = saved_alternate; release_full_graphs(); return false;
   };
   static_assert(sizeof(MtpVerifyDeviceInputs) == 32);
   static_assert(4 * sizeof(Bf16GreedyArgmaxResult) == 32);
   if (cudaMalloc(&graph_inputs_, 32) != cudaSuccess ||
       cudaHostAlloc(&graph_host_, 64, cudaHostAllocDefault) != cudaSuccess) return fail();
-  for (unsigned count = 2; count <= 4; ++count) {
+  for (unsigned topology = 0; topology < (tree_graphs_ ? 2U : 1U); ++topology) {
+  alternate_tail_ = topology != 0;
+  for (unsigned count = topology ? 3 : 2; count <= 4; ++count) {
     rows_ = count;
     for (unsigned family = 0; family < 2; ++family) {
-      auto& entry = owner->entries[(count - 2) * 2 + family];
+      auto& entry = owner->entries[(topology ? 6 + (count - 3) * 2 : (count - 2) * 2) + family];
       if (cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess)
         return fail();
       const bool recorded = enqueue_multirow(true, family == 0);
@@ -445,7 +448,9 @@ bool TargetTransaction::prepare_full_graphs() noexcept {
           cudaGraphUpload(entry.executable, stream) != cudaSuccess) return fail();
     }
   }
+  }
   rows_ = saved_rows;
+  alternate_tail_ = saved_alternate;
   if (cudaStreamSynchronize(stream) != cudaSuccess) return fail();
   return true;
 }
@@ -464,13 +469,13 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     ~DrainOnFailure() { if (!drained) (void)cudaStreamSynchronize(stream); }
   } drain{stream, drained};
   const bool short_graph = entry_position_ + 1 >= 65 && entry_position_ + rows_ <= 511;
-  const bool use_graph = !alternate_tail_ && full_graphs_ && rows_ >= 2 &&
+  const bool use_graph = (!alternate_tail_ || tree_graphs_) && full_graphs_ && rows_ >= 2 &&
       (short_graph || entry_position_ + 1 >= 512);
   std::array<Bf16GreedyArgmaxResult, 4> local_results{};
   auto* results = local_results.data();
   if (use_graph) {
     auto& entry = static_cast<FullVerifierGraphs*>(full_graphs_)->entries[
-        (rows_ - 2) * 2 + (short_graph ? 0 : 1)];
+        (alternate_tail_ ? 6 + (rows_ - 3) * 2 : (rows_ - 2) * 2) + (short_graph ? 0 : 1)];
     if (!entry.executable || !graph_inputs_ || !graph_host_) return false;
     auto* input = static_cast<MtpVerifyDeviceInputs*>(graph_host_);
     *input = {};

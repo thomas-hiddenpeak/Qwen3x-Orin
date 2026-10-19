@@ -56,8 +56,10 @@ and bounded sanitizer checks. The [tree position/preprocessing prerequisite](met
 also passes complete scalar Q/gate/cache oracles. The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json)
 now passes nine selected full target/draft states at each of P65/P513 plus
 following-step sibling isolation, and the original linear regression. Continue
-with automatic fixed-budget selection, full-tree Graph/lifetime/resource/route
-composition and native controller lifecycle, then immediately return to d2 API.
+with automatic fixed-budget selection, route composition and native controller
+lifecycle, then immediately return to d2 API. The [startup tree Graph composition](metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json)
+now passes P65/P513 full-state oracles, route counters and the 8GiB free reserve;
+this is part of milestone2, not an additional milestone or deadline extension.
 The original composition deadline and API exit remain unchanged.
 
 ## 2026-10-20 canonical singleton state — closed neutral

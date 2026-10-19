@@ -101,8 +101,10 @@ The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-
 complete-cache checks; it likewise has no current service or speedup authority.
 The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json) passes nine selected complete target/draft states
 at each of P65/P513, with following-step sibling isolation and linear lifecycle
-regression. Automatic selection, complete tree Graphs and API integration remain
-pending. These are correctness results, not new acceptance or performance data.
+regression. The [startup tree Graph composition](metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json) also passes these model-state oracles
+with full-Graph route attestation and at least 9.89GB measured free device memory.
+Automatic selection and API integration remain pending. These are correctness
+results, not new acceptance or performance data.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request

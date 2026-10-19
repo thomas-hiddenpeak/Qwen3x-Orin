@@ -513,8 +513,8 @@ bool Draft::poison() noexcept {
 
 int prepare_mtp_verify_projection_device() noexcept;
 TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft,
-                                     bool multirow)
-    : multirow_(multirow), target_(target), state_(state), draft_(draft) {
+                                     bool multirow, bool tree_graphs)
+    : multirow_(multirow), tree_graphs_(tree_graphs), target_(target), state_(state), draft_(draft) {
   const bool whole_core = state_.memory_profile() == RequestMemoryProfile::kLayerMajorP40WholeCore;
   check(target_.state_ == &state_ &&
         target_.projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
@@ -522,6 +522,7 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
         (state_.memory_profile() == RequestMemoryProfile::kLegacyC512 ||
          (whole_core && target_.layer_major_request_views_.has_value())),
         "MTP scalar transaction requires its exact supported state owner");
+  check(!tree_graphs_ || (multirow_ && whole_core), "MTP tree Graph requires whole-core multirow");
   const auto& plan = state_.plan();
   check(!multirow_ || plan.prefill_chunk_size >= 4, "MTP multi-row workspace capacity");
   if (multirow_) cuda_check(static_cast<cudaError_t>(prepare_mtp_verify_projection_device()));

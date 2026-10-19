@@ -210,7 +210,7 @@ int main(int argc, char** argv) try {
                    mtp::TargetTransaction::sines(*target));
   mtp::TargetTransaction transaction(*target, *request, draft,
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
-                                   true
+                                   true, tree_only
 #else
                                    false
 #endif
@@ -329,6 +329,10 @@ int main(int argc, char** argv) try {
   std::cout << "baseline_ready\n" << std::flush;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   if (tree_only) {
+    size_t free_bytes = 0, total_bytes = 0;
+    require(cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess &&
+            free_bytes >= 8ULL * 1024 * 1024 * 1024, "tree Graph 8GiB reserve");
+    std::cout << "tree_graph_free_bytes=" << free_bytes << " reserve=pass\n" << std::flush;
     unsigned checked = 0;
     for (unsigned count : {3U, 4U}) for (bool alternate : {false, true}) {
       require(bool(target->reset()) && draft.reset(), "tree oracle reset");
@@ -343,8 +347,13 @@ int main(int argc, char** argv) try {
         std::array<std::uint32_t, 3> ignored{};
         require(transaction.propose(seed, count - 1, ignored.data()), "tree seed cache proposal");
       }
+      const auto before_graph = transaction.full_graph_rows();
+      const auto before_qk = transaction.graph_qk_updates();
       require(transaction.verify_tree(seed, proposals.data(), count - 1, predictions.data()),
               "tree native verification");
+      require(transaction.full_graph_rows() == before_graph + count &&
+              transaction.graph_qk_updates() == before_qk + (prompt.size() + 1 >= 512 ? 16 : 0),
+              "tree full Graph route and QK updates");
       const unsigned depth = alternate ? 2 : count - 1;
       std::vector<std::vector<char>> states, keys, values;
       for (unsigned i = 0; i < depth; ++i) {
@@ -374,7 +383,8 @@ int main(int argc, char** argv) try {
       require(step(*target, expected[depth], true) == next_prediction &&
               live_state(*request, *target) == next_state, "tree next-step sibling contamination");
       std::cout << "tree_rows=" << count << " alternate=" << alternate
-                << " selected_states=" << depth << " full_target_and_draft_KV=bitwise_equal"
+                << " selected_states=" << depth << " full_graph_rows=" << count
+                << " full_target_and_draft_KV=bitwise_equal"
                 << " following_scalar_step=bitwise_equal\n" << std::flush;
     }
     std::cout << "tree_selected_state_checks=" << checked << " passed\n" << std::flush;
