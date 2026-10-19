@@ -159,6 +159,12 @@ below its 1.5x floor. Replacing M3 plus native M1 with two M2 rounds did not
 close the budget. Integration and unused prerequisites are removed; v119 is
 restored. This does not change the retained table or qualify long contexts.
 
+The [Gate/Up scale-residency composition](metadata/qwen36-27b-mtp-gate-scale-residency-rejection-2026-10-20.json)
+is closed after its one memory-contract repair. Complete numerical/state and
+short output checks pass, but Decode falls to 13.825 token/s with unchanged
+work. Executor, owner and integration are removed; v119 source and frozen
+binaries are restored. This changes no retained metric or production route.
+
 ### Preceding v113 and closed directions
 
 The following v113 metrics and closed lineages are historical comparators;

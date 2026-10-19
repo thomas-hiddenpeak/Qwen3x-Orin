@@ -1,0 +1,10 @@
+{
+  "work_package_id": "WP-MTP-GATE-SCALE-RESIDENCY-20261020",
+  "amends": "docs/metadata/qwen36-27b-mtp-gate-scale-residency-design-2026-10-20.json",
+  "reason": "Initial native process failed retained-free gate before numerical execution:free8753102848,requested187053600,reserve8589934592. Original source/binaries and failed record retained.",
+  "repair": "All E4M3-to-BF16 expanded patterns have zero low4bits including signedzero and canonicalNaN. Pack four upper12bit patterns into three16bit words (6bytes). Consumer reconstructs exactBF16 by leftshift4, no FP8 lookup. Total1069547520bytes.",
+  "expanded_bytes": 1069547520,
+  "saved_bytes": 356515840,
+  "budget": "This is the one bounded memory-contract repair, not a scale-width scan. No further representation, geometry or memory-reserve relaxation if this fails.",
+  "validation": "Repeat all-code decoded scale positions,full projections,guards and changing-input Graph; fresh native full-state then immediateAPI with actual8GiB post-composition."
+}

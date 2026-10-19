@@ -1,0 +1,24 @@
+{
+  "work_package_id": "WP-MTP-GATE-SCALE-RESIDENCY-20261020",
+  "architecture_candidate_id": "AC-MTP-GATE-SCALE-v121",
+  "source_parent": "896810d",
+  "product_constraint": "Cap2 short must close approximately21ms to1.5x real API; preserve cap3 repeated floor, exact target state/logits/output and private original-weight contract.",
+  "budget": "Short diagnostic Gate/Up307ms dominates; need roughly7% family saving if no other phase changes. Removing conversion is not assumed to deliver that saving.",
+  "mechanism": "Startup-owned BF16 Gate/Up scales in fixed rowquad/group order replace repeated E4M3 shared-table lookup. Original weight codes, BF16 pair product, four FMA chains/reduction/scales/publication unchanged. Additional immutable1426063360bytes across128matrices. No request allocation.",
+  "lineage": "Different from closed Down v80 canonical E4M3 vs scale6 pointer feed: different role, expanded decoded constant owner, no change to Down. Not a geometry, quantizer or threshold scan.",
+  "memory": "Current free10107142144 minus1426063360 leaves8681078784, above8589934592 reserve by91144192bytes. Must enforce actual post-composition8GiB; no waiver or host-cache substitution.",
+  "validation": [
+    "Exact all-code finite/nonfinite scale expansion and M2/M3/M4 projection comparisons, guards and Graph replay",
+    "Native complete target state/logits and transaction recovery",
+    "Immediate cap2 short API >=1.5*9.59467851190026, else reject withoutlongprofile",
+    "Positive short unlocks8K/40K cap2 andcap3 wholeAPI then bounded repetition"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "geometry_scans": 0
+  },
+  "composition_deadline": "One executor and owner followed by exact admission and immediate API; standalone conversion prerequisite has no retention or speed authority.",
+  "production_changed": false
+}

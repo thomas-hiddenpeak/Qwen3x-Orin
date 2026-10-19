@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 Gate/Up scale residency — closed negative API direction
+
+The [startup-owned scale design](metadata/qwen36-27b-mtp-gate-scale-residency-design-2026-10-20.json)
+first failed peak retained-free admission with its 16-bit owner. The one
+[bounded memory repair](metadata/qwen36-27b-mtp-gate-scale-residency-repair-2026-10-20.json)
+packed invariant-zero BF16 scale bits into 12-bit fields, preserving exact
+reconstruction in 1,069,547,520 bytes. Both artifacts retain their evidence;
+the first has no real-model numerical or API pass.
+
+The [completed repaired direction](metadata/qwen36-27b-mtp-gate-scale-residency-rejection-2026-10-20.json)
+passes complete scale/projection/Graph checks, native state/logit/KV transactions
+and fault recovery. Short API output and work match v119, and actual startup
+free memory is 9,178,890,240 bytes. Decode is 13.825 token/s versus v119's
+14.104, failing the 1.5x floor. Prefill is 0.89275s (72.809 token/s), TTFT
+0.91129s and total 1.99618s. Verification increases about 22.8ms; this does not
+establish a specific cache, bank or instruction bottleneck.
+
+The predeclared stop ends before long-context/cap 3 and lifecycle qualification.
+All integration and unused prerequisites are removed; exact v119 source and
+binaries are restored. No storage-width, scale, layout, register or profile
+scan follows. Retained cap 3 results and the full objective remain unchanged.
+
+
 ## 2026-10-20 cap 2 architecture assessment — two directions closed
 
 The [source and real-output assessment](metadata/qwen36-27b-mtp-cap2-architecture-assessment-2026-10-20.json)

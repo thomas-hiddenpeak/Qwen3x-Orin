@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-GATE-SCALE-RESIDENCY-20261020",
+  "architecture_candidate_id": "AC-MTP-GATE-SCALE-v121",
+  "source_parent": "896810d",
+  "design": "docs/metadata/qwen36-27b-mtp-gate-scale-residency-design-2026-10-20.json",
+  "repair": "docs/metadata/qwen36-27b-mtp-gate-scale-residency-repair-2026-10-20.json",
+  "authority": "Negative short API direction; no long-context, cap3, lifecycle or release qualification",
+  "initial_attempt": "16-bit scale owner passed synthetic projection/Graph but failed real-model startup peak8GiB reserve. No native numerical or API pass for that artifact.",
+  "repaired_numerical": {
+    "expanded_positions_checked": 11141120,
+    "projection_graph_cases": 12,
+    "scale_guards": "pass",
+    "target_prefix_checks": 10,
+    "exact_state_logits_draft_kv_transactions": 17,
+    "fault_recoveries": 5,
+    "native_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.437
+    }
+  },
+  "api": {
+    "completed_requests": 1,
+    "original_non_mtp_response_usage_finish_equal": true,
+    "v113_generated_token_ids_equal": true,
+    "route_and_work_audit": "pass",
+    "metrics": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8927451200000001,
+      "prefill_tps": 72.8091350418135,
+      "ttft_s": 0.9112865140195936,
+      "elapsed_s": 1.9961788220098242,
+      "decode_tps": 13.825059026596433,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "gate_scale_bytes": 1069547520,
+        "startup_free_bytes": 9178890240,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "budget_policy": "output-tail-v119",
+        "requested_budget_histogram": [
+          0,
+          0,
+          7,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 1911557120,
+        "draft_initialization_ms": 5.47618,
+        "draft_ms": 87.24765199999999,
+        "verify_ms": 980.0890300000001,
+        "reconcile_ms": 17.285287,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "lifecycle_qualified": false
+  },
+  "comparison": {
+    "v119_d2_decode_tps": 14.104356865172715,
+    "decode_delta_percent": -1.9802238503050074,
+    "verification_delta_ms": 22.777726000000257,
+    "speedup_vs_faster_nonmtp": 1.4409090423873232
+  },
+  "driver": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 64.156
+  },
+  "decision": "Reject complete12-bit Gate/Up scale-residency composition. Bitwise target/output and reserve pass; API Decode13.825tps fails1.5x floor with unchanged work and increased verifier time. Remove executor,owner,prepare kernel,receipt/profile and validator changes; restore source and exact v119 binaries. No layout,scale width,register,geometry or profile scan. Full objective remains active.",
+  "goal_achieved": false,
+  "production_changed": false,
+  "artifacts": {
+    ".q3x-work/mtp-gate-scale-residency-20261020/source/identity.json": "a08b93774a80f4f3a6a5e94fe1a3e8343b6bf019547d20d355b7e9d362fb8b26",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source/server": "08559771f8c9c3274544c5532a15fbbacf5a22d4d7e6482fba1fb7f62da8e2cd",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source/oracle": "b464cee05afd7cf6187c89d6ec05f57b33f81ff3e42e49aa8de1e69c35445abf",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source/scale-test": "ec5edeb3f59d772fa8b01b6a36b7d157289cd663c8484b676136933a4d9f9713",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source/scale-test.cu": "e0ebdf002bb03b0989cb95fcde9d440eca703c5a8e93506e04d835a49503f9c4",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/identity.json": "a87fa9fc3e86a4584083ed495015d5c2a13484b3d343fe2418935c4f77050aeb",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/server": "fd7920f536f8450e08a990fbb26a863d2c035269653d5e52d8391c462ec9fc42",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/oracle": "9a0673f8967fe87b895ddf93dc1c5dfbdefac89b4e10e3ae2949a08bcadfef37",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/scale-test": "0df485540b91977aeaa22ba1389afccd6b07e820030ecd3291e3a2519044e8f5",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/scale-test.cu": "7d456ac4de26c52751b753002b0e0e2c6b4c88b6a6e7688fcda79ead57038c18",
+    ".q3x-work/mtp-gate-scale-residency-20261020/source-packed/tracked.patch": "b3095a8c075f0c8b711bd4915ee4d78d962ba82f777dc0a395acb3db0749810f",
+    ".q3x-work/mtp-gate-scale-residency-20261020/scale-admission/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-gate-scale-residency-20261020/scale-admission/run.log": "4390b582e00cb56ee90f094d533e3383574c1c747c796eded6e15d517cbfd85c",
+    ".q3x-work/mtp-gate-scale-residency-20261020/scale-packed-admission/run.log": "4390b582e00cb56ee90f094d533e3383574c1c747c796eded6e15d517cbfd85c",
+    ".q3x-work/mtp-gate-scale-residency-20261020/scale-packed-admission/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-gate-scale-residency-20261020/native-p65/run.log": "ddf0cf3cbf2b06ca6f010ecbe647b4bf12647c89a09c25354372f8b95c16fd62",
+    ".q3x-work/mtp-gate-scale-residency-20261020/native-p65/cleanup.json": "48851f964a02e19ae15c72420eaa67c077e3208d34326c5c0d318a45db089a0c",
+    ".q3x-work/mtp-gate-scale-residency-20261020/native-packed-p65/run.log": "80b13ab8d86fd046f1302ddf89f9ebd7c92842200183875bf166c7327273f619",
+    ".q3x-work/mtp-gate-scale-residency-20261020/native-packed-p65/cleanup.json": "b2d7b86fe30323f5103d0ccfbf29df0cb9bdd8039bbc3ca248708bd785bb29f3",
+    ".q3x-work/mtp-gate-scale-residency-20261020/native-packed-p65/preflight.json": "5b12170468ae5acdbe677d1a9f483cdf7305130420bcca323a9fafba5fb9283c",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/server.log": "ea37294f03541680a1f1b92b1fc7eda52ab26418ff5605367f82e563b39cba81",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/preflight.json": "882dd2d332b9199e4c892c8badb3b8a3af59a067de15d773afe32fc5a816e974",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/cache-preparation.json": "33a6dc24298c0c06d1cf41e3b42792281252a94a75c84b025c7c0155510d3e74",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/identity.json": "079e49d7c2bea803961853359588f3cc4f51843167fc878c37c2de7942cd8b53",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/results.json": "567258f17f14cf1251d629733c2a1b0ef2113f9ea2556f0ba2dba30b3a6a6525",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2/cleanup.json": "9ee8e3d37d28f31a8ebdb1fa9c8034e373d974bec830d4bad98475a4f6c8aa03",
+    ".q3x-work/mtp-gate-scale-residency-20261020/d2-completed-audit.json": "895d2ef4d66a80595a681572b592649a1c697fb585daf768e32f7db2ae8ddf43",
+    ".q3x-work/mtp-gate-scale-residency-20261020/audit-completed.py": "60cc1ac0f98e55b7daa3ee549be754fc21a6a7b3c5323273f632d04508ca7459"
+  }
+}
