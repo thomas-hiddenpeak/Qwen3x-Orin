@@ -1,6 +1,6 @@
 #include "q3x/server/evaluation_server.h"
 #include "utf8_output.h"
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
 #include "../runtime/mtp_service_access_internal.h"
 #include "../runtime/mtp_service_internal.h"
 #endif
@@ -1515,7 +1515,7 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
 
   runtime::ReferenceGenerateResult generated;
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
   runtime::mtp_detail::ServiceAccess::service(engine)->reset_report(nullptr, nullptr);
 #endif
   const Clock::time_point generation_started_at = Clock::now();
@@ -1534,7 +1534,7 @@ void execute_job(runtime::ReferenceEngine& engine,
       break;
   }
   const Clock::time_point generation_finished_at = Clock::now();
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
   // Separate receipt: never emit the non-MTP witness's disabled-MTP claim.
   const auto* mtp = runtime::mtp_detail::ServiceAccess::service(engine);
   if (mtp) {
@@ -1542,7 +1542,8 @@ void execute_job(runtime::ReferenceEngine& engine,
     receipt << std::setprecision(17) << std::boolalpha
         << "{\"schema\":\"mtp-multirow-api-witness-v1\",\"request_id\":\"" << job->id
         << "\",\"request_body_sha256\":\"" << job->request_body_sha256
-        << "\",\"profile\":\"q3x.sm87.admission.mtp-output-tail-api.v119\",\"engine_result\":"
+        << "\",\"profile\":\"" << production_identity(options).profile_id
+        << "\",\"engine_result\":"
         << bool(generated) << ",\"cancelled\":"
         << (generated ? generated.value->stop_reason == runtime::ReferenceStopReason::kCancelled
                       : generated.diagnostic.code == runtime::ReferenceEngineError::kCancelled)
@@ -1700,7 +1701,7 @@ void execute_job(runtime::ReferenceEngine& engine,
     job->set_response(200, body);
   }
   const Clock::time_point response_ready_at = Clock::now();
-#if !defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if !defined(Q3X_ENABLE_MTP_SERVICE)
   emit_target_prefill_witness(
       engine, job, observer, *generated.value, options, execution_started_at,
       generation_started_at, generation_finished_at, response_ready_at);
@@ -2232,7 +2233,7 @@ void ingress_worker(
       return false;
     }
   }
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+#if defined(Q3X_ENABLE_SEALED_SERVICE)
   if (!p40_whole_core_v1_production || p40_whole_core_v10_selected) {
     error = "sealed whole-core service options do not match its compiled plan";
     return false;

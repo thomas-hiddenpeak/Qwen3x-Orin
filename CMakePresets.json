@@ -76,6 +76,20 @@
       "cacheVariables": {
         "Q3X_BUILD_MTP_SERVICE_ADMISSION": "ON"
       }
+    },
+    {
+      "name": "orin-mtp-sealed-candidate",
+      "displayName": "Sealed MTP candidate, fixed cap 3",
+      "description": "BUILD_TESTING=OFF, no installation or production eligibility; default non-MTP unchanged",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-mtp-sealed-candidate",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
+        "Q3X_BUILD_MTP_SERVICE_CANDIDATE": "ON",
+        "Q3X_MTP_CANDIDATE_DRAFT_LENGTH": "3"
+      }
     }
   ],
   "buildPresets": [
@@ -111,6 +125,13 @@
     {
       "name": "orin-mtp-service-admission",
       "configurePreset": "orin-mtp-service-admission",
+      "targets": [
+        "qwen3x-eval-server"
+      ]
+    },
+    {
+      "name": "orin-mtp-sealed-candidate",
+      "configurePreset": "orin-mtp-sealed-candidate",
       "targets": [
         "qwen3x-eval-server"
       ]

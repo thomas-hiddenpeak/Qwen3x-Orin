@@ -230,14 +230,14 @@ inline constexpr EvaluationProductionDeploymentPlan
       plan.id = "q3x.sm87.admission.whole-core-exact-decode.v9";
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
       plan.id = "q3x.sm87.admission.mtp-output-tail-api.v119";
       plan.target_prompt_tokens = 40000U;
       plan.maximum_output_tokens = 4096U;
 #endif
       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
       plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
       plan.decode_route_id = "mtp-multirow-output-tail.v119";
 #endif
       plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
@@ -260,9 +260,23 @@ inline constexpr EvaluationProductionDeploymentPlan kWholeCoreServiceProductionP
   return plan;
 }();
 
+#if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
+inline constexpr EvaluationProductionDeploymentPlan kMtpServiceCandidatePlan = [] {
+  auto plan = kWholeCoreExactDecodeAdmissionPlan;
+#if Q3X_MTP_COMPILED_DRAFT_LENGTH == 2
+  plan.id = "q3x.sm87.candidate.mtp-sealed-cap2.v1";
+#else
+  plan.id = "q3x.sm87.candidate.mtp-sealed-cap3.v1";
+#endif
+  return plan;
+}();
+#endif
+
 [[nodiscard]] constexpr const EvaluationProductionDeploymentPlan&
 selected_p40_whole_core_plan() noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+#if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
+  return kMtpServiceCandidatePlan;
+#elif defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
   return kWholeCoreServiceProductionPlan;
 #elif defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return kWholeCoreExactDecodeAdmissionPlan;
@@ -317,7 +331,9 @@ enum class EvaluationDevelopmentRoute : std::uint8_t {
   return "unknown";
 }
 
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+#if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
+inline constexpr auto& kDefaultProductionPlan = kMtpServiceCandidatePlan;
+#elif defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
 inline constexpr auto& kDefaultProductionPlan = kWholeCoreServiceProductionPlan;
 #else
 inline constexpr auto& kDefaultProductionPlan = kP40ExactLegacyC512ProductionPlan;

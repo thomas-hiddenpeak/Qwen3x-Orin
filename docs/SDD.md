@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-10-14
+  last_reviewed: 2026-10-20
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -317,6 +317,18 @@ Multi-row projection weight reuse
 preserves scalar reduction/publication boundaries; complete immutable prefix
 slots are assembled before commitment. Internal correctness checks establish
 no API performance or production eligibility.
+
+A separate opt-in sealed MTP candidate composes that same arithmetic with
+`BUILD_TESTING=OFF`, a build-time draft cap of 2 or 3, and an independent
+candidate profile. It uses the ordinary fixed-capacity HTTP defaults without
+admission CLI or environment route selection. The engine owns the service;
+the gateway borrows it through source-private `ServiceAccess`, without access
+to runner/model/state test interfaces. This build has no installation surface
+and reports production eligibility and release qualification as false.
+The ordinary non-MTP production preset remains unchanged. Candidate build
+success is not numerical, capability, performance or release qualification;
+the active [Roadmap](ROADMAP.md) controls its real-API composition gates.
+
 
 ## 4. System decomposition from the API inward
 

@@ -576,7 +576,7 @@ bool TargetTransaction::initialize_whole_core_prefill(
   // request-level evidence is finalized after generation. Never allow this
   // handoff while any whole-request stage is still active.
   bool route_ready = route.complete;
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
   if (committed_service_handoff && route.request_active && !route.complete &&
       route.error == PrefillRouteEvidenceError::kNone && route.completed_layer_passes > 0) {
     route_ready = true;

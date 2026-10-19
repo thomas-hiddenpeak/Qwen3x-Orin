@@ -19,6 +19,28 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 sealed MTP build — cap 3 composed, cap 2 pending
+
+The [bounded design](metadata/qwen36-27b-mtp-sealed-service-design-2026-10-20.json)
+now has a [complete cap 3 candidate/API return](metadata/qwen36-27b-mtp-sealed-service-2026-10-20.json).
+The `orin-mtp-sealed-candidate` preset builds with `BUILD_TESTING=OFF`, a fixed
+compiled cap and an independent unqualified profile. No engine/runner test
+seams, MTP/fused test admissions, ambient draft selection or installation
+surface is enabled. The ordinary non-MTP production preset remains unchanged.
+
+The first API attempt exposed a hardcoded old receipt identity and was stopped.
+The repair emits the selected service profile and rejects mismatched receipts
+immediately. The repaired cap 3 binary passes all eight API response/token/work
+comparisons, authentication, invalid requests, cancellation and recovery.
+This composes the preceding service-access prerequisite. Current joint metrics
+belong to [Current Status](CURRENT_STATUS.md); this one-process check does not
+transfer earlier repeated performance qualification to the new ELF.
+
+The same implementation accepts cap 2 configuration, but its complete fixed-cap
+binary/API check remains next. Cap 2 short performance, repeated selection and
+release qualification remain open. Do not widen this build milestone into
+kernel scanning or claim a production switch.
+
 ## 2026-10-20 service ownership boundary — validated delivery prerequisite
 
 The [bounded design](metadata/qwen36-27b-mtp-service-boundary-design-2026-10-20.json)
@@ -31,10 +53,9 @@ exact responses, token IDs and physical work; authentication, invalid-request,
 cancellation and recovery checks pass. Arithmetic and output policy are unchanged.
 
 Only the engine object has test seams disabled; other admission flags remain.
-This is not a complete `BUILD_TESTING=OFF` or production artifact. Retain the
-boundary as a prerequisite for the next single `AC-MTP-SEALED-SERVICE-v1` build
-milestone, or archive it at that composition point. No extra performance scan
-is selected. Cap 2's short deficit remains open and production stays non-MTP.
+That boundary-only artifact was not a complete `BUILD_TESTING=OFF` or
+production artifact. Its prerequisite has now composed into the sealed cap 3
+candidate above. Cap 2's short deficit remains open and production stays non-MTP.
 
 ## 2026-10-20 Gate/Up scale residency — closed negative API direction
 

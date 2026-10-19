@@ -923,7 +923,7 @@ class ReferenceRunner {
   // control remains private and cannot become a production selector surface.
   friend struct ReferenceRunnerPrefillControlTestPeer;
   friend class ReferenceEngine;
-  // Source-private admission peer; no MTP implementation is linked in release.
+  // Source-private MTP transaction peer; absent from the ordinary non-MTP release.
   friend class mtp_detail::TargetTransaction;
   friend class reference_engine_detail::ReferenceEnginePrefillPlanFactory;
   friend class reference_engine_detail::ReferenceEnginePrefillExecutor;

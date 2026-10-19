@@ -39,9 +39,13 @@ void PrintUsage(std::ostream& output) {
       << "  --port N                    TCP port (default 8000)\n"
       << "  --model ID                  Served OpenAI model id\n"
       << "  --api-key-file PATH         Owner-only 0400/0600 Bearer credential\n";
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
-  output << "  Deployment profile: " << q3x::server::kWholeCoreServiceProductionPlan.id << "\n"
+#if defined(Q3X_ENABLE_SEALED_SERVICE)
+  output << "  Deployment profile: " << q3x::server::selected_p40_whole_core_plan().id << "\n"
          << "  Prompt + output - 1 <= 44095; output ceiling 4096; greedy text/chat\n";
+#if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
+  output << "  MTP draft cap: " << Q3X_MTP_COMPILED_DRAFT_LENGTH
+         << " (compiled); candidate, not production qualified or installable\n";
+#endif
 #elif defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
   output << "  --candidate-profile whole-core-exact-decode\n"
          << "  Isolated multi-row MTP API: P+O-1<=44095/O1..4096; not installable\n"
@@ -111,7 +115,7 @@ void PrintUsage(std::ostream& output) {
 #endif
   output
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+#if defined(Q3X_ENABLE_SEALED_SERVICE)
       << "  Fixed concurrency: one GPU request, one queued request, three HTTP threads\n"
 #else
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"

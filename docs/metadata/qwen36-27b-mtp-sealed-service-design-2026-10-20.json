@@ -1,0 +1,13 @@
+{
+  "work_package_id": "WP-MTP-SEALED-SERVICE-20261020",
+  "architecture_candidate_id": "AC-MTP-SEALED-SERVICE-v1",
+  "source_parent": "aef4712",
+  "product_constraint": "Deliver actual MTP service preserving exact outputs and 50%-200% Decode target for caps 2/3; cap2 short gap remains open.",
+  "downward_contract": "Complete BUILD_TESTING=OFF build without test seams or ambient route selection. Explicit opt-in candidate, distinct identity, fixed compile-time cap 2/3, existing resource and transaction contracts.",
+  "implementation": "Separate common MTP feature from admission; reuse fixed corrected whole-core inventory and ordered Decode without fused test admission; independent sealed candidate defaults and profile, no installation or default promotion yet.",
+  "composition_budget": "One coherent build implementation for both fixed caps; host configure/CLI/symbol checks and prompt return to real API cap3 lifecycle panel. Resolve build errors within this composition; no kernel or parameter scan. Cap2 API and final release gates remain required before delivery.",
+  "expiry": "The retained v122 service boundary composes here; no detached prerequisite beyond this build milestone.",
+  "numerics": "No target/private arithmetic or v119 output-tail policy changes. Exact request outputs and physical work versus v119; inherited numerical evidence retains its original scope.",
+  "production_changed": false,
+  "artifacts": ".q3x-work/mtp-sealed-service-20261020"
+}

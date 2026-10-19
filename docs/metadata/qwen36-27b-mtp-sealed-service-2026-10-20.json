@@ -1,0 +1,267 @@
+{
+  "work_package_id": "WP-MTP-SEALED-SERVICE-20261020",
+  "architecture_candidate_id": "AC-MTP-SEALED-SERVICE-v1",
+  "decision": "Retain complete BUILD_TESTING=OFF cap3 candidate; service-boundary prerequisite composed. Cap2 artifact and delivery qualification remain pending; no production promotion.",
+  "source_parent": "aef4712edafe8fc96fd942cf2218ad6c321bbcdd",
+  "server_sha256": "54fc5dab78e0d74d85b8579694a8f471590d6c72fb6c9b236b980ce2d29fe06f",
+  "profile": "q3x.sm87.candidate.mtp-sealed-cap3.v1",
+  "build_audit": {
+    "server_sha256": "54fc5dab78e0d74d85b8579694a8f471590d6c72fb6c9b236b980ce2d29fe06f",
+    "compile_commands": 76,
+    "test_seams_absent": true,
+    "fused_and_mtp_admission_macros_absent": true,
+    "engine_test_access_absent": true,
+    "service_access_present": true,
+    "cublas_dynamic_dependency_absent": true,
+    "help_and_cli_rejection": "pass",
+    "cap": 3,
+    "scope": "Noninstallable BUILD_TESTING=OFF candidate, not production selection"
+  },
+  "configuration_contracts": [
+    {
+      "case": "cap2",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/cap2",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DQ3X_MTP_CANDIDATE_DRAFT_LENGTH=2"
+      ],
+      "returncode": 0,
+      "expected_success": true,
+      "passed": true
+    },
+    {
+      "case": "bad-cap",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/bad-cap",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DQ3X_MTP_CANDIDATE_DRAFT_LENGTH=4"
+      ],
+      "returncode": 1,
+      "expected_success": false,
+      "passed": true
+    },
+    {
+      "case": "testing",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/testing",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DBUILD_TESTING=ON"
+      ],
+      "returncode": 1,
+      "expected_success": false,
+      "passed": true
+    },
+    {
+      "case": "production",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/production",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON"
+      ],
+      "returncode": 1,
+      "expected_success": false,
+      "passed": true
+    },
+    {
+      "case": "admission",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/admission",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DQ3X_BUILD_MTP_SERVICE_ADMISSION=ON"
+      ],
+      "returncode": 1,
+      "expected_success": false,
+      "passed": true
+    },
+    {
+      "case": "fused-test",
+      "command": [
+        "cmake",
+        "-S",
+        "/home/rm01/Qwen3x-Orin",
+        "-B",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/configure-contract/fused-test",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DQ3X_CUDA_ARCHITECTURES=87",
+        "-DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+        "-DQ3X_BUILD_MTP_SERVICE_CANDIDATE=ON",
+        "-DQ3X_BUILD_FUSED_DECODE_ADMISSION=ON"
+      ],
+      "returncode": 1,
+      "expected_success": false,
+      "passed": true
+    }
+  ],
+  "first_attempt": {
+    "decision": "Stop first API attempt for route-identity mismatch; repair hardcoded receipt profile before qualification.",
+    "artifact": "edc6f16a66eec4cf4508b44fc3ef41619492f2ac6c99022941e5fad6d091b219",
+    "source": "source/",
+    "run": "cap3/",
+    "driver_exit": 130,
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.875
+    },
+    "finding": "Health emits sealed candidate identity, request receipt emits hardcoded v119 admission identity. This first run has no candidate timing or qualification authority.",
+    "repair": "Emit production_identity(options).profile_id in receipt; compare receipt and health profiles immediately per request and in final audit.",
+    "arithmetic_change": false
+  },
+  "profile_gate_regression": {
+    "rejected_original_mismatch": true,
+    "diagnostic": "receipt profile differs from service identity"
+  },
+  "successful_requests": [
+    {
+      "label": "p65",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p8192",
+      "tokens": 256,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p40000",
+      "tokens": 256,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p65-nonstream",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "raw-text",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "chat-stop",
+      "tokens": 2,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "after-prefill-cancel",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "after-decode-cancel",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    }
+  ],
+  "lifecycle": "authentication, invalid request, Prefill/Decode cancellation and recovery pass",
+  "cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 75.468
+  },
+  "joint_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.891728776,
+      "prefill_tps": 72.89211893729444,
+      "ttft_s": 0.9103114570025355,
+      "elapsed_s": 1.9111045959871262,
+      "decode_tps": 14.986107937886011
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.334908337999998,
+      "prefill_tps": 472.5724440112699,
+      "ttft_s": 17.35703980200924,
+      "elapsed_s": 33.67495324497577,
+      "decode_tps": 15.627240761517758
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 93.06372700199998,
+      "prefill_tps": 429.8130032890299,
+      "ttft_s": 93.09876251302194,
+      "elapsed_s": 114.63022020400967,
+      "decode_tps": 11.843936936988992
+    }
+  ],
+  "numerical_scope": "Target and private arithmetic unchanged; eight exact API token/work comparisons to v119 cap3. Prior numerical evidence retains its scope. No new broad numerical/capability qualification.",
+  "limitations": [
+    "Noninstallable opt-in candidate; ordinary non-MTP 0.8.2 unchanged.",
+    "Only cap3 full binary/API panel completed here; cap2 configure contract passes but full cap2 candidate validation remains.",
+    "Single process regression, not repeated performance selection; prior v119 gains do not automatically qualify this ELF.",
+    "Cap2 short Decode below 1.5x remains an active performance gap."
+  ],
+  "artifact_root": ".q3x-work/mtp-sealed-service-20261020",
+  "artifact_sha256": {
+    "source-repaired/identity.json": "fac870b395f62a8bb577f27aacc987f0a886fd95d3ce2fb5192d925ea40be45f",
+    "source-repaired/tracked.patch": "9771f0412734acf555bb1e2bf5038f0ed4e39945ce61ca25615033bfc081b11b",
+    "build-audit.json": "d17c9036ba582aa81393ec31fd90c7867bcb9274f75a5b12f58b857b8efcb82b",
+    "configure-contract.json": "d0d83e4c323cd159c8468d8ae6d2a4c9096a3b784ce63b9d6b1e67e0e5c3e7a4",
+    "first-attempt.json": "72152db633cded9c54b0553b893d08206c40f4d7d774df3f41cd1e08e8e21f97",
+    "first-build-audit.json": "6e06a9bf4dbe1484d249b5fa8797aa933f5060a465b18875423eadde1cb36d55",
+    "profile-gate-regression.json": "817cf4de89d31f8303cf783d14c60a8d1ad1ef0c8eb3e0347880994e2937247e",
+    "environment-rejection.json": "ebc61dd7e29a7a7e21b7c9a1c24a79f96411af966f01331232a4751d036a2959",
+    "dynamic.txt": "e8753e56a0b24ded06de5882208fc5e5c34355729afa13ed916fd757fc070ea6",
+    "symbols.txt": "5f915abea540e98cd14bd4a7d50d3619ca0c052b4d3eeca271e2546ebbdbc0bc",
+    "help.txt": "fe88aa0dc00d8eba853aa18fd3edeb37de82e5344ce3d85ab89045f7e9f4186b",
+    "parity.json": "184a6a5041a37fd965bbe2df7e7d35973d1a1a59b7f93596e2ec55565de4e08f",
+    "record.py": "c61f2bfb1bf395b2568ca5238eba32215a9decbd90e25c36d60760f7d8393784",
+    "cap3-repaired/identity.json": "c2e43d5a4d94c50221039819c96ee37030eb57eb19b2c60867fdac540b0a767e",
+    "cap3-repaired/preflight.json": "2294e7c1e28ed489e5f15087c1f7740142fec00fc3f36c4b0883a4f60f5e7ffb",
+    "cap3-repaired/cache-preparation.json": "9b3eda5b0dbcf15fb48d6e2fe4d72366b578046e5d461dded6e9d6715968b485",
+    "cap3-repaired/cleanup.json": "ff4fd3c3d997ce873749f8253492f85b7b3138bc9b43fc486e27c8619e392fd5",
+    "cap3-repaired/results.json": "478a311c8bd1df8a4dd279e4b7893dbfe24fd86f178f68cc14afbcb28279fe58",
+    "cap3-repaired/audited-metrics.json": "68ae697e1173fe1308f4aab42f771c51945cfaaed30514fa6ef5714d0f54f63a",
+    "cap3-repaired/server.log": "eaee00d4b8301951ded1d059eaec6d437521b01dd97d4511cf6c7900b3db5a68"
+  }
+}

@@ -2,7 +2,7 @@
 #include "decode_fused_gqa_internal.h"
 #endif
 #include "q3x/runtime/reference_engine.h"
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
 #include "mtp_service_internal.h"
 #include "mtp_service_access_internal.h"
 #endif
@@ -4874,7 +4874,7 @@ struct ReferenceEngine::Impl {
       bound_prefill_plan;
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
   std::unique_ptr<mtp_detail::Service> mtp;
 #endif
   bool decode_graph_cache_ready = false;
@@ -6248,7 +6248,7 @@ struct ReferenceEngine::Impl {
         impl->bound_prefill_plan = std::move(bound.value);
       }
 
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
       impl->mtp = std::make_unique<mtp_detail::Service>(
           model_directory, *impl->model_weights, *impl->runner, *impl->request_state);
 #endif
@@ -6298,7 +6298,7 @@ bool ReferenceEngine::attach_target_aot_projection_device_assets(
   return model_weights.attach_sm87_target_aot_projection_assets(owner);
 }
 
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
 mtp_detail::Service* mtp_detail::ServiceAccess::service(ReferenceEngine& engine) noexcept {
   return engine.impl_ ? engine.impl_->mtp.get() : nullptr;
 }
@@ -7398,7 +7398,7 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         "reference engine is empty");
     return result;
   }
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
   impl_->mtp->reset_report(options.prefill_cancellation_probe, options.prefill_cancellation_context);
   if (prompt_token_ids.size() > mtp_detail::kServicePromptLimit ||
       options.max_new_tokens > mtp_detail::kServiceOutputLimit || options.capture_trace ||
@@ -7639,7 +7639,7 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
 
     reference_engine_detail::GenerationControlResult control;
     try {
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
       mtp_detail::ServiceScope mtp_scope(impl_->mtp.get());
 #endif
       control = reference_engine_detail::run_generation_control(

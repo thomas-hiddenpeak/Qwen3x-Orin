@@ -57,7 +57,9 @@ class Client(q.Client):
         return record
 
 
-def audit(out, records, draft):
+def audit(out, records, draft, expected_profile=None):
+    if expected_profile is None:
+        expected_profile = "q3x.sm87.admission.mtp-output-tail-api.v119"
     receipts = {}
     for line in (out / 'server.log').read_text().splitlines():
         if not line.startswith('{'): continue
@@ -70,6 +72,7 @@ def audit(out, records, draft):
     for result in records:
         w = receipts.get(result['request_id'])
         q.require(w and w['engine_result'] and not w['cancelled'], 'missing/incomplete MTP receipt')
+        q.require(w['profile'] == expected_profile, 'receipt profile differs from service identity')
         q.require(w['request_body_sha256'] == result['request_sha256'], 'receipt request identity')
         q.require(w['prompt_tokens'] == result['usage']['prompt_tokens'] and
                   w['completion_tokens'] == result['usage']['completion_tokens'], 'receipt usage')
@@ -155,24 +158,28 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--draft-length', type=int, choices=[2, 3])
     parser.add_argument('--baseline', type=Path)
+    parser.add_argument('--sealed-candidate', action='store_true',
+                        help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
     parser.add_argument('--control-pid', type=int, action='append', default=[])
     args = parser.parse_args(); out = args.output.resolve()
     q.require(out.is_relative_to(q.ROOT / '.q3x-work'), 'output must be under .q3x-work')
     q.require(bool(args.baseline) == bool(args.draft_length), 'MTP run requires a baseline')
+    q.require(not args.sealed_candidate or args.draft_length is not None, 'sealed candidate requires expected draft cap')
     out.mkdir(parents=True, exist_ok=False)
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-output-tail-api.v119' if args.draft_length else q.PROFILE
+    q.PROFILE = (f'q3x.sm87.candidate.mtp-sealed-cap{args.draft_length}.v1' if args.sealed_candidate
+                 else 'q3x.sm87.admission.mtp-output-tail-api.v119' if args.draft_length else q.PROFILE)
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
-    if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']
+    if args.draft_length and not args.sealed_candidate: cmd += ['--candidate-profile', 'whole-core-exact-decode']
     env = {k: v for k, v in os.environ.items() if not k.startswith(('Q3X_', 'VLLM_'))}
-    if args.draft_length: env['Q3X_MTP_DRAFT_LENGTH'] = str(args.draft_length)
+    if args.draft_length and not args.sealed_candidate: env['Q3X_MTP_DRAFT_LENGTH'] = str(args.draft_length)
     for k, name in [('TMPDIR', 'tmp'), ('CUDA_CACHE_PATH', 'cache/cuda'), ('XDG_CACHE_HOME', 'cache')]:
         p = out / name; p.mkdir(parents=True, exist_ok=True); env[k] = str(p)
     q.save(out / 'identity.json', {'command': cmd, 'binary_sha256': q.digest(args.server),
-           'draft_length': args.draft_length, 'driver_sha256': q.digest(Path(__file__)),
+           'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate, 'driver_sha256': q.digest(Path(__file__)),
            'prompt_fixture_sha256': q.digest(args.prompt_request),
            'git': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
            'scope': 'whole-service multi-row MTP direction; no release authority'})
@@ -200,6 +207,8 @@ def main():
             try: health = client.health(); break
             except (OSError, urllib.error.URLError): pass
             q.require(time.monotonic() < deadline, 'startup deadline'); time.sleep(1)
+        if args.sealed_candidate:
+            q.require(health['q3x_production']['BUILD_TESTING'] is False, 'sealed candidate contains testing identity')
         q.save(out / 'health.json', health); print('ready', flush=True)
         cases = [(65, 16, True, 'p65'), (8192, 256, True, 'p8192'),
                  (40000, 256, True, 'p40000'), (65, 16, False, 'p65-nonstream')]
@@ -217,6 +226,8 @@ def main():
                 if witnesses: break
                 q.require(time.monotonic() < deadline, 'missing receipt'); time.sleep(.05)
             w = witnesses[-1]
+            if args.draft_length:
+                q.require(w["profile"] == q.PROFILE, "request profile differs from health identity")
             prefill = w['prefill_ms'] if args.draft_length else w['timing']['pure_prefill']['milliseconds']
             decode = w['decode_ms'] if args.draft_length else w['timing']['decode']['milliseconds']
             print(json.dumps({'stage': label, 'prompt': p, 'output': result['usage']['completion_tokens'],
@@ -259,7 +270,7 @@ def main():
         q.save(out / 'cleanup.json', {'success': success, 'returncode': server.returncode,
                                     'errors': errors, 'max_temperature': max(temperatures) if temperatures else None})
     q.require(success and server.returncode == 0 and not errors, 'run/cleanup failure')
-    if args.draft_length: audit(out, client.records, args.draft_length)
+    if args.draft_length: audit(out, client.records, args.draft_length, q.PROFILE)
     print('integration checks passed', flush=True)
 
 

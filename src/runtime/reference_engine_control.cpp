@@ -1,5 +1,5 @@
 #include "q3x/runtime/reference_engine.h"
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
 #include "mtp_service_internal.h"
 #endif
 
@@ -694,7 +694,7 @@ GenerationControlResult run_generation_control_impl(
       }
     }
 
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
     if (auto* mtp = mtp_detail::active_service()) {
       const auto status = mtp->initialize(prompt_token_ids);
       if (!status) return failure(GenerationControlError::kRunnerFailure, status);
@@ -714,7 +714,7 @@ GenerationControlResult run_generation_control_impl(
     } else if (!continue_after_first) {
       control.stop_reason = ReferenceStopReason::kCancelled;
     } else {
-#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#if defined(Q3X_ENABLE_MTP_SERVICE)
       if (auto* mtp = mtp_detail::active_service()) {
         const auto status = mtp->decode(control, options);
         if (!status) return failure(GenerationControlError::kRunnerFailure, status);

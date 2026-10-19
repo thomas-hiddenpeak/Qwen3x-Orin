@@ -13,10 +13,15 @@ double elapsed(Clock::time_point start) noexcept {
   return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
 }
 std::uint32_t configured_length() {
+#if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
+  static_assert(Q3X_MTP_COMPILED_DRAFT_LENGTH == 2 || Q3X_MTP_COMPILED_DRAFT_LENGTH == 3);
+  return Q3X_MTP_COMPILED_DRAFT_LENGTH;
+#else
   const char* value = std::getenv("Q3X_MTP_DRAFT_LENGTH");
   if (!value || (std::string(value) != "2" && std::string(value) != "3"))
     throw std::runtime_error("MTP admission requires Q3X_MTP_DRAFT_LENGTH=2 or 3");
   return static_cast<std::uint32_t>(value[0] - '0');
+#endif
 }
 ReferenceRunnerStatus failure(bool cancelled) noexcept {
   ReferenceRunnerStatus status;

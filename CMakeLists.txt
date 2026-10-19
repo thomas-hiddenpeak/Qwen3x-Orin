@@ -91,6 +91,30 @@ endif()
 option(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION
   "Build the sealed full-range corrected Prefill and ordered Decode service"
   ${_q3x_service_default})
+option(Q3X_BUILD_MTP_SERVICE_CANDIDATE
+  "Build sealed MTP candidate without test seams (not installable)" OFF)
+set(Q3X_MTP_CANDIDATE_DRAFT_LENGTH "3" CACHE STRING "Sealed MTP draft cap (2 or 3)")
+if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+  if(BUILD_TESTING OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR
+     Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE OR Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+    message(FATAL_ERROR "Sealed MTP candidate requires BUILD_TESTING=OFF and no competing profile")
+  endif()
+  if(NOT Q3X_MTP_CANDIDATE_DRAFT_LENGTH MATCHES "^[23]$")
+    message(FATAL_ERROR "Sealed MTP draft cap must be 2 or 3")
+  endif()
+  get_cmake_property(_q3x_cache_variables CACHE_VARIABLES)
+  foreach(_q3x_option IN LISTS _q3x_cache_variables)
+    if(_q3x_option MATCHES "^Q3X_BUILD_.*_ADMISSION$" AND ${_q3x_option})
+      message(FATAL_ERROR "Sealed MTP candidate forbids explicit ${_q3x_option}")
+    endif()
+  endforeach()
+  set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
+  add_compile_definitions(Q3X_ENABLE_MTP_SERVICE=1 Q3X_ENABLE_MTP_SERVICE_CANDIDATE=1
+    Q3X_MTP_COMPILED_DRAFT_LENGTH=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH})
+endif()
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+  add_compile_definitions(Q3X_ENABLE_SEALED_SERVICE=1)
+endif()
 if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
   if(BUILD_TESTING OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR
      Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE OR
@@ -116,7 +140,7 @@ if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
     message(FATAL_ERROR "MTP service admission requires testing and forbids production")
   endif()
   set(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION ON)
-  add_compile_definitions(Q3X_ENABLE_MTP_SERVICE_ADMISSION=1)
+  add_compile_definitions(Q3X_ENABLE_MTP_SERVICE_ADMISSION=1 Q3X_ENABLE_MTP_SERVICE=1)
 endif()
 if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   if(NOT BUILD_TESTING)
@@ -126,7 +150,7 @@ if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
   set(Q3X_BUILD_FUSED_DECODE_ADMISSION ON)
 endif()
-if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
 endif()
 option(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
@@ -185,7 +209,9 @@ if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
   set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
   set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
-  if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+    message(STATUS "Sealed MTP candidate inventory (unqualified; no installation)")
+  elseif(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
     message(STATUS "Sealed corrected whole-core service inventory enabled")
   elseif(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
     message(STATUS "Whole-core exact Decode composition inventory (unqualified; no installation)")
@@ -618,7 +644,7 @@ if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
     Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION=1
   )
 endif()
-if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   target_compile_definitions(q3x_core PUBLIC Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
 endif()
 if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
@@ -651,7 +677,7 @@ q3x_enable_warnings(q3x_text)
 
 option(Q3X_BUILD_FUSED_DECODE_ADMISSION
   "Build isolated fixed-plan fused Decode numerical admission (not installable)" OFF)
-if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   add_compile_definitions(Q3X_ENABLE_FUSED_DECODE=1)
 endif()
 if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
@@ -741,7 +767,7 @@ target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart CUDA::cublas)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
-if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   target_sources(q3x_kernels PRIVATE src/kernels/sm87/decode_fused_gqa.cu)
   target_include_directories(q3x_kernels SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flashinfer/include)
@@ -903,7 +929,7 @@ add_library(q3x_engine STATIC
   src/runtime/reference_engine_prefill_authority.cpp
 )
 add_library(q3x::engine ALIAS q3x_engine)
-if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
+if(Q3X_BUILD_MTP_SERVICE_ADMISSION OR Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   target_sources(q3x_engine PRIVATE src/runtime/mtp_service_internal.cpp
     src/runtime/mtp_device_internal.cpp src/runtime/mtp_control.cpp
     src/model/mtp_weights_internal.cpp src/runtime/mtp_prefill_internal.cu src/runtime/mtp_draft_integer_head_internal.cu
@@ -1012,7 +1038,7 @@ else()
     Q3X_EVAL_GATEWAY_BUILD_TESTING=0
   )
 endif()
-if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE AND NOT Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE AND NOT Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION AND NOT Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   # The production route reuses the whole-core server surface: the fixed
   # P40000/O16 profile is selected through the sealed production profile
   # instead of the development-route acknowledgement. The PRODUCTION_ROUTE
@@ -1039,7 +1065,9 @@ q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
 target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
-if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+  set_target_properties(qwen3x-eval-server PROPERTIES OUTPUT_NAME qwen3x-eval-server-mtp-candidate)
+elseif(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
   # Canonical executable: the sealed plan is the default; no tactic/profile CLI.
 elseif(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   # The historical production route ships in the canonical adapter binary;
@@ -3667,7 +3695,7 @@ if(BUILD_TESTING)
   )
 endif()
 
-if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION)
+if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT Q3X_BUILD_MTP_SERVICE_CANDIDATE)
 install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
                 qwen3x-orin qwen3x-inspect
   EXPORT Qwen3xOrinTargets
@@ -3738,10 +3766,20 @@ if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
     PROPERTIES LABELS "host;production" TIMEOUT 180)
 endif()
 
-if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION)
+if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   install(FILES LICENSE NOTICE DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin)
   install(DIRECTORY packaging/licenses/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin/licenses)
   install(DIRECTORY third_party/flashinfer/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin/licenses/flashinfer
     FILES_MATCHING PATTERN "LICENSE*")
   install(DIRECTORY packaging/systemd/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Qwen3xOrin/systemd)
+endif()
+
+# Black-box checks do not enable engine/runner test hooks in the MTP candidate.
+if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+  enable_testing()
+  add_test(NAME mtp_sealed_help
+    COMMAND ${CMAKE_COMMAND} -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
+      -DQ3X_MTP_CAP=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/mtp_sealed_help_test.cmake)
+  set_tests_properties(mtp_sealed_help PROPERTIES LABELS "host;mtp;candidate")
 endif()
