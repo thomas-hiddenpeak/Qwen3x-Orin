@@ -62,6 +62,15 @@ tokens, unsupported maps and invalid predictions fail closed. This host-only
 contract passes a stateful scalar oracle, but has no native GPU or API authority.
 The native verifier portion of milestone 1 remains open under the original budget.
 
+The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) adds a separate tree-specialized Graph
+entry for rows3/4. Its last row has logical depth1 but retains the physical tail
+slot. QK/PV remap only its self address and softmax uses its ancestor-only length;
+original arithmetic order and BF16 publication remain unchanged. Thirty changing-
+length replays match contiguous-history output oracles; the 252-replay linear
+regression and bounded root memory/race/synchronization checks pass. This is
+synthetic Attention correctness only. Parent Conv/GDN, logical RoPE, canonical
+KV commit, full-model state oracles and service integration remain unfinished.
+
 ## 2026-10-20 canonical singleton state — closed neutral
 
 `WP-MTP-SINGLETON-CANONICAL-20261020` implemented one

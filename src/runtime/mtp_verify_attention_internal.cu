@@ -89,7 +89,7 @@ __device__ __forceinline__ void stage_keys(
   asm volatile("cp.async.commit_group;" ::);
 }
 
-template<unsigned M, bool DeviceInputs = false>
+template<unsigned M, bool DeviceInputs = false, bool Tree = false>
 __global__ void attention_scores_shared_rows_kernel(
     const std::uint16_t* query, const std::uint16_t* keys,
     unsigned int first_sequence, unsigned int rows, float* scores,
@@ -101,7 +101,7 @@ __global__ void attention_scores_shared_rows_kernel(
   const unsigned int warp = threadIdx.x >> 5;
   const unsigned int m = warp % M, position_warp = warp / M;
   const unsigned int tile = blockIdx.x;
-  const unsigned int sequence = first_sequence + m;
+  const unsigned int sequence = first_sequence + (Tree && m == M - 1 ? 1 : m);
   query += m * 12288;
 
   constexpr unsigned int offsets[8] = {0, 128, 64, 192, 32, 160, 96, 224};
@@ -129,7 +129,9 @@ __global__ void attention_scores_shared_rows_kernel(
     float key[8], sums[6];
 #pragma unroll
     for (unsigned int j = 0; j < 8; ++j)
-      key[j] = decode_bf16_device(key_tiles[i & 3][position_warp * 256 + lane + offsets[j]]);
+      key[j] = decode_bf16_device(Tree && m == M - 1 && position == first_sequence
+          ? keys[(first_sequence + M - 2) * 1024 + kv * 256 + lane + offsets[j]]
+          : key_tiles[i & 3][position_warp * 256 + lane + offsets[j]]);
 #pragma unroll
     for (unsigned int h = 0; h < 6; ++h) {
       float product[8];
@@ -159,7 +161,7 @@ __global__ void attention_scores_shared_rows_kernel(
     const unsigned int h = (i / 128) % 6;
     const unsigned int column = i % 128;
     const unsigned int position = tile * 128 + column;
-    const unsigned int actual = first_sequence + row;
+    const unsigned int actual = first_sequence + (Tree && row == M - 1 ? 1 : row);
     if (position < actual)
       scores[(row * 24 + kv * 6 + h) *
                  ((first_sequence + M + 2) & ~3U) + position] =
@@ -169,7 +171,7 @@ __global__ void attention_scores_shared_rows_kernel(
 
 // Same 256-thread max/sum trees and two expf evaluations as scalar softmax.
 // Padding owns storage only; actual causal columns alone enter arithmetic.
-template<bool DeviceInputs = false>
+template<bool DeviceInputs = false, bool Tree = false>
 __global__ void aligned_softmax(float* p, unsigned first_sequence,
                                 unsigned stride, unsigned rows = 0,
                                 const MtpVerifyDeviceInputs* parameters = nullptr) {
@@ -177,7 +179,8 @@ __global__ void aligned_softmax(float* p, unsigned first_sequence,
     first_sequence = parameters->position + 1;
     stride = (first_sequence + rows + 2) & ~3U;
   }
-  const unsigned row = blockIdx.x, columns = first_sequence + row / 24;
+  const unsigned row = blockIdx.x;
+  const unsigned columns = first_sequence + (Tree && row / 24 == rows - 1 ? 1 : row / 24);
   p += row * stride;
   __shared__ float partial[256];
   float maximum = -__int_as_float(0x7f800000);
@@ -215,12 +218,15 @@ __global__ void aligned_softmax(float* p, unsigned first_sequence,
 __device__ __forceinline__ void ordered_stage(
     std::uint16_t* vs, float* ps, const std::uint16_t* values,
     const float* probabilities, unsigned int sequence, unsigned int first,
-    unsigned int dimension, unsigned int probability_stride) {
+    unsigned int dimension, unsigned int probability_stride,
+    unsigned int alternate_logical = 0, unsigned int alternate_physical = 0) {
   for (unsigned int i = threadIdx.x; i < 512; i += 192) {
     const unsigned int row = i / 8;
     const unsigned int column = (i % 8) * 8;
     const bool valid = first + row < sequence;
-    const auto* src = values + (valid ? (first + row) * 1024 +
+    const unsigned physical = alternate_logical && first + row == alternate_logical
+        ? alternate_physical : first + row;
+    const auto* src = values + (valid ? physical * 1024 +
         blockIdx.y * 256 + dimension * 64 + column : 0);
     const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(vs + row * 64 + column));
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
@@ -243,14 +249,16 @@ __device__ __forceinline__ void ordered_stage(
   asm volatile("cp.async.commit_group;" ::);
 }
 
-template<bool DeviceInputs = false>
+template<bool DeviceInputs = false, bool Tree = false>
 __global__ void attention_values_ordered_pair_kernel(
     const std::uint16_t* values, const float* probabilities,
     unsigned int first_sequence, unsigned int rows, std::uint16_t* output,
     const MtpVerifyDeviceInputs* parameters = nullptr) {
   if constexpr (DeviceInputs) first_sequence = parameters->position + 1;
   const unsigned int m = blockIdx.x % rows, dimension = blockIdx.x / rows;
-  const unsigned int sequence = first_sequence + m;
+  const unsigned int sequence = first_sequence + (Tree && m == rows - 1 ? 1 : m);
+  const unsigned alternate_logical = Tree && m == rows - 1 ? first_sequence : 0;
+  const unsigned alternate_physical = first_sequence + rows - 2;
   const unsigned int probability_stride = (first_sequence + rows + 2) & ~3U;
   probabilities += m * 24 * probability_stride;
   output += m * 6144;
@@ -265,14 +273,15 @@ __global__ void attention_values_ordered_pair_kernel(
 #pragma unroll
   for (unsigned int stage = 0; stage < 3; ++stage)
     ordered_stage(vs[stage], ps[stage], values, probabilities, sequence,
-                  stage * 64, dimension, probability_stride);
+                  stage * 64, dimension, probability_stride, alternate_logical, alternate_physical);
   asm volatile("cp.async.wait_group 2;" ::);
   __syncthreads();
   unsigned int buffer = 0;
   for (unsigned int first = 0; first < sequence; first += 64) {
     if (first + 3 * 64 < sequence)
       ordered_stage(vs[(buffer + 3) & 3], ps[(buffer + 3) & 3], values,
-                    probabilities, sequence, first + 3 * 64, dimension, probability_stride);
+                    probabilities, sequence, first + 3 * 64, dimension, probability_stride,
+                    alternate_logical, alternate_physical);
     const auto* v = vs[buffer];
     const auto* p = ps[buffer] + head * 64;
     if (first + 64 <= sequence) {
@@ -308,7 +317,7 @@ __global__ void attention_values_ordered_pair_kernel(
   output[destination] = encode_bf16_device(accumulator);
   output[destination + 1] = encode_bf16_device(second);
 }
-template<bool DeviceInputs = false>
+template<bool DeviceInputs = false, bool Tree = false>
 __global__ void short_attention_rows_kernel(
     const std::uint16_t* query,
     const std::uint16_t* const key_cache,
@@ -322,7 +331,7 @@ __global__ void short_attention_rows_kernel(
   __shared__ float probabilities[512];
 
   const unsigned row = blockIdx.y;
-  const unsigned sequence_length = first_sequence + row;
+  const unsigned sequence_length = first_sequence + (Tree && row == gridDim.y - 1 ? 1 : row);
   query += row * 12288;
   gate += row * 12288;
   output += row * 6144;
@@ -338,7 +347,8 @@ __global__ void short_attention_rows_kernel(
   for (std::size_t position = warp; position < sequence_length;
        position += 8) {
     const std::size_t key_offset =
-        (position * 4 + kv_head) * 256;
+        ((Tree && row == gridDim.y - 1 && position == first_sequence
+            ? first_sequence + gridDim.y - 2 : position) * 4 + kv_head) * 256;
 
     float sum = fmaf(decode_bf16_device(query[query_offset + lane]),
                      decode_bf16_device(key_cache[key_offset + lane]), 0.0F);
@@ -433,7 +443,8 @@ __global__ void short_attention_rows_kernel(
     float value = 0.0F;
     for (std::size_t position = 0U; position < sequence_length; ++position) {
       const std::size_t value_offset =
-          (position * 4 + kv_head) * 256;
+          ((Tree && row == gridDim.y - 1 && position == first_sequence
+            ? first_sequence + gridDim.y - 2 : position) * 4 + kv_head) * 256;
       value = fmaf(probabilities[position],
                    decode_bf16_device(
                        value_cache[value_offset + dimension]),
@@ -544,12 +555,13 @@ int launch_mtp_short_attention(const std::uint16_t* query,
 } // namespace q3x::runtime::mtp_detail
 
 namespace q3x::runtime::mtp_detail {
-int launch_mtp_graph_attention(const std::uint16_t* query,
+template<bool Tree>
+int launch_graph_attention_impl(const std::uint16_t* query,
     const std::uint16_t* key, const std::uint16_t* value,
     const MtpVerifyDeviceInputs* parameters, unsigned maximum_first_sequence,
     unsigned rows, void* workspace, std::size_t workspace_bytes,
     std::uint16_t* output, void* opaque) noexcept {
-  if (rows < 2 || rows > 4 || maximum_first_sequence < 65 ||
+  if (rows < (Tree ? 3U : 2U) || rows > 4 || maximum_first_sequence < 65 ||
       maximum_first_sequence > fused_decode::kMaximumSequence - (rows - 1) ||
       !parameters || reinterpret_cast<std::uintptr_t>(parameters) % 16)
     return cudaErrorInvalidValue;
@@ -579,30 +591,48 @@ int launch_mtp_graph_attention(const std::uint16_t* query,
   (void)cudaGetLastError();
   const auto stream = static_cast<cudaStream_t>(opaque);
   if (short_path) {
-    short_attention_rows_kernel<true><<<dim3(24, rows), 256, 0, stream>>>(
+    short_attention_rows_kernel<true, Tree><<<dim3(24, rows), 256, 0, stream>>>(
         query, key, value, 0, .0625F, query + 6144, output, parameters);
     return cudaGetLastError();
   }
   auto* probabilities = static_cast<float*>(workspace);
   const dim3 grid((last + 127) / 128, 4);
   if (rows == 2)
-    attention_scores_shared_rows_kernel<2, true><<<grid, 128, 0, stream>>>(
+    attention_scores_shared_rows_kernel<2, true, Tree><<<grid, 128, 0, stream>>>(
         query, key, 0, rows, probabilities, parameters);
   else if (rows == 3)
-    attention_scores_shared_rows_kernel<3, true><<<grid, 192, 0, stream>>>(
+    attention_scores_shared_rows_kernel<3, true, Tree><<<grid, 192, 0, stream>>>(
         query, key, 0, rows, probabilities, parameters);
   else
-    attention_scores_shared_rows_kernel<4, true><<<grid, 256, 0, stream>>>(
+    attention_scores_shared_rows_kernel<4, true, Tree><<<grid, 256, 0, stream>>>(
         query, key, 0, rows, probabilities, parameters);
   auto status = cudaGetLastError();
   if (status != cudaSuccess) return status;
-  aligned_softmax<true><<<24 * rows, 256, 0, stream>>>(
+  aligned_softmax<true, Tree><<<24 * rows, 256, 0, stream>>>(
       probabilities, 0, 0, rows, parameters);
   status = cudaGetLastError();
   if (status != cudaSuccess) return status;
-  attention_values_ordered_pair_kernel<true><<<dim3(4 * rows, 4), 192, 0, stream>>>(
+  attention_values_ordered_pair_kernel<true, Tree><<<dim3(4 * rows, 4), 192, 0, stream>>>(
       value, probabilities, 0, rows, output, parameters);
   return cudaGetLastError();
+}
+
+int launch_mtp_graph_attention(const std::uint16_t* query,
+    const std::uint16_t* key, const std::uint16_t* value,
+    const MtpVerifyDeviceInputs* parameters, unsigned maximum_first_sequence,
+    unsigned rows, void* workspace, std::size_t workspace_bytes,
+    std::uint16_t* output, void* opaque) noexcept {
+  return launch_graph_attention_impl<false>(query, key, value, parameters,
+      maximum_first_sequence, rows, workspace, workspace_bytes, output, opaque);
+}
+
+int launch_mtp_tree_graph_attention(const std::uint16_t* query,
+    const std::uint16_t* key, const std::uint16_t* value,
+    const MtpVerifyDeviceInputs* parameters, unsigned maximum_first_sequence,
+    unsigned rows, void* workspace, std::size_t workspace_bytes,
+    std::uint16_t* output, void* opaque) noexcept {
+  return launch_graph_attention_impl<true>(query, key, value, parameters,
+      maximum_first_sequence, rows, workspace, workspace_bytes, output, opaque);
 }
 
 bool is_mtp_graph_qk_kernel(const void* function) noexcept {

@@ -1,0 +1,84 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "source_parent": "a0b3c277c7c6f3407a0ba1f37f934706ee47a0ef",
+  "decision_unit": "local_mutation",
+  "status": "dependency_only; native Attention prerequisite; milestone 1 incomplete",
+  "downward_contract": "Same <=4 physical nodes. Alternate final node is logically depth1 and may read only committed prefix, seed, self; target arithmetic and BF16 publication unchanged.",
+  "implementation": "Separate compile-time tree specialization and private launch entry. QK replaces only final-node self address; softmax uses logical sequence; ordered PV maps that same self to physical tail. No arithmetic reassociation, extra verifier row, request allocation or service selection. Existing linear specializations retain default Tree=false.",
+  "tests": {
+    "tree_attention": {
+      "graph_cases": 10,
+      "changing_length_replays": 30,
+      "rows": [
+        3,
+        4
+      ],
+      "maximum_first_sequences": [
+        68,
+        508,
+        515,
+        8192,
+        40000
+      ],
+      "oracle": "Primary rows versus existing linear graph entry. Alternate versus independent contiguous seed+alternate K/V history and query row using linear rows2 entry. Complete BF16 outputs and guards bitwise equal.",
+      "scope": "Finite synthetic inputs; correctness only, not real-model numerical or performance evidence."
+    },
+    "linear_regression": {
+      "graphs": 63,
+      "replays": 252,
+      "result": "Complete outputs, long probabilities, guards, capacity/shrunk QK grids, invalid contracts pass; includes signed zero, NaN/Inf patterns."
+    },
+    "sanitizers": {
+      "memcheck": {
+        "exit_code": 0,
+        "scope": "rows3, maximum_first_sequence515, three changing-length graph replays"
+      },
+      "racecheck": {
+        "exit_code": 0,
+        "scope": "rows3, maximum_first_sequence515, three changing-length graph replays"
+      },
+      "synccheck": {
+        "exit_code": 0,
+        "scope": "rows3, maximum_first_sequence515, three changing-length graph replays"
+      }
+    }
+  },
+  "source_sha256": {
+    "src/runtime/mtp_verify_attention_internal.cu": "f713c29f079d1eecfcb41afd974f1f1dec0f0a9417b37e86a4f7eb562b7a8c89",
+    "src/runtime/mtp_verify_graph_internal.h": "cf907b1a436cdc484ed0fa42cf2b75d6f2387b455dccfe5f780f8cfecb486582",
+    "tests/mtp_tree_attention_cuda_test.cu": "69ee91b0917971d9ccf7d05940d2bf6966664c69786bd82fce2398778da9d693"
+  },
+  "artifacts": {
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-attention/cache-preparation.json": "30f9756267e384c81573086e1b3c4f841b0e4ced4f1a90ccaddf9aabd07cd669",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-attention/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-attention/preflight-console.log": "401da4e501d68a5ac56cc2c1cbc43634a2061d3b09c11e079b72c2b57f513cfa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-attention/preflight.json": "df519717bbb25531eb9c9221bc29efe19119ed5f31656205fb02e59255a0b923",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-attention/test.log": "0461b3a005c326a87841776a10edcdb34f7992dd35b4ca887f3e7ce58cb8d427",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-regression/cache-preparation.json": "fa33240d952ec8bbb032f32949820710aacfd26ce63046d679c4feb7a28d0a3a",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-regression/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-regression/preflight-console.log": "489d1ae914f5e843a5760c227121450f7a76f12b8d19b57ce0600a0b5a120417",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-regression/preflight.json": "8e4baea6eff0f2b689c19226d5cddac08eec48a6376190a3920a9a3a2ca05b32",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-regression/test.log": "7e79712ca3f5f8144161195a9d7de33cae577c8759e65bab1f313bb37f985455",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-memcheck/cache-preparation.json": "ca76c7750622fa079be584e56fe1c83376ed0431946b925ef8c18a311479ee72",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-memcheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-memcheck/preflight-console.log": "77f19d939cdbbd4de1b7e4e1d86a5165b3b204722d63d8f11a4b528d4ad03f56",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-memcheck/preflight.json": "0e0f0cadb2fbd2a6f38b7cc955d3250ef4fa9d4fe75e4d065ac20a8a4c5ceaab",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-memcheck/test.log": "c1bc5bbeb7cd8d5158b8afc7ed5623939fe70216c8d66dc5cd6275e72e7c8140",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-racecheck/cache-preparation.json": "7d1c9938c606bbd7fd91f7b6347496642352958266c0061aa836e418026671c9",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-racecheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-racecheck/preflight-console.log": "ca89ea513135b6c6263e3595dfed0174283bdcaba0c4d906c19ccf0f726cbddb",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-racecheck/preflight.json": "0e9a5d90af2894b061e4f1031adb6ecc31092f9d661166e2c705173ce9e4956e",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-racecheck/test.log": "b82134944dd1e688c42766972c4dda7a9c3546bbd9218bb1a3a4f39ec7ad3848",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-synccheck/cache-preparation.json": "dcbb603436ca762ee9beef23b461f77b3158063cc817066448af7218c95cd6c0",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-synccheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-synccheck/preflight-console.log": "8424178e1d49d013385bbb61a4b7c39502a3a5490cdb42139756da20c0513d67",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-synccheck/preflight.json": "989243e4a9004a395db2883daf18571b63048305aaaa93a6a6d841139f670a55",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-synccheck/test.log": "c1bc5bbeb7cd8d5158b8afc7ed5623939fe70216c8d66dc5cd6275e72e7c8140"
+  },
+  "remaining": "Exact parent Conv/GDN, alternate RoPE/logical position, selected-path canonical KV and draft reconciliation, full-model scalar state/logit oracles; then startup Graph/lifetime/route/resource composition and immediate d2 API return, useful direction unlocks d3.",
+  "budget": "Original two native milestones plus one correctness repair unchanged. Attention prerequisite is part of milestone1, not completion or budget reset.",
+  "new_performance_claim": false,
+  "production_changed": false
+}

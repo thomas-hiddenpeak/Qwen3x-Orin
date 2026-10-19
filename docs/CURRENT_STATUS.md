@@ -94,6 +94,9 @@ The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-
 51,369 host assertions plus AddressSanitizer/UBSan. It is linked only into a
 host test; native tree verification and service integration remain unfinished.
 Current generation and performance remain v113; no new speedup is claimed.
+The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) passes 30 synthetic tree replays,
+252 linear regression replays and bounded GPU sanitizer checks. It remains
+unselected by the service; full hybrid-state and real-model validation are pending.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request

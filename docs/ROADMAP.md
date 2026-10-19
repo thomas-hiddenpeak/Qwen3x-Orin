@@ -51,6 +51,10 @@ milestone 1. Fixed-budget planning and parent-index transaction selection pass
 stateful host oracles and sanitizer checks. The original two-milestone budget
 is unchanged: native parent-state verification is next, then complete Graph
 and API composition. Host results do not establish GPU state or performance.
+The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) now passes synthetic output/Graph
+and bounded sanitizer checks. Continue milestone1 with native parent Conv/GDN,
+logical RoPE and selected-path KV publication, then full-model scalar oracles.
+The original composition deadline and API exit remain unchanged.
 
 ## 2026-10-20 canonical singleton state — closed neutral
 

@@ -26,6 +26,17 @@ int launch_mtp_graph_attention(const std::uint16_t* query,
     unsigned rows, void* workspace, std::size_t workspace_bytes,
     std::uint16_t* output, void* stream) noexcept;
 
+// Fixed-budget alternate-tail topology, rows 3 or 4. The final row is a
+// child of seed row 0, logically at position+1, physically at position+rows-1.
+// All other rows remain linear. Arithmetic sees committed prefix, seed and
+// self only; the final row never reads primary sibling/descendant K/V.
+// Same storage/lifetime bounds as the linear entry. Not selected by service.
+int launch_mtp_tree_graph_attention(const std::uint16_t* query,
+    const std::uint16_t* key, const std::uint16_t* value,
+    const MtpVerifyDeviceInputs* parameters, unsigned maximum_first_sequence,
+    unsigned rows, void* workspace, std::size_t workspace_bytes,
+    std::uint16_t* output, void* stream) noexcept;
+
 // Startup graph helpers. The owning transaction validates actual tokens and
 // positions before upload. K/V staging is bounded by rows * 1024 elements;
 // query/gate output retains the existing interleaved-row stride of 12288.
