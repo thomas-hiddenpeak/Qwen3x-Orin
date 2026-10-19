@@ -19,31 +19,24 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 EOS frontier — initial API direction positive
+## 2026-10-20 EOS frontier — composed and retained
 
-The [host assessment](metadata/qwen36-27b-mtp-eos-frontier-assessment-2026-10-20.json)
-passes 44,280 finite-alphabet control/history cases. The
-[bounded composition design](metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json)
-selects removing the first proposed EOS and its suffix from target inputs:
-the preceding target prediction supplies the same EOS or mismatch fallback.
-A proposed EOS never directly terminates the request. Actual private steps
-remain separately accountable even when no proposal is submitted to verification.
+The [bounded design](metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json)
+is complete through its [native/initial API return](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
+and [remaining two-cap regression](metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json).
+Retain v122 in the cumulative non-installable MTP candidate. All six affected
+EOS requests per cap preserve exact output and remove two target rows and one
+private step. Representative noEOS, short/8K/40K, authentication, invalid
+requests, cancellation/recovery and normal exit pass. Stop this collection;
+no further EOS measurement or threshold scan is selected.
 
-The [initial native/API return](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
-passes complete target state/logit/draft-KV comparisons, false and accepted EOS,
-EOS/cancel precedence and failure recovery at the recorded boundaries. Both
-caps preserve exact API output IDs. Capability-4 removes two target rows and
-one private step, improving Decode about16% against the frozen same-request MTP
-incumbent. P65 has no EOS event and cap2 remains below1.5x. Joint metrics belong
-to [Current Status](CURRENT_STATUS.md).
-
-Next, complete the other five affected EOS cases, representative noEOS response,
-and bothcap8K/40K and lifecycle regression. Do not repeat the completed native
-panel without a new correctness question. These initial single-process checks
-are not architecture retention or production qualification.
-One implementation and at most one correctness repair are allowed; no threshold
-scan. Cap 2 short closure, remaining qualification and production selection stay
-open. The completed capability panel is not repeated without a new question.
+This is bounded development retention, not independent performance selection
+or production promotion. Joint metrics and their limits belong to
+[Current Status](CURRENT_STATUS.md). P65 never triggers EOS truncation, so cap2
+still misses1.5x. The next implementation must address that phase budget with
+a materially different architecture, preserving the closed lineages below.
+Capacity, sustained delivery, final selection and installation remain open;
+the full50%–200% goal is not complete and ordinary production stays nonMTP.
 
 ## 2026-10-20 sealed MTP capability — complete; EOS work audit next
 

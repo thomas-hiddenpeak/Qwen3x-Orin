@@ -86,28 +86,40 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [EOS-frontier v122 initial direction](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
-passes bounded native full-state/logit/draft-KV and failure-recovery checks and
-two exact-output API requests per cap. Accepted EOS and simultaneous observer
-cancellation preserve stop precedence. On capability-4, verification shrinks
-from6 to4 rows and private head work from4 to3 steps; the request still commits
-three Decode tokens in two rounds. Decode improves16.33% (cap2) and15.67%
-(cap3) against the frozen same-request MTP observations, not against nonMTP.
+The [EOS-frontier v122 composition](metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json)
+is retained in the non-installable MTP candidate after its
+[native state and initial API checks](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)
+and bothcap remaining regressions. Profiles are
+`q3x.sm87.candidate.mtp-eos-frontier-cap2.v122` and
+`q3x.sm87.candidate.mtp-eos-frontier-cap3.v122`; the linked records bind exact
+frozen binaries. This supersedes the preceding v119 sealed candidate in current
+source, not the ordinary installed nonMTP0.8.2 production route.
 
-Each row below is one v122 observation; Prefill includes draft initialization,
-TTFT/total are external. These are direction checks, not repeated selection.
+All six affected EOS requests per cap preserve exact output and reduce target
+verification from6 to4 rows and private head work from4 to3 steps. Decode gains
+range15.67%–16.46% against frozen same-request MTP observations. These are
+single-process direction observations, not a new comparison against nonMTP.
+Across initial and regression panels,32 complete responses preserve exact token
+IDs; authentication, invalid requests, cancellation/recovery and normal exit pass.
+Native complete state/logit/draft-KV and EOS/cancel precedence evidence retains
+its explicitly bounded scope. This does not repeat the full98-question suite.
+
+The following v122 regression observations include draft initialization in
+Prefill; TTFT and total are external. NoEOS representative and these three
+buckets retain physical work and pass3% Prefill/Decode regression guards.
 
 | Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 2 | 871 / 4 | 2.256 | 386.00 | 2.291 | 10.922 | 2.565 |
-| 3 | 871 / 4 | 2.252 | 386.70 | 2.287 | 10.905 | 2.562 |
-| 2 | 65 / 16 | 0.888 | 73.16 | 0.906 | 14.143 | 1.967 |
-| 3 | 65 / 16 | 0.888 | 73.17 | 0.906 | 14.989 | 1.907 |
+| 2 | 65 / 16 | 0.888 | 73.21 | 0.906 | 14.140 | 1.967 |
+| 3 | 65 / 16 | 0.888 | 73.17 | 0.907 | 14.978 | 1.908 |
+| 2 | 8192 / 256 | 17.335 | 472.58 | 17.357 | 15.620 | 33.683 |
+| 3 | 8192 / 256 | 17.339 | 472.47 | 17.361 | 15.606 | 33.701 |
+| 2 | 40000 / 256 | 92.780 | 431.13 | 92.815 | 11.831 | 114.370 |
+| 3 | 40000 / 256 | 92.718 | 431.41 | 92.753 | 11.831 | 114.308 |
 
-P65 has no EOS event; cap2 still misses1.5x. Other affected EOS cases,
-long-context/lifecycle regression and delivery qualification remain pending.
-V122 is not yet retained as the complete architecture. Ordinary nonMTP
-production and the frozen incumbent qualification below remain unchanged.
+Cap2 short remains below1.5x and has no EOS event. Final independent selection,
+capacity, sustained delivery and production qualification remain open. Historical
+v119 and original sealed evidence below retains its exact artifact scope.
 
 The [sealed capability panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)
 passes once per cap: 98/98 complete responses and reference answers match,

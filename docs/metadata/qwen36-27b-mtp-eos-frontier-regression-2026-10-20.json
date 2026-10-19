@@ -1,0 +1,284 @@
+{
+  "work_package_id": "WP-MTP-EOS-FRONTIER-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json",
+  "initial_direction": "docs/metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json",
+  "runtime_source": "efa8649",
+  "decision": "Retain EOS frontier v122 in the cumulative non-installable MTP candidate after bounded native and real API composition. No production promotion or full-goal completion.",
+  "caps": {
+    "2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/regression-cap2/api-key"
+        ],
+        "binary_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "5cd33ac168ec850b6f19ab6657faec39e1c9f315daa0076d1fe2bef941102d57",
+        "driver_sha256": "c481147979e5761147ee16eebbe8dd03e3a0a7690a746a8a9eff78d2188a6cb8",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "3def2587b84e4c3cd4e0ff8af83a4a233640d8ed",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.125
+      },
+      "regression_successful_requests": 14,
+      "initial_successful_requests": 2,
+      "exact_response_and_output_token_ids": "All16 compare to frozen same-cap incumbent; included two P65 observations across initial/regression processes.",
+      "lifecycle": "Authentication, invalid request, Prefill cancellation/recovery and Decode cancellation/recovery pass; final audit explicitly requires lifecycle receipts.",
+      "EOS_cases": [
+        {
+          "label": "capability-24",
+          "decode_tps": 10.884815395889262,
+          "incumbent_decode_tps": 9.374579022810757,
+          "ratio": 1.1610991138272677
+        },
+        {
+          "label": "capability-48",
+          "decode_tps": 10.951405587171312,
+          "incumbent_decode_tps": 9.406016722261084,
+          "ratio": 1.1642979074503215
+        },
+        {
+          "label": "capability-64",
+          "decode_tps": 10.94969708429495,
+          "incumbent_decode_tps": 9.403378514790903,
+          "ratio": 1.164442872003056
+        },
+        {
+          "label": "capability-73",
+          "decode_tps": 10.91322475926081,
+          "incumbent_decode_tps": 9.397185168407614,
+          "ratio": 1.1613291175691598
+        },
+        {
+          "label": "capability-94",
+          "decode_tps": 10.983775148122065,
+          "incumbent_decode_tps": 9.434961331612955,
+          "ratio": 1.1641568801474178
+        },
+        {
+          "label": "capability-4",
+          "decode_tps": 10.92187144476019,
+          "incumbent_decode_tps": 9.388804417815543,
+          "ratio": 1.163286714550748
+        }
+      ],
+      "joint_metrics": [
+        {
+          "label": "capability-0",
+          "prompt": 849,
+          "output": 4,
+          "prefill_s": 2.238602485,
+          "prefill_tps": 379.25447045146115,
+          "ttft_s": 2.2586456370772794,
+          "elapsed_s": 2.419616968021728,
+          "decode_tps": 18.62857834420937
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.887871368,
+          "prefill_tps": 73.20880292200165,
+          "ttft_s": 0.9062576320720837,
+          "elapsed_s": 1.9670174421044067,
+          "decode_tps": 14.13973742754571
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.334716218,
+          "prefill_tps": 472.5776815136784,
+          "ttft_s": 17.356777732027695,
+          "elapsed_s": 33.68268078903202,
+          "decode_tps": 15.61960445456874
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.78003722100001,
+          "prefill_tps": 431.1272251887642,
+          "ttft_s": 92.81484909099527,
+          "elapsed_s": 114.3695302499691,
+          "decode_tps": 11.831255063822406
+        }
+      ],
+      "scope": {
+        "panel": "Remaining five affected EOS cases plus representative capability-0, complete integration/auth/invalid/cancellation/recovery regression; not full capability, capacity, sustained service or repeated performance selection",
+        "wrapper_sha256": "24955d64549b77d459eb958042ae5167b9b920733d731bd7e4782d942b74826d",
+        "exact_token_comparator": {
+          "capability": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap2",
+          "p65": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-cap2-20261020/cap2"
+        }
+      }
+    },
+    "3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/regression-cap3/api-key"
+        ],
+        "binary_sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "9380b4290cc20e00997faef699c403d203f687bdb1d6be8fff920c5c52033774",
+        "driver_sha256": "c481147979e5761147ee16eebbe8dd03e3a0a7690a746a8a9eff78d2188a6cb8",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "3def2587b84e4c3cd4e0ff8af83a4a233640d8ed",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.5
+      },
+      "regression_successful_requests": 14,
+      "initial_successful_requests": 2,
+      "exact_response_and_output_token_ids": "All16 compare to frozen same-cap incumbent; included two P65 observations across initial/regression processes.",
+      "lifecycle": "Authentication, invalid request, Prefill cancellation/recovery and Decode cancellation/recovery pass; final audit explicitly requires lifecycle receipts.",
+      "EOS_cases": [
+        {
+          "label": "capability-24",
+          "decode_tps": 10.875957048873442,
+          "incumbent_decode_tps": 9.402030043077565,
+          "ratio": 1.1567668896017926
+        },
+        {
+          "label": "capability-48",
+          "decode_tps": 10.930056984143556,
+          "incumbent_decode_tps": 9.405450970493934,
+          "ratio": 1.1620981299495898
+        },
+        {
+          "label": "capability-64",
+          "decode_tps": 10.9493525144188,
+          "incumbent_decode_tps": 9.40279595773551,
+          "ratio": 1.1644783704373556
+        },
+        {
+          "label": "capability-73",
+          "decode_tps": 10.9481264339856,
+          "incumbent_decode_tps": 9.400541447372664,
+          "ratio": 1.1646272180466228
+        },
+        {
+          "label": "capability-94",
+          "decode_tps": 10.967793731774268,
+          "incumbent_decode_tps": 9.435300949396964,
+          "ratio": 1.1624211872622092
+        },
+        {
+          "label": "capability-4",
+          "decode_tps": 10.904870446649536,
+          "incumbent_decode_tps": 9.427472427707078,
+          "ratio": 1.1567119957413428
+        }
+      ],
+      "joint_metrics": [
+        {
+          "label": "capability-0",
+          "prompt": 849,
+          "output": 4,
+          "prefill_s": 2.270649995,
+          "prefill_tps": 373.90174701935956,
+          "ttft_s": 2.291198226972483,
+          "elapsed_s": 2.452156494022347,
+          "decode_tps": 18.623720350982882
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8883883390000001,
+          "prefill_tps": 73.16620125064473,
+          "ttft_s": 0.9067827879916877,
+          "elapsed_s": 1.9081610090797767,
+          "decode_tps": 14.977873756259081
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.338775710999997,
+          "prefill_tps": 472.46703784298126,
+          "ttft_s": 17.360946519998834,
+          "elapsed_s": 33.700904786004685,
+          "decode_tps": 15.606191854588474
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.71833212699998,
+          "prefill_tps": 431.41414521143895,
+          "ttft_s": 92.7533212780254,
+          "elapsed_s": 114.30846170603763,
+          "decode_tps": 11.830961961392305
+        }
+      ],
+      "scope": {
+        "panel": "Remaining five affected EOS cases plus representative capability-0, complete integration/auth/invalid/cancellation/recovery regression; not full capability, capacity, sustained service or repeated performance selection",
+        "wrapper_sha256": "24955d64549b77d459eb958042ae5167b9b920733d731bd7e4782d942b74826d",
+        "exact_token_comparator": {
+          "capability": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap3",
+          "p65": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/cap3-repaired"
+        }
+      }
+    }
+  },
+  "artifact_root": ".q3x-work/mtp-eos-frontier-20261020",
+  "artifact_sha256": {
+    "regression-cap2/identity.json": "161d7262bcc7de9d0f4f8858d08dfa0751e96062c660a67b76556676b88c30c3",
+    "regression-cap2/health.json": "136152dd8533dbcd438c18800c08389e65491fefb52fd2e656bf093bdf763361",
+    "regression-cap2/cleanup.json": "2fe404c8b8fbf5352f9d339750203f7c4dc3855c31a5201e5bc38cfc5f4fc9e8",
+    "regression-cap2/cache-preparation.json": "988c94345c80c6a7c3d3f05c508422164955d33295b704ce0732ccdacf2b23d9",
+    "regression-cap2/preflight.json": "604d80ca9721edd2ac4b429657968321107e6e64a727ba18fec024250dcef15f",
+    "regression-cap2/results.json": "9cb5a174908e50d851447eaf6f7b62eb9042d6fe98ea57ea3804bd256e4760d2",
+    "regression-cap2/audited-metrics.json": "394ce00e1fb4818ca4465ada6a9b3cf7b96583b15edd8296c2f4dcc89342aa93",
+    "regression-cap2/server.log": "c17447fd1cb45f69c1238a6a503afec9f631f0f8183e64831171e95cdf4330f5",
+    "regression-cap2/regression-scope.json": "079dd161ed36d7525077903228d4a37a1d9ff34a31a7787a406e8783a62cac15",
+    "regression-cap3/identity.json": "11050d4cda67cea1272543abdcec32c38898a0dc87436c17e903c69aadb8a8d1",
+    "regression-cap3/health.json": "19d7acd65faf949047fd0900a4035471512b232d7815da942dd7a09af35432a7",
+    "regression-cap3/cleanup.json": "523d2e153b9b971f0aacf9be2d2f1fcd32e77a920a7f3e4e8d3b98d555fab4b9",
+    "regression-cap3/cache-preparation.json": "4bcfe5bc22e8bddc5e098fbdbeed3614fdfea242edb539b7ae180212ac2460d2",
+    "regression-cap3/preflight.json": "b24158ac17dab852f461dea46ef79580eb6b4d504fece63fc60919d6a37b8c67",
+    "regression-cap3/results.json": "ec3c0bc5c433c17e0fa016db208d63208d89db08d47a14759e36a8157cf468bc",
+    "regression-cap3/audited-metrics.json": "9db125ac115bd75bf881d11b7465746e699204c6f14978907ccfdf2e77128d3f",
+    "regression-cap3/server.log": "a14b64fb30c30c5ec0d6c4873ae576af0e2d6622dc1832e41dd5faed17a74c28",
+    "regression-cap3/regression-scope.json": "250135b9e5a52c65eba6e389073855d6df64282d0d9847af2e002dc3bc11c9ac",
+    "run-regression.py": "24955d64549b77d459eb958042ae5167b9b920733d731bd7e4782d942b74826d",
+    "record-regression.py": "036de6453e6a7450623d3777f66c9e36dec2d5ac07d6e5055e9354fe9e75f100"
+  },
+  "bounds": [
+    "All six previously affected EOS requests per cap preserve exact output and remove two target rows plus one private head step; confidence and all arithmetic unchanged.",
+    "P65/8K/40K and representative noEOS request retain physical work and stay within predeclared3% Prefill/Decode regression guards.",
+    "Each regression is one fresh process; ratios use historical frozen same-request MTP incumbents. Not a repeated performance selection or a new nonMTP comparison.",
+    "Native complete-prefix and EOS-specific checks retain exactly the scope in the initial-direction record. No repeated98-case public qualification."
+  ],
+  "remaining": [
+    "Cap2 P65/O16 still below1.5x; this workload never triggers EOS frontier. Next implementation requires a materially different phase-budgeted architecture, not more EOS measurements or a reopened threshold/kernel scan.",
+    "Independent final architecture selection and capacity/sustained/installation qualification remain open. Ordinary installed nonMTP0.8.2 unchanged."
+  ]
+}
