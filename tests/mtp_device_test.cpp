@@ -405,7 +405,7 @@ int main(int argc, char** argv) try {
     std::cout << "scope=prefix_state_logits_only checks=10 passed\n" << std::flush;
     return 0;
   }
-  struct Case { unsigned length; int mismatch; bool cancel; bool fail; bool adaptive = false; };
+  struct Case { unsigned length; int mismatch; bool cancel; bool fail; bool adaptive = false; bool tail_policy = false; };
   std::vector<Case> cases;
   for (unsigned length : {2U, 3U}) {
     cases.push_back({length, -1, false, false});
@@ -419,6 +419,9 @@ int main(int argc, char** argv) try {
     cases.push_back({length, -1, false, true, true});
     cases.push_back({length, -1, true, false, true});
   }
+  cases.push_back({3, -1, false, false, true, true});
+  cases.push_back({3, -1, true, false, true, true});
+  cases.push_back({3, -1, false, true, true, true});
   for (const auto& test : cases) {
     const auto length = test.length;
     require(bool(target->reset()) && draft.reset(), "request reset");
@@ -525,6 +528,8 @@ int main(int argc, char** argv) try {
       options.draft_length = length;
       options.seed_token = actual.back();
       options.remaining_output = expected.size() - actual.size();
+      if (test.tail_policy)
+        options.draft_length = mtp::output_tail_budget(length, options.remaining_output);
       options.available_target_rows = request->max_sequence_length() - request->current_position();
       options.vocabulary_size = 248320;
       options.stop_token = 248046;
@@ -594,7 +599,7 @@ int main(int argc, char** argv) try {
     require(read_device(draft.keys(), live_k.size()) == live_k, "draft K differs from target-conditioned replay");
     require(read_device(draft.values(), live_v.size()) == live_v, "draft V differs from target-conditioned replay");
     std::cout << "draft_length=" << length << " scripted_mismatch=" << test.mismatch
-              << " adaptive=" << test.adaptive << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
+              << " tail_policy=" << test.tail_policy << " adaptive=" << test.adaptive << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
               << " rounds=" << rounds << " proposed=" << proposed << " accepted=" << accepted
               << " verified_rows=" << rows << " target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
   }

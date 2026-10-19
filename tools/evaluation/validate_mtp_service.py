@@ -95,6 +95,10 @@ def audit(out, records, draft):
         q.require(w['prefill_mlp_launches'] == 64*(1+(w['prompt_tokens']>=64)+(w['prompt_tokens']%64 != 0)), 'MLP coverage')
         q.require(m['draft_prefill_rows'] == w['prompt_tokens'] - 1, 'shifted prefix rows')
         q.require(m['committed_decode_tokens'] == w['completion_tokens'] - 1, 'committed token count')
+        budgets = m['requested_budget_histogram']
+        q.require(m['budget_policy'] == 'output-tail-v119' and len(budgets) == 4 and
+                  budgets[0] == budgets[1] == 0 and sum(budgets) == m['rounds'] and
+                  budgets[3] <= (1 if draft == 3 else 0), 'output-tail requested budgets')
         histogram = m['proposal_histogram']
         q.require(m['confidence_threshold'] == 0.4 and len(histogram) == 4 and
                   sum(histogram) == m['rounds'] and
@@ -159,7 +163,7 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-integer-head-api.v113' if args.draft_length else q.PROFILE
+    q.PROFILE = 'q3x.sm87.admission.mtp-output-tail-api.v119' if args.draft_length else q.PROFILE
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']

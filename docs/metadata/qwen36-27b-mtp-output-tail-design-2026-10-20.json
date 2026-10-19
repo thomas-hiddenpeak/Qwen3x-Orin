@@ -1,0 +1,26 @@
+{
+  "work_package_id": "WP-MTP-OUTPUT-TAIL-20261020",
+  "architecture_candidate_id": "AC-MTP-OUTPUT-TAIL-v119",
+  "source_parent": "0803c1e",
+  "product_constraint": "Same-workload realAPI Decode50%-200%, exact target/private numerical and output, configured caps2/3, joint Prefill/TTFT/Decode/total.",
+  "downward_budget": "v113d2 short gap17.903ms; its sole native tail executes full64-layer weights. Same-ELF trace native embedding-to-argmax104.624ms, almost allGPU work; this is opportunity not predicted saving.",
+  "mechanism": "Configured2 unchanged. Configured3 uses requested budget2 in ordinary rounds and3 only when remaining_output==4. Existing0.4 confidence stop remains. Four is derived from one full max3+bonus round replacing a full max2+bonus round followed by singleton. A rejected extension may lose; no acceptance-probability inference.",
+  "scope": "Any prompt/context/output length; no token-ID cases, fitting, learned costs or threshold scan. At most one requested3 round per request because remaining output strictly decreases. Existing d3 inventory already fits; no new allocation/math/kernel/state change.",
+  "lineage": "Different from rejected confidence-trigger frontier, last-acceptance backoff and empirical shared-feedback arms. Does not reopen singleton copy removal or Graph-only execution; attempts to remove one whole64-layer pass by changing valid proposal batch size.",
+  "comparator": "Current faster v113d2 acrossall3workloads, not slower fixed d3. Configured3 is explicitly maximum/adaptive budget, not claimed fixed3 execution.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "threshold_scans": 0,
+    "profiles": 0
+  },
+  "validation": [
+    "host complete mixed-budget recurrent/Conv/KV replay plus termination/failure contracts",
+    "P65 complete native target prefix/state/logit and mixed-budget transaction tests",
+    "Immediate configured3 P65/O16 against v113d2. Require >=1.5 times faster fresh nonMTP9.59467851190026tps to unlock8K/40K and lifecycle.",
+    "8K/40K must retain >=1.5 times current fresh nonMTP medians9.219908379830/7.864448870704 and no>3%loss versusv113d2. Positive all3 unlock unchanged configured2 panel and repeated selection."
+  ],
+  "stop": "Failed short target or long gate removes rule and counters. No boundary/threshold/budget search. A positive observation is not release or final goal proof.",
+  "artifacts": ".q3x-work/mtp-output-tail-20261020",
+  "production_changed": false
+}

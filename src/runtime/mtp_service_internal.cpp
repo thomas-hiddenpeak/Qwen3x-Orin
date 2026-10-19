@@ -123,6 +123,8 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
     round.confidence_lookahead = true;
     round.draft_length = length_; round.seed_token = control.generated_token_ids.back();
     round.remaining_output = options.max_new_tokens - control.generated_token_ids.size();
+    round.draft_length = output_tail_budget(length_, round.remaining_output);
+    ++report_.requested_budget_histogram[round.draft_length];
     round.available_target_rows = state_.max_sequence_length() - state_.current_position();
     round.vocabulary_size = kReferenceVocabularySize; round.stop_token = options.stop_token_id;
     const auto result = run_round(round, backend, Observer::emit, &observer);
@@ -152,6 +154,9 @@ std::string Service::report_json() const {
       << ",\"verified_rows\":" << r.verified << ",\"committed_decode_tokens\":" << r.committed
       << ",\"accepted_by_position\":[" << r.accepted_by_position[0] << ','
       << r.accepted_by_position[1] << ',' << r.accepted_by_position[2] << ']'
+      << ",\"budget_policy\":\"output-tail-v119\",\"requested_budget_histogram\":["
+      << r.requested_budget_histogram[0] << ',' << r.requested_budget_histogram[1] << ','
+      << r.requested_budget_histogram[2] << ',' << r.requested_budget_histogram[3] << ']'
       << ",\"confidence_threshold\":0.4,\"proposal_histogram\":[" << r.proposal_histogram[0]
       << ',' << r.proposal_histogram[1] << ',' << r.proposal_histogram[2] << ',' << r.proposal_histogram[3] << ']'
       << ",\"draft_head\":\"nvfp4-block16-dp4a-v1\",\"draft_integer_head_steps\":" << draft_.integer_head_steps()

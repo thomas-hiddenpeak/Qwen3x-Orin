@@ -9,6 +9,13 @@ namespace q3x::runtime::mtp_detail {
 inline constexpr std::uint32_t kMaximumDraftLength = 3;
 inline constexpr std::uint32_t kMaximumVerifyRows = 4;
 
+// Keep ordinary two-draft rounds, but permit a full four-output terminal
+// round under cap3. Invalid configured caps remain invalid at run_round.
+inline constexpr std::uint32_t output_tail_budget(std::uint32_t configured,
+                                                 std::uint32_t remaining) noexcept {
+  return configured == 3 && remaining != 4 ? 2 : configured;
+}
+
 struct RoundOptions {
   std::uint32_t draft_length = 2;  // Configured length: exactly 2 or 3.
   std::uint32_t seed_token = 0;    // Already emitted, not yet in target state.

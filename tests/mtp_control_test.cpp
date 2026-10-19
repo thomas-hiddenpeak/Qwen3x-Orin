@@ -171,7 +171,7 @@ void bounded() {
         require(scalar == b.state && b.state == b.draft_state);
       }
 }
-void replay() {
+void replay(bool tail_policy = false) {
   for (std::uint32_t length : {2U, 3U}) {
     for (std::uint32_t mismatch = 0; mismatch <= length; ++mismatch) {
       for (std::uint32_t total = 1; total <= 65; ++total) {
@@ -181,7 +181,7 @@ void replay() {
         std::uint32_t seed = predict(scalar);
         std::uint32_t remaining = total;
         while (remaining != 0) {
-          const auto opts = options(backend, length, remaining);
+          const auto opts = options(backend, tail_policy ? mtp::output_tail_budget(length, remaining) : length, remaining);
           Observer observer{&backend};
           const auto result = mtp::run_round(opts, backend, Observer::call, &observer);
           require(result.ok() && result.output_count > 0);
@@ -287,6 +287,7 @@ void failures() {
 int main() {
   bounded();
   replay();
+  replay(true);
   termination();
   failures();
   std::cout << "mtp_control_checks=" << checks << "\n";

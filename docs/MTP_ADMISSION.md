@@ -25,6 +25,30 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 output-tail composition — positive API direction
+
+[WP-MTP-OUTPUT-TAIL-20261020](metadata/qwen36-27b-mtp-output-tail-design-2026-10-20.json)
+selects one fixed request-horizon rule. Configured cap 2 stays unchanged; cap 3
+uses budget 2 except when four output tokens remain, when budget 3 may complete
+with its bonus and remove a subsequent full scalar model pass. Existing 0.4
+confidence stopping, state commitment and all arithmetic remain unchanged.
+This removes work if accepted; it does not optimize the singleton's submission.
+A rejected extension may cost more. No prompt/token-specific rule or threshold
+scan is permitted. At most one requested 3 round occurs per request.
+
+The [completed direction](metadata/qwen36-27b-mtp-output-tail-direction-2026-10-20.json)
+passes mixed-budget host/native full-state admission and both configured-cap
+API/lifecycle panels. Cap3 crosses 1.5x in short / 8K / 40K in its first process,
+with exact output. This is bounded retention, not repeated selection. Current
+joint metrics and limitations are owned by [Current Status](CURRENT_STATUS.md).
+
+Remaining delivery is cap 2's short budget and prospective repeated selection
+of the complete composition. Keep this rule as a bounded constituent through
+that next API return; do not scan horizons, confidence thresholds or kernels.
+The next implementation requires its own downward budget and composition
+point. No production route or numerical contract changes, and the full
+50%–200% objective remains active.
+
 ## 2026-10-20 complete private draft Graph — closed neutral API direction
 
 The [complete private-step design](metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json)

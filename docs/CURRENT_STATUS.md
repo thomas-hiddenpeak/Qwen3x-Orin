@@ -86,6 +86,50 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+Current isolated source is v119, profile
+`q3x.sm87.admission.mtp-output-tail-api.v119`, frozen server
+`1dc8458a67231470344122c1f60a7aede6c199c7f50ce2b54b5cd37bc48e65dd`.
+The [output-tail composition](metadata/qwen36-27b-mtp-output-tail-direction-2026-10-20.json)
+keeps configured cap 2 unchanged and makes cap 3 adaptive: budget 2 ordinarily,
+budget 3 only when four output tokens remain. Existing confidence stopping and
+all arithmetic remain unchanged. On the short request it removes one whole
+scalar target pass, changes rounds 7 to 6 and accepted drafts 8 to 9, and retains
+19 verified rows and exact committed token IDs. Both long requests retain the
+v113 d2 work counts; no tail extension is encountered there.
+
+The following cap 3 observations are one process, not repeated selection.
+Prefill includes private draft initialization; TTFT and total are external.
+The comparator is the same-request non-MTP median linked in the preceding
+v113 section below, not the slower historical fixed-d3 policy.
+
+| P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs non-MTP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | 0.891 | 72.91 | 0.910 | 14.999 | 1.910 | +56.39% |
+| 8192 / 256 | 17.354 | 472.06 | 17.376 | 15.629 | 33.692 | +69.52% |
+| 40000 / 256 | 92.720 | 431.40 | 92.755 | 11.838 | 114.298 | +50.52% |
+
+The same frozen binary's configured cap 2 regression gives:
+
+| P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs non-MTP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | 0.900 | 72.22 | 0.919 | 14.104 | 1.982 | +47.07% |
+| 8192 / 256 | 17.302 | 473.48 | 17.324 | 15.622 | 33.648 | +69.43% |
+| 40000 / 256 | 92.831 | 430.89 | 92.866 | 11.851 | 114.385 | +50.69% |
+
+Host mixed-budget replay passes 373,026 checks. Native admission passes ten
+complete target prefixes, 17 state/full-logit/draft-KV transactions and five
+failure/reset recoveries. API responses, token IDs and lifecycle checks are
+recorded for both caps in the linked direction record. Target and private
+arithmetic are unchanged, so prior original-weight numerical admission retains
+its existing scope. **The complete objective is not yet achieved:** configured 2
+short Decode remains below 1.5x and prospective independent-process selection
+is outstanding. Production remains the installed non-MTP 0.8.2 artifact.
+
+### Preceding v113 and closed directions
+
+The following v113 metrics and closed lineages are historical comparators;
+statements about their current source or pending return describe those stages.
+
 The [complete private draft Graph](metadata/qwen36-27b-mtp-draft-step-graph-rejection-2026-10-20.json)
 is closed neutral. Numerical/Graph/state checks pass, but d2 P65 Decode changes
 only+0.0907% (14.1618 versus14.1490token/s), below the declared+0.1% gate.
@@ -117,7 +161,7 @@ The declared 8K stop ends this version before 40K/d3; integration and unused
 executor are removed. This is a direction decision, not a statistically
 qualified slowdown or a new performance baseline. Current v113 remains below.
 
-Current isolated source retains the complete verifier Graph and adds a private
+The preceding v113 source retains the complete verifier Graph and adds a private
 integer draft vocabulary projection. Profile is
 `q3x.sm87.admission.mtp-integer-head-api.v113`, measured ELF
 `4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366`.
