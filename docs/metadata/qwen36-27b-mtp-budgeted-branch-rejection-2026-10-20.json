@@ -1,0 +1,235 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "frozen_api_protocol": "docs/metadata/qwen36-27b-mtp-budgeted-branch-api-design-2026-10-20.json",
+  "status": "closed; negative whole-API direction; all tree source/prerequisites removed and v113 restored",
+  "decision_unit": "architecture_candidate",
+  "numerical_evidence": [
+    "docs/metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json"
+  ],
+  "integration": "GPU first-step full-vocabulary top2 plus unchanged confidence0.4 stop, final-step confidence, frozen log-probability rule, tree controller and ten startup verifier Graphs composed into private v117 API. Tiny/cross-family proposals retained linear. No new snapshot slot or request capture/allocation.",
+  "proposal_stats_checks": "12 GPU full/partial-vocabulary cases against CPU top2 including deterministic ties, signed zero, subnormal and NaN/Inf; confidence matches original kernel. Root memcheck/racecheck/synccheck pass.",
+  "completed_request": {
+    "label": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.8969595479999999,
+    "prefill_tps": 72.4670361611447,
+    "ttft_s": 0.9155304420273751,
+    "elapsed_s": 2.113027025014162,
+    "decode_tps": 12.525570126813857,
+    "mtp": {
+      "enabled": true,
+      "verifier": "budgeted-tree-full-graph-v117",
+      "draft_length": 2,
+      "startup_free_bytes": 9993379840,
+      "prompt_rows": 65,
+      "draft_prefill_rows": 64,
+      "initialized": true,
+      "rounds": 8,
+      "proposed": 13,
+      "accepted": 7,
+      "primary_candidates": 13,
+      "retained_proposal_nodes": 13,
+      "verified_rows": 21,
+      "committed_decode_tokens": 15,
+      "accepted_by_position": [
+        5,
+        2,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        0,
+        3,
+        5,
+        0
+      ],
+      "draft_head": "nvfp4-block16-dp4a-v1",
+      "draft_integer_head_steps": 13,
+      "draft_ordered_attention_steps": 0,
+      "entry_hidden_snapshots": 8,
+      "tree_rounds": 2,
+      "unused_primary_candidates": 2,
+      "proposal_stats_steps": 7,
+      "scalar_verify_rows": 0,
+      "direct_gdn_state_rows": 1008,
+      "full_graph_rounds": 8,
+      "full_graph_rows": 21,
+      "graph_qk_updates": 0,
+      "seed_kv_reuses": 8,
+      "tail_kv_batches": 2,
+      "tail_kv_rows": 4,
+      "state_copy_bytes_elided": 2216992768,
+      "draft_initialization_ms": 5.601183,
+      "draft_ms": 99.150543,
+      "verify_ms": 1079.983757,
+      "reconcile_ms": 18.008838999999995,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "comparison": {
+    "v113_decode_tps": 14.14897114978091,
+    "candidate_decode_tps": 12.525570126813857,
+    "relative_decode_change": -0.11473632999754835,
+    "original_non_mtp_response_usage_finish_equal": true,
+    "v113_generated_token_ids_equal": true,
+    "route_and_physical_work_audit": "pass",
+    "v113_work": {
+      "rounds": 7,
+      "proposed": 12,
+      "accepted": 8,
+      "verified_rows": 19
+    },
+    "candidate_work": {
+      "rounds": 8,
+      "proposed": 13,
+      "accepted": 7,
+      "verified_rows": 21,
+      "tree_rounds": 2,
+      "unused_primary_candidates": 2,
+      "proposal_stats_steps": 7
+    },
+    "causality_scope": "Two selected alternate rounds did not improve this actual path: net accepted count falls1, rounds rise1 and target rows rise2. First-token coverage on the prior linear trace did not predict net accepted work after changing topology. Extra statistics/unused tail work are included, not free. No universal branching/hardware limitation inferred."
+  },
+  "stop": "Predeclared short gate fails. Driver interrupted while next8K Prefill had begun; cancelled request is incomplete and has no timing authority. No 40K/d3/lifecycle qualification.",
+  "interrupted_receipts": [
+    {
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "mtp": {
+        "enabled": true,
+        "verifier": "budgeted-tree-full-graph-v117",
+        "draft_length": 2,
+        "startup_free_bytes": 9993379840,
+        "prompt_rows": 0,
+        "draft_prefill_rows": 0,
+        "initialized": false,
+        "rounds": 0,
+        "proposed": 0,
+        "accepted": 0,
+        "primary_candidates": 0,
+        "retained_proposal_nodes": 0,
+        "verified_rows": 0,
+        "committed_decode_tokens": 0,
+        "accepted_by_position": [
+          0,
+          0,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 13,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 8,
+        "tree_rounds": 2,
+        "unused_primary_candidates": 2,
+        "proposal_stats_steps": 7,
+        "scalar_verify_rows": 0,
+        "direct_gdn_state_rows": 1008,
+        "full_graph_rounds": 8,
+        "full_graph_rows": 21,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 8,
+        "tail_kv_batches": 2,
+        "tail_kv_rows": 4,
+        "state_copy_bytes_elided": 2216992768,
+        "draft_initialization_ms": 0,
+        "draft_ms": 0,
+        "verify_ms": 0,
+        "reconcile_ms": 0,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 61.968
+  },
+  "audit_scope": "Initial use of full-panel auditor correctly required missing Decode-cancel receipt; completed-request audit explicitly omits only unexecuted lifecycle obligations. Full lifecycle is not claimed. No model rerun or threshold change.",
+  "restoration": {
+    "server": {
+      "rebuilt_sha256": "ec79cac1933edc0a5e7c66e7995ae056c4c88120bd225d171cb48a0390b56993",
+      "frozen_sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+      "same_size": true,
+      "differing_bytes": 9,
+      "offsets": [
+        13811213,
+        13811214,
+        13811215,
+        13811216,
+        13811217,
+        13827665,
+        13827666,
+        13827667,
+        13827668
+      ],
+      "differing_contexts": [
+        {
+          "rebuilt": "stedE\u0000tmpxft_0005ae67_00000000-6_mtp_prefill_internal.cudafe1.cpp\u0000fatbinData\u0000_ZL2",
+          "frozen": "stedE\u0000tmpxft_00014a2b_00000000-6_mtp_prefill_internal.cudafe1.cpp\u0000fatbinData\u0000_ZL2"
+        }
+      ]
+    },
+    "oracle": {
+      "rebuilt_sha256": "4671c2e607efee715544b942365cb6d71e3905fdb2921801780392527f9d8856",
+      "frozen_sha256": "afba7435f997e514d50ce48b44146b7564827c95f8ad03d1ffdd9cd4f4ed9773",
+      "same_size": true,
+      "differing_bytes": 9,
+      "offsets": [
+        13611972,
+        13611973,
+        13611974,
+        13611975,
+        13625483,
+        13625484,
+        13625485,
+        13625486,
+        13625487
+      ],
+      "differing_contexts": [
+        {
+          "rebuilt": "Text\u0000tmpxft_0005af31_00000000-6_mtp_verify_attention_internal.cudafe1.cpp\u0000_ZN3q3x",
+          "frozen": "Text\u0000tmpxft_00056798_00000000-6_mtp_verify_attention_internal.cudafe1.cpp\u0000_ZN3q3x"
+        }
+      ]
+    },
+    "source_equals_ca2abcb": true
+  },
+  "retained_artifacts": {
+    ".q3x-work/mtp-budgeted-branch-20261020/api-source/architecture.patch": "922537db1f02d43e894ae7b1a1c7a07c5c43ca9a1948862dc523d39f1b2f3864",
+    ".q3x-work/mtp-budgeted-branch-20261020/api-source/source-identity.json": "4a3a13981eb5f46bb444d4c05ab49c74dde066f575dbfc7eb603b5bde9ddf80a",
+    ".q3x-work/mtp-budgeted-branch-20261020/api-source/server": "51801bcf08292b26a0f60e9259572b565a065a289a85868ece538158b7b22228",
+    ".q3x-work/mtp-budgeted-branch-20261020/d2-comparison.json": "42fa9c2f347bdb305a80e4a882d8b0c87e104aef9a93bb2c2042e129d22c916d",
+    ".q3x-work/mtp-budgeted-branch-20261020/d2-completed-audit.json": "d613ae25d59cccce0f93542e1f7f454767f3982d089183c27fb191a74b877821",
+    ".q3x-work/mtp-budgeted-branch-20261020/audit-completed.py": "c94411dd391dd2243a03718ea2af9e29d9edddd07f5bf66f0ce6fc0d8470df01",
+    ".q3x-work/mtp-budgeted-branch-20261020/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-budgeted-branch-20261020/restoration.json": "78eae8f94415d84449c6338fb8b3e27784879995fc53584600b74fe877802218",
+    ".q3x-work/mtp-budgeted-branch-20261020/closure/preflight.json": "ea41f06c0f5b2fe8b54f4c4ceed94d74d3b5cbb7dcff0369e5b6405ae1839237"
+  },
+  "next_scope": "Keep v113 and full50%-200% goal. No top2/rank/threshold/width/depth scan; next direction must address the whole-runner gap with a materially different architecture. Production and private/target numerical contracts unchanged.",
+  "production_changed": false,
+  "goal_complete": false,
+  "closure": {
+    "restored_host_test": "mtp_control pass",
+    "document_control": "86 paths; 0 errors; 7 unit tests pass",
+    "gpu_ownership": "closure preflight no holders",
+    "worktrees": 47,
+    "artifact_bytes_approx": 162529280
+  }
+}

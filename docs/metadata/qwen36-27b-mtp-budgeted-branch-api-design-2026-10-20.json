@@ -1,0 +1,21 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "decision_unit": "architecture_candidate",
+  "protocol_class": "direction screen; no repetition or release authority",
+  "profile": "q3x.sm87.admission.mtp-budgeted-tree-api.v117",
+  "source_parent": "ca502b2bcfac757ba01ebcd53293a48a3b8bdcbd",
+  "binary_sha256": "51801bcf08292b26a0f60e9259572b565a065a289a85868ece538158b7b22228",
+  "order": [
+    "d2 P65/O16",
+    "d2 P8192/O256",
+    "d2 P40000/O256",
+    "d2 API/lifecycle panel",
+    "d3 only after useful complete d2 direction"
+  ],
+  "comparison": "Frozen v113 same-request direction; original installed non-MTP output baseline. Preserve complete token IDs, usage, response, finish, route, capacity and free8GiB. Report Prefill seconds/token rate, externalTTFT, committed Decode rate, total.",
+  "stop": "At completed P65 stop if Decode <=14.14897114978091*1.001; at any timing stage stop if Decode < v113*0.97. Any output/state/route/resource failure stops. Thresholds fixed now, no reruns to rescue negative direction.",
+  "acceptance": "No counterfactual gain inferred. Tree/proposal/work counters and first-step top2/last-confidence costs are included in actual request. Useful complete d2 direction unlocks d3; final full50%-200% objective and independent-process repetition remain required.",
+  "tiny_boundary_policy": "Keep linear proposals when maximum draft<2, first sequence<65 or planned nodes cross short/long boundary; existing fallback route and counts remain explicit.",
+  "rollback": "A negative whole API closes this architecture version and removes unused tree prerequisites, restoring v113. No rank/threshold/width/depth/quantizer scan."
+}

@@ -19,48 +19,36 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 budgeted alternate branch — active native composition
+## 2026-10-20 budgeted alternate branch — closed negative API direction
 
-The [completed first-token coverage screen](metadata/qwen36-27b-mtp-branch-coverage-2026-10-20.json)
-preserves eight d2 API/lifecycle outputs and original semantic work.
-Second-ranked private candidates cover 1/2 short, 1/12 8K and 12/19 40K
-first-token rejections on observed linear paths. These are coverage counts,
-not counterfactual saved rounds or speedups. Instrumented timings have no
-performance-selection authority; diagnostic source is removed and v113 restored.
-No further rank/width coverage scan is active.
+The [fixed-budget design](metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json)
+was fully composed into the isolated v117 service: GPU first-step top2,
+confidence stopping, tree controller, exact parent Conv/GDN, ancestor-only
+Attention, selected-path KV/draft reconciliation and ten startup verifier Graphs.
+Host, kernel and P65/P513 full-state scalar oracles passed; the
+[completed direction](metadata/qwen36-27b-mtp-budgeted-branch-rejection-2026-10-20.json)
+retains their exact scope and the frozen source/binaries.
 
-`WP-MTP-BUDGETED-BRANCH-20261020` selects one
-[fixed-node-budget tree composition](metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json).
-Keep configured maximum depth2/3 and original confidence stopping; replace only
-the final primary candidate with a first-token sibling when the sibling's
-probability exceeds the primary tail's joint path probability. Equal scores
-retain the chain. No extra verifier row or tunable threshold is added.
-This rule is selected before implementation and has no performance claim.
+One complete d2 P65/O16 API request preserves non-MTP responses/usage and v113
+token IDs, but Decode is 12.5256 versus 14.1490 token/s (about -11.47%). Two
+alternate rounds reduce net accepted drafts from8 to7; rounds rise7 to8 and
+verified rows19 to21. Prior linear-path rank coverage did not predict net work
+under the changed topology. Top2/last-confidence and unused primary work are
+included in the observed request. Pure Prefill is0.89696s (72.467token/s),
+TTFT0.91553s and total2.11303s. This is a valid negative direction screen,
+not repeated selection or a hardware/algorithm impossibility claim.
 
-The next two native implementation milestones must compose exact parent-index
-Conv/GDN, ancestor-only Attention, full selected-path state/KV publication,
-controller, Graph lifetime and route accounting, then return to d2 API; useful
-full direction unlocks d3. Extra top2/confidence and unused primary draft work
-are charged explicitly. Complete scalar path oracles cover every branch,
-EOS/cancel/reject and same-depth sibling isolation. Private numerical bounds,
-startup reserve, production boundary and full50%–200% goal remain intact.
-A negative whole runner or expired composition budget archives this version.
+The predeclared short gate closes this version. The next8K request was cancelled
+during Prefill and has no timing authority; 40K/d3/lifecycle qualification were
+not run. All tree integration and unused prerequisites are removed. Source
+matches package-entry ca2abcb/v113; the original frozen server/oracle are restored.
+Rebuilds differed only in nine CUDA temporary-source filename bytes; exact
+rebuilt and restored identities remain recorded rather than conflated.
 
-The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) completes only the host portion of
-milestone 1. Fixed-budget planning and parent-index transaction selection pass
-stateful host oracles and sanitizer checks. The original two-milestone budget
-is unchanged: native parent-state verification is next, then complete Graph
-and API composition. Host results do not establish GPU state or performance.
-The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) now passes synthetic output/Graph
-and bounded sanitizer checks. The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json)
-also passes complete scalar Q/gate/cache oracles. The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json)
-now passes nine selected full target/draft states at each of P65/P513 plus
-following-step sibling isolation, and the original linear regression. Continue
-with automatic fixed-budget selection, route composition and native controller
-lifecycle, then immediately return to d2 API. The [startup tree Graph composition](metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json)
-now passes P65/P513 full-state oracles, route counters and the 8GiB free reserve;
-this is part of milestone2, not an additional milestone or deadline extension.
-The original composition deadline and API exit remain unchanged.
+No top2, rank, probability threshold, width or depth scan follows. The complete
+50%–200% objective and remaining short-context gap stay active. V113 remains
+current; the next direction must address whole-runner value under a materially
+different architecture. Production and numerical contracts are unchanged.
 
 ## 2026-10-20 canonical singleton state — closed neutral
 

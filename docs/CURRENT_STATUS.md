@@ -86,25 +86,15 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [alternate-branch coverage screen](metadata/qwen36-27b-mtp-branch-coverage-2026-10-20.json)
-completed eight unchanged d2 API/lifecycle outputs. Second-ranked first-step
-candidates cover 1/2, 1/12 and 12/19 first-token rejections at short/8K/40K on
-observed linear paths. Diagnostic source is removed; no speedup is inferred.
-The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) is implemented and passes
-51,369 host assertions plus AddressSanitizer/UBSan. It is linked only into a
-host test; controller/runtime composition and service integration remain unfinished.
-Current generation and performance remain v113; no new speedup is claimed.
-The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) passes 30 synthetic tree replays,
-252 linear regression replays and bounded GPU sanitizer checks. It remains
-unselected by the service. Native tree state qualification is described below.
-The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json) separately passes scalar Q/gate and
-complete-cache checks; it likewise has no current service or speedup authority.
-The [native parent-state admission](metadata/qwen36-27b-mtp-budgeted-branch-native-2026-10-20.json) passes nine selected complete target/draft states
-at each of P65/P513, with following-step sibling isolation and linear lifecycle
-regression. The [startup tree Graph composition](metadata/qwen36-27b-mtp-budgeted-branch-graphs-2026-10-20.json) also passes these model-state oracles
-with full-Graph route attestation and at least 9.89GB measured free device memory.
-Automatic selection and API integration remain pending. These are correctness
-results, not new acceptance or performance data.
+The [fixed-budget tree composition](metadata/qwen36-27b-mtp-budgeted-branch-rejection-2026-10-20.json)
+is closed after negative real API direction. Complete target-state/Graph checks
+pass, but d2 P65 Decode falls from14.1490 to12.5256token/s with one fewer
+accepted draft, one additional round and two additional verified rows. Output
+and token IDs remain exact. The declared short stop ends before8K completion,
+40K/d3 or lifecycle qualification. All tree runtime and unused prerequisites
+are removed; source and frozen artifacts are restored to v113. No parameter
+scan follows, and the full50%–200% objective remains unmet. These results do
+not replace the retained v113 metrics below.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request

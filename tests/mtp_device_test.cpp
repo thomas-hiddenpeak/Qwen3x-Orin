@@ -149,14 +149,13 @@ void confidence_test() {
   std::cout << "confidence_cpu_cases=" << cases << std::endl;
 }
 int main(int argc, char** argv) try {
-  const bool tree_only = argc == 5 && std::string(argv[4]) == "--tree-only";
   const bool draft_long = argc == 5 && std::string(argv[4]) == "--draft-long";
   const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
-  if (argc != 4 && !prefix_only && !draft_long && !tree_only) {
-    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long|--tree-only]\n"; return 2;
+  if (argc != 4 && !prefix_only && !draft_long) {
+    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long]\n"; return 2;
   }
 #if !defined(Q3X_MTP_WHOLE_CORE_TEST)
-  if (prefix_only || draft_long || tree_only) return 2;
+  if (prefix_only || draft_long) return 2;
 #endif
   const std::filesystem::path output(argv[3]);
   require(std::filesystem::is_directory(output), "output directory must exist");
@@ -210,7 +209,7 @@ int main(int argc, char** argv) try {
                    mtp::TargetTransaction::sines(*target));
   mtp::TargetTransaction transaction(*target, *request, draft,
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
-                                   true, tree_only
+                                   true
 #else
                                    false
 #endif
@@ -328,68 +327,6 @@ int main(int argc, char** argv) try {
   require(expected.size() >= 5, "fixture must exercise a complete MTP round");
   std::cout << "baseline_ready\n" << std::flush;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
-  if (tree_only) {
-    size_t free_bytes = 0, total_bytes = 0;
-    require(cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess &&
-            free_bytes >= 8ULL * 1024 * 1024 * 1024, "tree Graph 8GiB reserve");
-    std::cout << "tree_graph_free_bytes=" << free_bytes << " reserve=pass\n" << std::flush;
-    unsigned checked = 0;
-    for (unsigned count : {3U, 4U}) for (bool alternate : {false, true}) {
-      require(bool(target->reset()) && draft.reset(), "tree oracle reset");
-      seed = initialize();
-      std::array<std::uint32_t, 3> proposals{};
-      std::array<std::uint32_t, 4> predictions{};
-      for (unsigned i = 0; i + 1 < count; ++i) proposals[i] = expected[i + 1];
-      proposals[count - 2] = alternate ? expected[1] : (expected[1] + 1) % 248320;
-      if (alternate) proposals[0] = (expected[1] + 1) % 248320;
-      require(transaction.begin(count), "tree begin");
-      if (alternate) {
-        std::array<std::uint32_t, 3> ignored{};
-        require(transaction.propose(seed, count - 1, ignored.data()), "tree seed cache proposal");
-      }
-      const auto before_graph = transaction.full_graph_rows();
-      const auto before_qk = transaction.graph_qk_updates();
-      require(transaction.verify_tree(seed, proposals.data(), count - 1, predictions.data()),
-              "tree native verification");
-      require(transaction.full_graph_rows() == before_graph + count &&
-              transaction.graph_qk_updates() == before_qk + (prompt.size() + 1 >= 512 ? 16 : 0),
-              "tree full Graph route and QK updates");
-      const unsigned depth = alternate ? 2 : count - 1;
-      std::vector<std::vector<char>> states, keys, values;
-      for (unsigned i = 0; i < depth; ++i) {
-        const unsigned node = alternate && i == 1 ? count - 1 : i;
-        require(predictions[node] == expected[i + 1] &&
-                transaction.commit_node(node, i + 1, predictions[node]), "tree selected node commit");
-        states.push_back(live_state(*request, *target));
-        keys.push_back(read_device(draft.keys(), draft.position() * 2048ULL));
-        values.push_back(read_device(draft.values(), draft.position() * 2048ULL));
-      }
-      require(transaction.finish(), "tree finish");
-      const auto next_prediction = step(*target, expected[depth], true);
-      const auto next_state = live_state(*request, *target);
-      require(bool(target->reset()) && draft.reset(), "tree scalar reset");
-      require(initialize() == expected[0], "tree scalar seed");
-      for (unsigned i = 0; i < depth; ++i) {
-        std::uint32_t ignored = 0;
-        require(draft.step(expected[i], mtp::TargetTransaction::hidden(*target), false, ignored),
-                "tree scalar draft replay");
-        require(read_device(draft.keys(), draft.position() * 2048ULL) == keys[i] &&
-                read_device(draft.values(), draft.position() * 2048ULL) == values[i],
-                "tree selected draft KV differs");
-        require(step(*target, expected[i], true) == expected[i + 1], "tree scalar prediction");
-        require(live_state(*request, *target) == states[i], "tree full selected state/logits differs");
-        ++checked;
-      }
-      require(step(*target, expected[depth], true) == next_prediction &&
-              live_state(*request, *target) == next_state, "tree next-step sibling contamination");
-      std::cout << "tree_rows=" << count << " alternate=" << alternate
-                << " selected_states=" << depth << " full_graph_rows=" << count
-                << " full_target_and_draft_KV=bitwise_equal"
-                << " following_scalar_step=bitwise_equal\n" << std::flush;
-    }
-    std::cout << "tree_selected_state_checks=" << checked << " passed\n" << std::flush;
-    return 0;
-  }
   // Select every staged prefix before publishing a new round, then compare
   // complete recurrent/KV/hidden/logit state with independent scalar replay.
   for (unsigned count : {1U, 2U, 3U, 4U}) {

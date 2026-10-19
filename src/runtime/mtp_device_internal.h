@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mtp_tree_control.h"
+#include "mtp_control.h"
 #include "q3x/runtime/model_weights.h"
 #include "q3x/runtime/reference_runner.h"
 
@@ -70,10 +70,9 @@ class Draft {
 // Isolated transaction with explicit scalar oracle or multi-row verifier.
 // Retains every complete prefix and repairs draft KV using target hidden.
 // Neither local mode alone has API acceleration or production authority.
-class TargetTransaction final : public TreeRoundBackend {
+class TargetTransaction final : public RoundBackend {
  public:
-  TargetTransaction(ReferenceRunner&, RequestState&, Draft&, bool multirow = false,
-                    bool tree_graphs = false);
+  TargetTransaction(ReferenceRunner&, RequestState&, Draft&, bool multirow = false);
   ~TargetTransaction();
   TargetTransaction(const TargetTransaction&) = delete;
   TargetTransaction& operator=(const TargetTransaction&) = delete;
@@ -106,12 +105,6 @@ class TargetTransaction final : public TreeRoundBackend {
       std::uint32_t* draft, std::uint32_t& actual) noexcept override;
   bool verify(std::uint32_t seed, const std::uint32_t* draft,
               std::uint32_t count, std::uint32_t* predictions) noexcept override;
-  // Explicit native tree oracle entry; not selected by proposal/service yet.
-  bool verify_tree(std::uint32_t seed, const std::uint32_t* draft,
-                   std::uint32_t count, std::uint32_t* predictions) noexcept;
-  bool proposal_parents(std::uint32_t count, TreeParents&) const noexcept override;
-  bool commit_node(std::uint32_t node, std::uint32_t depth,
-                   std::uint32_t pending) noexcept override;
   bool commit_prefix(std::uint32_t rows, std::uint32_t pending) noexcept override;
   bool finish() noexcept override;
   bool abort() noexcept override;
@@ -129,7 +122,6 @@ class TargetTransaction final : public TreeRoundBackend {
   void release_gdn_graphs() noexcept;
   std::array<void*, 48> gdn_graphs_{};
   bool multirow_ = false;
-  bool tree_graphs_ = false;
   bool snapshot(std::uint32_t slot) noexcept;
   ReferenceRunner& target_;
   RequestState& state_;
@@ -143,8 +135,6 @@ class TargetTransaction final : public TreeRoundBackend {
   std::uint32_t entry_position_ = 0;
   std::uint32_t rows_ = 0;
   std::uint32_t committed_ = 0;
-  std::uint32_t committed_node_ = kTreeEntryParent;
-  bool alternate_tail_ = false;
   std::array<std::uint32_t, 4> inputs_{};
   std::array<std::uint32_t, 4> predictions_{};
   std::uint64_t entry_snapshots_ = 0, direct_gdn_rows_ = 0, seed_kv_reuses_ = 0;
