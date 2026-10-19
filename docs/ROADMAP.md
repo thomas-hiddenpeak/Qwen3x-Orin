@@ -19,6 +19,25 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 complete private draft Graph — active composition
+
+`WP-MTP-DRAFT-STEP-GRAPH-20261020` selects one
+[complete private-step composition](metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json).
+Current v113 still submits private embedding, projections, Attention, MLP,
+head and confidence individually. Its P65 draft phase is87.194ms across12steps;
+the remaining short Decode gap is17.903ms. This is a phase budget, not measured
+Graph overhead or a predicted saving. Prior GDN reuse, commit overlap, precision
+and tree results do not establish this different complete scheduling direction.
+
+Preserve every arithmetic/publication boundary and the existing confidence0.4
+policy. Stage actual token/position/hidden, use exact private Attention lengths,
+and capture the complete step at startup with bounded ownership and8GiB reserve.
+Two implementation milestones plus one correctness repair cover native complete
+step oracles and the real API composition. No suffix-only retention, geometry,
+precision or policy scan follows. Complete composition returns immediately to
+d2 short/8K/40K; useful direction unlocks d3. Negative API or expiry removes the
+candidate. Production stays unchanged and the full50%–200% objective remains.
+
 ## 2026-10-20 budgeted alternate branch — closed negative API direction
 
 The [fixed-budget design](metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json)

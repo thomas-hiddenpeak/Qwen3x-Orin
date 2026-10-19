@@ -1,0 +1,41 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-STEP-GRAPH-20261020",
+  "architecture_candidate_id": "AC-MTP-DRAFT-STEP-GRAPH-v1",
+  "status": "selected before implementation",
+  "source_parent": "b7865f0438432d46de96ee60476226571419850d",
+  "product_constraint": "Real API same-workload Decode uplift50%-200%, draft2/3, exact target/output and private numerical contract; report Prefill/TTFT/Decode/total together.",
+  "downward_budget": {
+    "same_workload": "v113 d2 P65/O16",
+    "decode_ms": 1060.147755,
+    "draft_ms": 87.193625,
+    "verify_ms": 955.238531,
+    "reconcile_ms": 17.373451,
+    "draft_steps": 12,
+    "remaining_short_savings_ms": 17.903349667,
+    "interpretation": "Whole draft phase exceeds remaining gap, but its compute is irreducible to this change. No graph-overhead share or promised speedup is inferred; only composed API can select."
+  },
+  "source_audit": {
+    "current_step": "src/runtime/mtp_device_internal.cpp::Draft::step submits complete embedding/norm/FC/QKV/Attention/O/MLP/head/argmax and optional confidence individually. Only target verifier currently has full-step Graphs.",
+    "exclusions": [
+      "GDN row-state reuse v81 already neutral at real8K; no recurrence/geometry reopening.",
+      "Commit overlap v80 already neutral/negative; no stream-overlap retry.",
+      "v101 original-BF16-vs-INT8 private MLP short acceptance unchanged; higher precision not selected as next short-gap mechanism.",
+      "Fixed-budget tree v117 negative API; restore v113, no rank/threshold/width/depth scan."
+    ],
+    "source_sha256": "e538e5cde15abe79b6bfe970760b84d764de6da8652ea06086fc0b2302c9ad53"
+  },
+  "composition": "One complete private draft-step Graph route with fixed startup-owned resources. Device capsule supplies token and absoluteposition; copy incoming hidden to bounded dead Prefill scratch before graph. Project K/V into bounded staging, preserve original normalize/RoPE arithmetic, publish actual cache position. Exact private scalar/ordered Attention families consume actual sequence, never padding. Include original MLP, integer head, argmax and optional confidence. One bounded input publication and output read; synchronize before position/prediction publication.",
+  "equivalence": "No proposal/acceptance/confidence policy, numerical format, reduction tree, BF16 boundary, target state, quantizer, vocabulary or token accounting changes. Graph only changes submission/lifetime; compare complete draft hidden/K/V/logits/prediction/confidence to original same-input step, including recursion and changingposition.",
+  "ownership": "All graph/capsule/pinned storage created at startup; preserve8GiB actual reserve. No request capture/allocation. Reuse declared dead Prefill scratch only outside initialization. Drain before reset/destruction; errors poison and preserve full reset authority. Cache-only initialization/append retain existing semantics.",
+  "bounds": {
+    "implementation_milestones": 2,
+    "correctness_repairs": 1,
+    "milestone1": "Implement complete dynamic-input private Graph and exact changing-input/family/recursive oracles; do not retain an isolated suffix optimization as final composition.",
+    "milestone2": "Compose same API with explicit graph steps/route/resource counters, immediately d2 P65/8K/40K. Useful complete direction unlocks d3; freeze exact binaries/decision protocol before timing.",
+    "stop": "No kernel/shape/precision/threshold scan. If native correctness fails beyond repair or complete API negative/expiry, remove unused prerequisites. Final repeated selection and full objective remain separate."
+  },
+  "proven_reference": "Existing retained v112 full target verifier Graph is the in-repository example for immutable input capsule, staging, bounded grid update and template lifetime; its measured speedup is not transferred to private draft.",
+  "artifacts": ".q3x-work/mtp-draft-step-graph-20261020",
+  "production_changed": false,
+  "performance_claim": false
+}
