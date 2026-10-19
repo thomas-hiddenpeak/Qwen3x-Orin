@@ -25,17 +25,24 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-20 sealed MTP capability — active bounded delivery check
+## 2026-10-20 sealed MTP capability — complete; EOS work audit next
 
-[WP-MTP-SEALED-CAPABILITY-20261020](metadata/qwen36-27b-mtp-sealed-capability-design-2026-10-20.json)
-checks the retained 98-question public panel once per fixed-cap candidate.
-Compare complete responses and request/usage identity to installed corrected
-non-MTP 0.8.2, and answers to the pinned external reference. The latter is a
-capability comparator, not a hidden/logit numerical oracle. Fail on mismatch;
-close collection after both caps complete. This required delivery check grants
-no speed, capacity, sustained-reliability or production-switch authority.
-Cap 2 short performance remains open. The reviewed FP8 input-layout mechanism
-is already closed by v19/v21 evidence below; do not repeat its ownership variants.
+The [bounded design](metadata/qwen36-27b-mtp-sealed-capability-design-2026-10-20.json)
+and [completed two-cap panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)
+close this capability check. Each cap passes 98 complete native-response and
+external-answer comparisons with 79 correct answers; cross-cap output token
+IDs are exact. Historical native records lack output token IDs, so the native
+comparison is complete text/usage, not a direct token-ID oracle. Both fresh
+processes exit normally. Stop this collection; no repetition is selected.
+
+The panel exposes six stop-finished requests per cap with accepted EOS, two
+rounds and six verified rows for only three committed Decode tokens. The next
+bounded efficiency assessment must establish which EOS suffix work can be
+removed while preserving mismatch fallback, complete target prefixes and
+observer semantics. A proposed EOS must never stop the actual request before
+target verification. No saving or P65 cap 2 deficit closure is claimed yet.
+That deficit, capacity, sustained delivery and production selection remain open.
+The reviewed FP8 input-layout mechanism remains closed by v19/v21 evidence.
 
 ## 2026-10-20 sealed MTP build — both caps composed
 

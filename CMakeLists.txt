@@ -3781,5 +3781,11 @@ if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
     COMMAND ${CMAKE_COMMAND} -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
       -DQ3X_MTP_CAP=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/mtp_sealed_help_test.cmake)
-  set_tests_properties(mtp_sealed_help PROPERTIES LABELS "host;mtp;candidate")
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME mtp_capability_contract COMMAND ${Python3_EXECUTABLE} -B
+    -m unittest tests.test_mtp_capability)
+  set_tests_properties(mtp_capability_contract PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(mtp_sealed_help mtp_capability_contract
+    PROPERTIES LABELS "host;mtp;candidate")
 endif()

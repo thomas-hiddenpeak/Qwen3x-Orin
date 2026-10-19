@@ -86,6 +86,28 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [sealed capability panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)
+passes once per cap: 98/98 complete responses and reference answers match,
+with 79/98 correct in each configuration. All output token IDs also match
+between caps. The historical native reference contains full response text and
+usage, but not output IDs; its numerical authority remains the independently
+qualified non-MTP package, not the external answer score.
+
+This panel covers P780..1197 with four output tokens. The following is its
+first request, P849/O4, per cap; it is a capability observation, not a new
+performance selection or a replacement for the three-bucket benchmark.
+
+| Cap | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 2.278 | 372.62 | 2.312 | 18.421 | 2.480 |
+| 3 | 2.213 | 383.58 | 2.247 | 18.439 | 2.415 |
+
+Six requests per cap expose an unused verified suffix when an accepted EOS
+ends generation. This is a new bounded efficiency finding, not a measured
+optimization. Cap 2 short-performance closure and delivery qualification remain
+open; production is unchanged.
+
+
 The [sealed candidate composition](metadata/qwen36-27b-mtp-sealed-service-2026-10-20.json)
 now runs both caps through complete `BUILD_TESTING=OFF` services. The
 [cap 2 completion](metadata/qwen36-27b-mtp-sealed-cap2-2026-10-20.json) binds clean source

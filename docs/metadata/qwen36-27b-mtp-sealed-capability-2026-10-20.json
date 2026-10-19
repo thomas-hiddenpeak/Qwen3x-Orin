@@ -1,0 +1,348 @@
+{
+  "work_package_id": "WP-MTP-SEALED-CAPABILITY-20261020",
+  "decision": "Close bounded capability panel: both fixed-cap candidates preserve 98 complete native responses and external reference answers; no performance or release promotion.",
+  "design": "docs/metadata/qwen36-27b-mtp-sealed-capability-design-2026-10-20.json",
+  "results": {
+    "3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-service-20261020/source-repaired/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap3/api-key"
+        ],
+        "binary_sha256": "54fc5dab78e0d74d85b8579694a8f471590d6c72fb6c9b236b980ce2d29fe06f",
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+        "driver_sha256": "1cb29a69adb020d336caee1eb63106c093c55797d4850d2b6b7738369cc13ee5",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "10022c98da3c0f575991c931cff42986d722206c",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "capability": {
+        "valid": 98,
+        "correct": 79,
+        "native_responses_equal": 98,
+        "reference_answers_equal": 98,
+        "scope": "Pinned public capability panel; not performance, capacity or lifecycle qualification"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.937
+      },
+      "first_case_metrics": {
+        "label": "capability-0",
+        "prompt": 849,
+        "output": 4,
+        "prefill_s": 2.213372292,
+        "prefill_tps": 383.5775856906769,
+        "ttft_s": 2.247201100923121,
+        "elapsed_s": 2.414938663947396,
+        "decode_tps": 18.43883248607103
+      },
+      "descriptive_joint_metrics": {
+        "requests": 98,
+        "prompt_tokens_min": 780,
+        "prompt_tokens_max": 1197,
+        "output_tokens": [
+          4
+        ],
+        "prefill_s": {
+          "median": 2.6853060529999997,
+          "min": 2.091872472,
+          "max": 2.936315204
+        },
+        "prefill_tps": {
+          "median": 393.3497775538199,
+          "min": 359.75893053027295,
+          "max": 409.25212791483864
+        },
+        "ttft_s": {
+          "median": 2.7054108135052957,
+          "min": 2.111928505008109,
+          "max": 2.956918235984631
+        },
+        "decode_tps": {
+          "median": 18.599406592682925,
+          "min": 9.400541447372664,
+          "max": 18.661971132257182
+        },
+        "elapsed_s": {
+          "median": 2.866414117976092,
+          "min": 2.272754252073355,
+          "max": 3.2302774250274524
+        }
+      }
+    },
+    "2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-cap2-20261020/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sealed-capability-20261020/cap2/api-key"
+        ],
+        "binary_sha256": "642eea8f715abe928bb5cb1b7ea672ecfd2dcafea9f8cc108803c321315b59be",
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+        "driver_sha256": "1cb29a69adb020d336caee1eb63106c093c55797d4850d2b6b7738369cc13ee5",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "10022c98da3c0f575991c931cff42986d722206c",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "capability": {
+        "valid": 98,
+        "correct": 79,
+        "native_responses_equal": 98,
+        "reference_answers_equal": 98,
+        "scope": "Pinned public capability panel; not performance, capacity or lifecycle qualification"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 74.343
+      },
+      "first_case_metrics": {
+        "label": "capability-0",
+        "prompt": 849,
+        "output": 4,
+        "prefill_s": 2.2784737130000003,
+        "prefill_tps": 372.6178604369968,
+        "ttft_s": 2.3124866139842197,
+        "elapsed_s": 2.4802467819536105,
+        "decode_tps": 18.421156905022375
+      },
+      "descriptive_joint_metrics": {
+        "requests": 98,
+        "prompt_tokens_min": 780,
+        "prompt_tokens_max": 1197,
+        "output_tokens": [
+          4
+        ],
+        "prefill_s": {
+          "median": 2.7046007764999995,
+          "min": 2.125206056,
+          "max": 2.9499747509999996
+        },
+        "prefill_tps": {
+          "median": 390.09492010944564,
+          "min": 366.9905289112524,
+          "max": 407.88758273670544
+        },
+        "ttft_s": {
+          "median": 2.7249553960282356,
+          "min": 2.1453479499323294,
+          "max": 2.970538635039702
+        },
+        "decode_tps": {
+          "median": 18.599645754105364,
+          "min": 9.374579022810757,
+          "max": 18.66007906163538
+        },
+        "elapsed_s": {
+          "median": 2.8861134230392054,
+          "min": 2.3062039359938353,
+          "max": 3.251538432086818
+        }
+      }
+    }
+  },
+  "cross_cap_token_ids_equal": 98,
+  "token_oracle_scope": "All generated IDs compare exactly between cap2 and cap3. Installed nonMTP records contain complete response text and usage but not output token IDs; no direct token-ID comparison to that historical native artifact is claimed. Existing complete native target-state/logit oracles retain scope.",
+  "baseline_authority": "Installed corrected nonMTP0.8.2 for complete response/request/usage; pinned vLLM answer reference only for capability. No use of capability answers as a hidden/logit numerical reference.",
+  "limits": [
+    "Pinned 98 short-answer questions, not universal capability or long reasoning.",
+    "Descriptive per-request timing only, not repeated same-workload performance selection; no 50% speedup claim for this panel.",
+    "Cap2 short performance gap, capacity and sustained-delivery qualification remain open. Production unchanged."
+  ],
+  "artifact_root": ".q3x-work/mtp-sealed-capability-20261020",
+  "next_efficiency_finding": {
+    "cases": {
+      "2": [
+        {
+          "label": "capability-4",
+          "prompt": 871,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.388804417815543
+        },
+        {
+          "label": "capability-24",
+          "prompt": 1142,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.374579022810757
+        },
+        {
+          "label": "capability-48",
+          "prompt": 1064,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.406016722261084
+        },
+        {
+          "label": "capability-64",
+          "prompt": 1111,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.403378514790903
+        },
+        {
+          "label": "capability-73",
+          "prompt": 1170,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.397185168407614
+        },
+        {
+          "label": "capability-94",
+          "prompt": 799,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.434961331612955
+        }
+      ],
+      "3": [
+        {
+          "label": "capability-4",
+          "prompt": 871,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.427472427707078
+        },
+        {
+          "label": "capability-24",
+          "prompt": 1142,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.402030043077565
+        },
+        {
+          "label": "capability-48",
+          "prompt": 1064,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.405450970493934
+        },
+        {
+          "label": "capability-64",
+          "prompt": 1111,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.40279595773551
+        },
+        {
+          "label": "capability-73",
+          "prompt": 1170,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.400541447372664
+        },
+        {
+          "label": "capability-94",
+          "prompt": 799,
+          "output": 4,
+          "rounds": 2,
+          "accepted": 2,
+          "proposed": 4,
+          "verified_rows": 6,
+          "committed_decode_tokens": 3,
+          "decode_tps": 9.435300949396964
+        }
+      ]
+    },
+    "interpretation": "Six stop-finished four-output requests per cap have two rounds, four proposals, six verified rows, two accepted drafts but only three committed Decode tokens. Under the controller contract an accepted EOS terminates before a bonus; some computed target suffix is never committed.",
+    "next": "Audit EOS-aware proposal/verification elision against exact greedy prefix semantics, then select a separately bounded implementation. No new kernel/threshold scan and no claimed saving yet.",
+    "scope_limit": "This does not establish that EOS elision closes the P65/O16 cap2 deficit; false EOS proposals and complete target-state semantics require explicit handling."
+  },
+  "host_contracts": {
+    "unit_tests": 6,
+    "registered_candidate_ctest": "help and capability contract pass in both cap2/cap3 builds",
+    "integration_audit_replay": "both retained integration panels pass; missing cancellation receipt still rejected"
+  },
+  "artifact_sha256": {
+    "host-replay.json": "62acdbf51892e0297d9734fe4e136c9e0c830eda86921538353bafbc95664022",
+    "record.py": "8a2af7b52b5e7f2058b199c1efe22dd79e15cafdeb1a519f53f8ca5821808f89",
+    "ctest-cap2.log": "f411b7d42fa29df3ecd9e7b42b5e56bd216b67c24fe82bcb769f1f1c92755b74",
+    "ctest-cap3.log": "473d61fc8d7a52b190c9f67abcbe747f7cfedd87fd01a3a326b9f1ca7b3b9b68",
+    "configure-cap2.log": "1c9f7bf2ab7fcd03a64be1a6d3931c39e99df037f959451bd1ecaa9831fd1fe0",
+    "configure-cap3.log": "95b939a0e66abb38038de88a37d2f77c90e0ff04fbe4d3495aba944c8689d193",
+    "cap2/identity.json": "18526bc1e4c30ea6644161c7184227434fdc7a3c2ad670db78cda41f5d6394bd",
+    "cap2/health.json": "205580dacb1c18bb25e063ad178361cfd2c579f40fcadccc1f656c3c27e9ed1a",
+    "cap2/results.json": "a88d835d5eb137fbc9cf30d509b222498e7b664523fe1af6f79862086da6a901",
+    "cap2/capability-summary.json": "dbcabeb3945278ce0be9e759ff41e4cbbff99a370b833bd634b36ebad6fbae12",
+    "cap2/audited-metrics.json": "d511a08f16e808d6e91bb14b4fdd6148f2ca56e61d22564fd56b4d31b2a9cca1",
+    "cap2/cleanup.json": "e8ad5f40ac1d390b9aad103656ba8f0d79e7a0a606d3e46cbb7e04016d7fc519",
+    "cap2/preflight.json": "4f43a912876a3bd91476ae829a799e5d917c7252515cc3bfe90b46a146c1856f",
+    "cap2/cache-preparation.json": "973e53968a625e38ca0a6b6e803743c60e61bd8ef9326a60b302c48a972015b8",
+    "cap2/server.log": "3108faae18fc2043202794fb1274330594455fe6e44202d7fa15a263964891a9",
+    "cap3/identity.json": "3d2b75fef77516ed57dc183b1c873cda61a465aa4e6365e007417c517e23eb28",
+    "cap3/health.json": "f32d308bacda7a278ddd9ea2dd9fcfbc3c807c98d6fe483f3598e8eda2257d5c",
+    "cap3/results.json": "d06b18d6c108866c940d943f128bd1236a432fd5c2f20fdcd805a07d9dc4511d",
+    "cap3/capability-summary.json": "dbcabeb3945278ce0be9e759ff41e4cbbff99a370b833bd634b36ebad6fbae12",
+    "cap3/audited-metrics.json": "0753d5c06599244dab2c38d310b17773261919e2d23fad8ccc4a11a8bbb69072",
+    "cap3/cleanup.json": "e31398d98fde4314e491924f022b414061c737685789b3c4537f67917e9e605b",
+    "cap3/preflight.json": "522abb175ca34fc6dcce81002fff694179a5e02553cfebe5f21f04f95cdabe99",
+    "cap3/cache-preparation.json": "2a81815027baaead88c8e39542691c6354126d697466dd0cb751e0e757dc7a95",
+    "cap3/server.log": "7fc6d69132458f73af497478b7caa5ae78172c1568d4e7130deb77acbc126a30"
+  }
+}
