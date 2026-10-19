@@ -57,7 +57,7 @@ class Client(q.Client):
         return record
 
 
-def audit(out, records, draft, expected_profile=None):
+def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True):
     if expected_profile is None:
         expected_profile = "q3x.sm87.admission.mtp-output-tail-api.v119"
     receipts = {}
@@ -135,10 +135,11 @@ def audit(out, records, draft, expected_profile=None):
                      'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'],
                      'decode_tps': m['committed_decode_tokens'] * 1000 / w['decode_ms'] if w['decode_ms'] else None,
                      'mtp': m})
-    cancelled = [w for w in receipts.values() if w.get('cancelled')]
-    q.require(any(not w['mtp']['initialized'] for w in cancelled), 'missing Prefill cancellation receipt')
-    q.require(any(w['mtp']['initialized'] and w['mtp']['committed_decode_tokens'] > 0
-                  for w in cancelled), 'missing Decode cancellation receipt')
+    if require_lifecycle:
+        cancelled = [w for w in receipts.values() if w.get('cancelled')]
+        q.require(any(not w['mtp']['initialized'] for w in cancelled), 'missing Prefill cancellation receipt')
+        q.require(any(w['mtp']['initialized'] and w['mtp']['committed_decode_tokens'] > 0
+                      for w in cancelled), 'missing Decode cancellation receipt')
     health = json.loads((out / 'health.json').read_text())['q3x_production']
     q.require(health['capacity']['max_sequence_length'] == 44095 and
               health['capacity']['maximum_output_tokens'] == 4096 and
@@ -150,6 +151,33 @@ def audit(out, records, draft, expected_profile=None):
     return rows
 
 
+def capability_panel(client, cases, reference, baseline, out, receipt_validator):
+    q.require(len(cases) == len(reference) == 98, 'expected pinned 98-question panel')
+    before = {r['label']: r for r in baseline}
+    answers = []
+    for i, (case, prior) in enumerate(zip(cases, reference)):
+        label = f'capability-{i}'
+        q.require(label in before, 'missing installed baseline ' + label)
+        result = client.request(case['request'], 'chat/completions', label)
+        for key in ('request_sha256', 'text', 'usage', 'finish', 'done'):
+            q.require(result[key] == before[label][key], 'native baseline mismatch ' + label + ' ' + key)
+        matches = re.findall(r'答案：([A-D])', result['text'])
+        q.require(result['finish'] == 'stop' and matches, 'invalid capability answer')
+        q.require(result['request_sha256'] == prior['request_sha256'], 'reference request identity mismatch')
+        q.require(result['usage']['prompt_tokens'] == prior['usage']['prompt_tokens'], 'reference prompt mismatch')
+        q.require(matches[-1] == prior['answer'], 'reference answer mismatch')
+        receipt_validator(result)
+        answers.append(matches[-1] == case['target'])
+        q.save(out / 'results.json', client.records)
+        if i % 10 == 0: print(f'capability {i + 1}/98', flush=True)
+        time.sleep(1)
+    summary = {'valid': len(answers), 'correct': sum(answers),
+               'native_responses_equal': len(answers), 'reference_answers_equal': len(answers),
+               'scope': 'Pinned public capability panel; not performance, capacity or lifecycle qualification'}
+    q.save(out / 'capability-summary.json', summary)
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', type=Path, required=True)
@@ -158,6 +186,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--draft-length', type=int, choices=[2, 3])
     parser.add_argument('--baseline', type=Path)
+    parser.add_argument('--capability-cases', type=Path, help='Run capability-only panel instead of integration panel')
+    parser.add_argument('--reference-results', type=Path)
     parser.add_argument('--sealed-candidate', action='store_true',
                         help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
     parser.add_argument('--control-pid', type=int, action='append', default=[])
@@ -165,6 +195,8 @@ def main():
     q.require(out.is_relative_to(q.ROOT / '.q3x-work'), 'output must be under .q3x-work')
     q.require(bool(args.baseline) == bool(args.draft_length), 'MTP run requires a baseline')
     q.require(not args.sealed_candidate or args.draft_length is not None, 'sealed candidate requires expected draft cap')
+    q.require(bool(args.capability_cases) == bool(args.reference_results), 'capability cases and reference must be paired')
+    q.require(not args.capability_cases or args.sealed_candidate, 'capability panel requires sealed candidate')
     out.mkdir(parents=True, exist_ok=False)
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
@@ -179,7 +211,12 @@ def main():
     for k, name in [('TMPDIR', 'tmp'), ('CUDA_CACHE_PATH', 'cache/cuda'), ('XDG_CACHE_HOME', 'cache')]:
         p = out / name; p.mkdir(parents=True, exist_ok=True); env[k] = str(p)
     q.save(out / 'identity.json', {'command': cmd, 'binary_sha256': q.digest(args.server),
-           'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate, 'driver_sha256': q.digest(Path(__file__)),
+           'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate,
+           'panel': 'capability' if args.capability_cases else 'integration',
+           'capability_cases_sha256': q.digest(args.capability_cases) if args.capability_cases else None,
+           'reference_results_sha256': q.digest(args.reference_results) if args.reference_results else None,
+           'baseline_results_sha256': q.digest(args.baseline / 'results.json') if args.baseline else None,
+           'driver_sha256': q.digest(Path(__file__)),
            'prompt_fixture_sha256': q.digest(args.prompt_request),
            'git': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
            'scope': 'whole-service multi-row MTP direction; no release authority'})
@@ -210,50 +247,57 @@ def main():
         if args.sealed_candidate:
             q.require(health['q3x_production']['BUILD_TESTING'] is False, 'sealed candidate contains testing identity')
         q.save(out / 'health.json', health); print('ready', flush=True)
-        cases = [(65, 16, True, 'p65'), (8192, 256, True, 'p8192'),
-                 (40000, 256, True, 'p40000'), (65, 16, False, 'p65-nonstream')]
-        for p, o, stream, label in cases:
-            result = client.request(q.body_for(prompt[:p], o, stream), label=label)
-            # The receipt follows generation; await only its buffered log publication.
-            deadline = time.monotonic() + 5
-            while True:
-                witnesses = []
-                for line in (out / 'server.log').read_text().splitlines():
-                    if not line.startswith('{'): continue
-                    try: witness = json.loads(line)
-                    except json.JSONDecodeError: continue
-                    if witness.get('request_id', witness.get('request', {}).get('id')) == result['request_id']: witnesses.append(witness)
-                if witnesses: break
-                q.require(time.monotonic() < deadline, 'missing receipt'); time.sleep(.05)
-            w = witnesses[-1]
-            if args.draft_length:
-                q.require(w["profile"] == q.PROFILE, "request profile differs from health identity")
-            prefill = w['prefill_ms'] if args.draft_length else w['timing']['pure_prefill']['milliseconds']
-            decode = w['decode_ms'] if args.draft_length else w['timing']['decode']['milliseconds']
-            print(json.dumps({'stage': label, 'prompt': p, 'output': result['usage']['completion_tokens'],
-                'prefill_s': prefill/1000, 'prefill_tps': p*1000/prefill,
-                'decode_tps': (result['usage']['completion_tokens']-1)*1000/decode if decode else None,
-                'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'], 'mtp': w.get('mtp')}), flush=True)
-            if args.baseline:
-                base = next(r for r in json.loads((args.baseline / 'results.json').read_text()) if r['label']==label)
-                for k in ('request_sha256', 'text', 'usage', 'finish', 'done'):
-                    q.require(result[k] == base[k], 'baseline mismatch '+label+' '+k)
-            q.save(out / 'results.json', client.records)
-            if p >= 8192: time.sleep(60)
-        client.request(q.body_for('The capital of France is', 16), label='raw-text')
-        chat = {'model': q.MODEL_ID, 'messages': [{'role': 'user', 'content': '只回答数字1，不要解释。'}],
-                'temperature': 0, 'max_tokens': 32, 'stream': True, 'stream_options': {'include_usage': True}}
-        client.request(chat, endpoint='chat/completions', label='chat-stop')
-        client.error(q.body_for(prompt[:65], 16), 401, {'Content-Type': 'application/json'})
-        client.error(q.body_for(prompt[:65], 4097), 400)
-        client.disconnect(q.body_for(prompt[:8192], 256), prefill=True)
-        client.request(q.body_for(prompt[:65], 16), label='after-prefill-cancel')
-        client.disconnect(q.body_for(prompt[:65], 256))
-        client.request(q.body_for(prompt[:65], 16), label='after-decode-cancel')
-        base = next(r for r in client.records if r['label'] == 'p65')
-        for r in client.records:
-            if r['label'] in ('p65-nonstream', 'after-prefill-cancel', 'after-decode-cancel'):
-                for k in ('text', 'usage', 'finish'): q.require(r[k] == base[k], 'stream/recovery mismatch ' + k)
+        if args.capability_cases:
+            capability_panel(client, json.loads(args.capability_cases.read_text()),
+                             json.loads(args.reference_results.read_text()),
+                             json.loads((args.baseline / 'results.json').read_text()), out,
+                             lambda result: audit(out, [result], args.draft_length, q.PROFILE,
+                                                  require_lifecycle=False))
+        else:
+            cases = [(65, 16, True, 'p65'), (8192, 256, True, 'p8192'),
+                     (40000, 256, True, 'p40000'), (65, 16, False, 'p65-nonstream')]
+            for p, o, stream, label in cases:
+                result = client.request(q.body_for(prompt[:p], o, stream), label=label)
+                # The receipt follows generation; await only its buffered log publication.
+                deadline = time.monotonic() + 5
+                while True:
+                    witnesses = []
+                    for line in (out / 'server.log').read_text().splitlines():
+                        if not line.startswith('{'): continue
+                        try: witness = json.loads(line)
+                        except json.JSONDecodeError: continue
+                        if witness.get('request_id', witness.get('request', {}).get('id')) == result['request_id']: witnesses.append(witness)
+                    if witnesses: break
+                    q.require(time.monotonic() < deadline, 'missing receipt'); time.sleep(.05)
+                w = witnesses[-1]
+                if args.draft_length:
+                    q.require(w["profile"] == q.PROFILE, "request profile differs from health identity")
+                prefill = w['prefill_ms'] if args.draft_length else w['timing']['pure_prefill']['milliseconds']
+                decode = w['decode_ms'] if args.draft_length else w['timing']['decode']['milliseconds']
+                print(json.dumps({'stage': label, 'prompt': p, 'output': result['usage']['completion_tokens'],
+                    'prefill_s': prefill/1000, 'prefill_tps': p*1000/prefill,
+                    'decode_tps': (result['usage']['completion_tokens']-1)*1000/decode if decode else None,
+                    'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'], 'mtp': w.get('mtp')}), flush=True)
+                if args.baseline:
+                    base = next(r for r in json.loads((args.baseline / 'results.json').read_text()) if r['label']==label)
+                    for k in ('request_sha256', 'text', 'usage', 'finish', 'done'):
+                        q.require(result[k] == base[k], 'baseline mismatch '+label+' '+k)
+                q.save(out / 'results.json', client.records)
+                if p >= 8192: time.sleep(60)
+            client.request(q.body_for('The capital of France is', 16), label='raw-text')
+            chat = {'model': q.MODEL_ID, 'messages': [{'role': 'user', 'content': '只回答数字1，不要解释。'}],
+                    'temperature': 0, 'max_tokens': 32, 'stream': True, 'stream_options': {'include_usage': True}}
+            client.request(chat, endpoint='chat/completions', label='chat-stop')
+            client.error(q.body_for(prompt[:65], 16), 401, {'Content-Type': 'application/json'})
+            client.error(q.body_for(prompt[:65], 4097), 400)
+            client.disconnect(q.body_for(prompt[:8192], 256), prefill=True)
+            client.request(q.body_for(prompt[:65], 16), label='after-prefill-cancel')
+            client.disconnect(q.body_for(prompt[:65], 256))
+            client.request(q.body_for(prompt[:65], 16), label='after-decode-cancel')
+            base = next(r for r in client.records if r['label'] == 'p65')
+            for r in client.records:
+                if r['label'] in ('p65-nonstream', 'after-prefill-cancel', 'after-decode-cancel'):
+                    for k in ('text', 'usage', 'finish'): q.require(r[k] == base[k], 'stream/recovery mismatch ' + k)
         if args.baseline:
             before = {r['label']: r for r in json.loads((args.baseline / 'results.json').read_text())}
             for result in client.records:
@@ -270,7 +314,8 @@ def main():
         q.save(out / 'cleanup.json', {'success': success, 'returncode': server.returncode,
                                     'errors': errors, 'max_temperature': max(temperatures) if temperatures else None})
     q.require(success and server.returncode == 0 and not errors, 'run/cleanup failure')
-    if args.draft_length: audit(out, client.records, args.draft_length, q.PROFILE)
+    if args.draft_length: audit(out, client.records, args.draft_length, q.PROFILE,
+                               require_lifecycle=not args.capability_cases)
     print('integration checks passed', flush=True)
 
 

@@ -1,0 +1,26 @@
+{
+  "work_package_id": "WP-MTP-SEALED-CAPABILITY-20261020",
+  "source_parent": "fd28020",
+  "product_constraint": "Preserve capability and exact public outputs while pursuing the full 50%-200% Decode target for caps2/3.",
+  "scope": "One 98-question pinned capability process for each fixed-cap candidate; no new kernel, arithmetic, threshold, repeated performance or release selection. Complete request/answer/usage identity versus installed corrected nonMTP0.8.2 and pinned external answer reference.",
+  "reason": "Both BUILD_TESTING=OFF candidates have only eight-request integration panels, not the retained public capability panel. This closes an independent delivery gap while cap2 short performance remains open.",
+  "baseline_authority": "Installed nonMTP0.8.2 corrected package has complete numerical/capability evidence in qwen36-27b-softmax-package-2026-10-14.json; external vLLM answers are a capability reference, not an exact hidden/logit numerical oracle. Full text comparisons use installed native results.",
+  "stop": "Any request/profile/response/answer/resource mismatch stops the process; diagnose rather than retry. Once both panels pass, close capability collection. This does not qualify arbitrary prompts, capacity, sustained reliability or performance.",
+  "files_sha256": {
+    ".q3x-work/prefill-convergence-20260928/capability-direct-cases.json": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+    ".q3x-work/prefill-convergence-20260928/vllm-capability/capability-results.json": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+    ".q3x-work/softmax-package-20261014/patch/results.json": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+    ".q3x-work/softmax-package-20261014/patch/identity.json": "efe8c33862effd48e808ebfa5b36da91059ca0d96d012ceda85ead0fb8253591"
+  },
+  "artifact_root": ".q3x-work/mtp-sealed-capability-20261020",
+  "candidate_servers": {
+    "2": {
+      "path": ".q3x-work/mtp-sealed-cap2-20261020/source/server",
+      "sha256": "642eea8f715abe928bb5cb1b7ea672ecfd2dcafea9f8cc108803c321315b59be"
+    },
+    "3": {
+      "path": ".q3x-work/mtp-sealed-service-20261020/source-repaired/server",
+      "sha256": "54fc5dab78e0d74d85b8579694a8f471590d6c72fb6c9b236b980ce2d29fe06f"
+    }
+  }
+}

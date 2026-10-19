@@ -25,6 +25,18 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 sealed MTP capability — active bounded delivery check
+
+[WP-MTP-SEALED-CAPABILITY-20261020](metadata/qwen36-27b-mtp-sealed-capability-design-2026-10-20.json)
+checks the retained 98-question public panel once per fixed-cap candidate.
+Compare complete responses and request/usage identity to installed corrected
+non-MTP 0.8.2, and answers to the pinned external reference. The latter is a
+capability comparator, not a hidden/logit numerical oracle. Fail on mismatch;
+close collection after both caps complete. This required delivery check grants
+no speed, capacity, sustained-reliability or production-switch authority.
+Cap 2 short performance remains open. The reviewed FP8 input-layout mechanism
+is already closed by v19/v21 evidence below; do not repeat its ownership variants.
+
 ## 2026-10-20 sealed MTP build — both caps composed
 
 The [bounded design](metadata/qwen36-27b-mtp-sealed-service-design-2026-10-20.json)
