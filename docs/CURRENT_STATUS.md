@@ -86,6 +86,14 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [complete private draft Graph](metadata/qwen36-27b-mtp-draft-step-graph-rejection-2026-10-20.json)
+is closed neutral. Numerical/Graph/state checks pass, but d2 P65 Decode changes
+only+0.0907% (14.1618 versus14.1490token/s), below the declared+0.1% gate.
+Prefill is0.90115s (72.1304token/s), TTFT0.91995s and total1.97900s; output and
+acceptance/work remain exact. The short stop closes before8K/40K/d3 or lifecycle
+qualification. Runtime and unused prerequisites are removed, and frozen v113
+artifacts are restored. The retained metrics below and production are unchanged.
+
 The [fixed-budget tree composition](metadata/qwen36-27b-mtp-budgeted-branch-rejection-2026-10-20.json)
 is closed after negative real API direction. Complete target-state/Graph checks
 pass, but d2 P65 Decode falls from14.1490 to12.5256token/s with one fewer

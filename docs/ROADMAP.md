@@ -19,24 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 complete private draft Graph — active composition
+## 2026-10-20 complete private draft Graph — closed neutral API direction
 
-`WP-MTP-DRAFT-STEP-GRAPH-20261020` selects one
-[complete private-step composition](metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json).
-Current v113 still submits private embedding, projections, Attention, MLP,
-head and confidence individually. Its P65 draft phase is87.194ms across12steps;
-the remaining short Decode gap is17.903ms. This is a phase budget, not measured
-Graph overhead or a predicted saving. Prior GDN reuse, commit overlap, precision
-and tree results do not establish this different complete scheduling direction.
+The [complete private-step design](metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json)
+was implemented as v118 with six startup-owned templates, dynamic token/position
+inputs, bounded hidden/KV staging, exact actual-length Attention and complete
+MLP/head/argmax/optional-confidence execution. The
+[completed direction](metadata/qwen36-27b-mtp-draft-step-graph-rejection-2026-10-20.json)
+passes 21 input and12 Attention replays, bounded root memory/race/synchronization
+checks, and P65/P511 recursive full hidden/KV/logit/confidence and target-prefix
+oracles. P65 transaction and failure-recovery checks also pass.
 
-Preserve every arithmetic/publication boundary and the existing confidence0.4
-policy. Stage actual token/position/hidden, use exact private Attention lengths,
-and capture the complete step at startup with bounded ownership and8GiB reserve.
-Two implementation milestones plus one correctness repair cover native complete
-step oracles and the real API composition. No suffix-only retention, geometry,
-precision or policy scan follows. Complete composition returns immediately to
-d2 short/8K/40K; useful direction unlocks d3. Negative API or expiry removes the
-candidate. Production stays unchanged and the full50%–200% objective remains.
+One complete d2 P65/O16 request preserves all16 output tokens and unchanged
+acceptance/work, but Decode is14.1618 versus14.1490 token/s: only+0.0907%,
+below the predeclared+0.1% direction gate. Pure Prefill is0.90115s
+(72.1304token/s), external TTFT0.91995s and total1.97900s. Draft time falls
+1.690ms while complete Decode falls0.961ms, far below the remaining17.903ms
+budget. The whole draft phase was not removable Graph submission overhead.
+These are single-request observations, not a statistically selected speedup.
+
+The short stop closes before8K/40K/d3 and lifecycle qualification. The server
+exits normally after the interrupted driver; the completed-request audit passes.
+All integration and unused prerequisites are removed, and the frozen v113
+server/oracle are restored exactly. No submission, shape, geometry or policy
+scan follows. The full50%–200% objective remains unmet; the next architecture
+must address whole-runner value under a materially different dataflow.
+Production and numerical contracts remain unchanged.
 
 ## 2026-10-20 budgeted alternate branch — closed negative API direction
 

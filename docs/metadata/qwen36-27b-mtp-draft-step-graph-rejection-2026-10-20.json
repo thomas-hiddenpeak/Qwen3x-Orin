@@ -1,0 +1,211 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-STEP-GRAPH-20261020",
+  "architecture_candidate_id": "AC-MTP-DRAFT-STEP-GRAPH-v1",
+  "status": "closed neutral complete API direction; candidate removed",
+  "source_parent": "52e867284261f89c21881921956a39b84a2946c1",
+  "design": "docs/metadata/qwen36-27b-mtp-draft-step-graph-design-2026-10-20.json",
+  "decision_unit": "architecture_candidate",
+  "candidate_profile": "q3x.sm87.admission.mtp-draft-step-graph-api.v118",
+  "implementation": "Complete startup-owned private draft Graph: dynamic token/position capsule, incoming-hidden staging, original normalization and RoPE boundaries, actual-length scalar/ordered Attention, MLP/integer head/argmax/optional confidence, pinned results and one QK grid update. Six templates at full capacity. No changed arithmetic or proposal policy.",
+  "numerical": {
+    "input_replays": 21,
+    "attention_replays": 12,
+    "attention_max_sequence": 44095,
+    "input_result": "complete query/key/embedding/cache bitwise equal including untouched cache",
+    "attention_result": "complete output/probabilities/guards bitwise equal to original scalar reference",
+    "sanitizers": "root memcheck/racecheck/synccheck on 12 bounded attention replays: zero errors/hazards/warnings",
+    "real_model": "P65 and P511 each pass 3 recursive complete hidden/KV/full-logit/prediction/confidence comparisons against original submission; P511 crosses into ordered attention on two steps. Both pass 10 complete target prefix checks. P65 additionally passes 15 transaction cases and four failure recoveries.",
+    "accuracy_scope": "Same-input exactness preserves prior private numerical admission on these inputs; no new capability/release qualification."
+  },
+  "api": {
+    "scope": "one completed d2 P65/O16 request only",
+    "metrics": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.9011458609999999,
+      "prefill_tps": 72.13038733581888,
+      "ttft_s": 0.9199480370152742,
+      "elapsed_s": 1.978999885963276,
+      "decode_tps": 14.16180626316135,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10083213312,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_executor": "complete-step-graph-v118",
+        "draft_graph_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 1911557120,
+        "draft_initialization_ms": 5.518904,
+        "draft_ms": 85.503748,
+        "verify_ms": 955.8496809999999,
+        "reconcile_ms": 17.480338,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "incumbent_v113": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.892150581,
+      "prefill_tps": 72.85765585350215,
+      "ttft_s": 0.9106398220174015,
+      "elapsed_s": 1.970780857023783,
+      "decode_tps": 14.14897114978091,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10145718272,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 1911557120,
+        "draft_initialization_ms": 5.454666,
+        "draft_ms": 87.193625,
+        "verify_ms": 955.2385310000001,
+        "reconcile_ms": 17.373451000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "decode_change_fraction": 0.0009071411090295634,
+    "draft_ms_saved": 1.6898769999999956,
+    "decode_ms_saved": 0.9608319999999821,
+    "same_work": "rounds7/proposed12/accepted8/verified19, histogram and acceptance positions equal; graph steps12",
+    "output": "complete response/text/usage/finish equals non-MTP baseline; all16 token IDs equal v113",
+    "startup_free_bytes": 10083213312,
+    "stop": "P65 increment <=0.1% predeclared neutral stop; no8K/40K/d3 or lifecycle qualification",
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 62.843
+    },
+    "driver": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "interpretation": "Draft phase fell1.690ms but complete Decode fell0.961ms. Whole draft phase87.194ms was not removable submission overhead. This direction does not address17.903ms remaining short gap. A single request is a direction screen, not a statistically established speedup."
+  },
+  "restoration": {
+    "source_parent": "52e867284261f89c21881921956a39b84a2946c1",
+    "tracked_restored": [
+      "CMakeLists.txt",
+      "include/q3x/server/evaluation_server.h",
+      "src/runtime/mtp_device_internal.cpp",
+      "src/runtime/mtp_device_internal.h",
+      "src/runtime/mtp_service_internal.cpp",
+      "src/server/evaluation_server.cpp",
+      "tests/mtp_device_test.cpp",
+      "tools/evaluation/validate_mtp_service.py"
+    ],
+    "candidate_only_files_removed": [
+      "src/runtime/mtp_draft_graph_attention_internal.cu",
+      "src/runtime/mtp_draft_graph_internal.cu",
+      "src/runtime/mtp_draft_graph_internal.h",
+      "tests/mtp_draft_graph_attention_cuda_test.cu",
+      "tests/mtp_draft_graph_inputs_cuda_test.cu"
+    ],
+    "restored_frozen_binaries": {
+      "server": {
+        "source": ".q3x-work/mtp-integer-head-20261020/source/server",
+        "destination": ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission",
+        "sha256": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366"
+      },
+      "oracle": {
+        "source": ".q3x-work/mtp-integer-head-20261020/source/oracle",
+        "destination": ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test",
+        "sha256": "afba7435f997e514d50ce48b44146b7564827c95f8ad03d1ffdd9cd4f4ed9773"
+      }
+    }
+  },
+  "artifacts": ".q3x-work/mtp-draft-step-graph-20261020",
+  "production_changed": false,
+  "full_goal_achieved": false,
+  "followup": "No submission/shape/geometry/confidence scan. Retain v113 unchanged. Next architecture must address the remaining whole-runner budget with a materially different dataflow; no impossibility claim.",
+  "files": {
+    ".q3x-work/mtp-draft-step-graph-20261020/api-source/identity.json": "48c22d75f70bfd1d73165acffed5f12395a1337b0f25e48b53aa2080a5e2e378",
+    ".q3x-work/mtp-draft-step-graph-20261020/api-protocol.json": "2e36a55b81d54042c43ebe20ab27a741aec1b6edad72c6c4cc9b597e9f7382fd",
+    ".q3x-work/mtp-draft-step-graph-20261020/d2-completed-audit.json": "4b37db5586e6f74bf18c7d259b1264069c6572bb4d657acaa9c443eaf217fdbe",
+    ".q3x-work/mtp-draft-step-graph-20261020/d2-comparison.json": "09595a5b3b51a417a01425e39b3314c5886c2ae88269e8b4b7773e7e6ce60537",
+    ".q3x-work/mtp-draft-step-graph-20261020/restoration.json": "f71a536943c46701978ce237b6f551d7e4e35fff1d99724bded45c4c68574b5e",
+    ".q3x-work/mtp-draft-step-graph-20261020/native-p65/identity.json": "ed06a7fb6e901ea075503c89a0e39b73d0f4ae4c20ecdd3c9683d56020e5c77f",
+    ".q3x-work/mtp-draft-step-graph-20261020/native-p65/run.log": "ef6057dc50cb991c36deeb4a05a2bd1553286cb600d6a1ee028d2ecc218285f7",
+    ".q3x-work/mtp-draft-step-graph-20261020/native-p511/run.log": "6cc7a86364c44114a8b112a0314cb8492c23c177445b3b3ce7847001768d82ae",
+    ".q3x-work/mtp-draft-step-graph-20261020/inputs-check/result.json": "89c3e752a8add61bb92656794a60c6165bc592378ce283d5011b75f42b67c915",
+    ".q3x-work/mtp-draft-step-graph-20261020/attention-check/run.log": "335d12b6e3c3ab281fe99aff6fd8f793612dce3770d0d46e8c9f881a782b8888",
+    ".q3x-work/mtp-draft-step-graph-20261020/attention-memcheck/run.log": "f26cd463f1fce7927f192a7582396e44327ae4a3cc9a6e838b5d2e8e78411a7f",
+    ".q3x-work/mtp-draft-step-graph-20261020/attention-racecheck/run.log": "09f0a0f44d6618369730134f5a3863c8f55e9838ab4280f575ef77660b317090",
+    ".q3x-work/mtp-draft-step-graph-20261020/attention-synccheck/run.log": "f26cd463f1fce7927f192a7582396e44327ae4a3cc9a6e838b5d2e8e78411a7f"
+  },
+  "closure": {
+    "gpu_device_holders": [],
+    "worktrees": 47,
+    "host_checks": "mtp_control and document-control plus7 document unit tests pass",
+    "generated_builds": "both CMake trees reconfigured after removal; frozen v113 binary hashes restored",
+    "build_iteration_errors": "Pre-enqueue integration script assertion, CUDA Graph instantiate API signature and missing regenerated CMake target were corrected before their affected execution. Logs retained; no numerical repair required."
+  }
+}
