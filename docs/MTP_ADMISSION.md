@@ -25,6 +25,22 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 balanced cap 2 tail — closed at short API gate
+
+The [bounded design](metadata/qwen36-27b-mtp-balanced-tail-design-2026-10-20.json)
+replaced the four-output cap 2 tail's M3 plus native M1 with two M2 rounds.
+The [completed direction](metadata/qwen36-27b-mtp-balanced-tail-rejection-2026-10-20.json)
+passes host and native full-state/logit/KV checks and preserves all output IDs.
+Short Decode is 14.126 token/s, below the declared 1.5x floor; Prefill is
+0.89241s (72.836 token/s), TTFT 0.91139s and total 1.97309s. Seven rounds and
+19 verified rows remain; eliminating the scalar tail alone is insufficient.
+This is a single-request direction, not a repeated performance comparison.
+
+The early stop closes before long-context and lifecycle qualification. Remove
+the cap 2 rule, unused proposal-limit interface and new tests; restore v119
+source and frozen binaries. No horizon, shape or profile scan follows.
+The retained cap 3 direction and remaining full objective are unchanged.
+
 ## 2026-10-20 output-tail composition — positive API direction
 
 [WP-MTP-OUTPUT-TAIL-20261020](metadata/qwen36-27b-mtp-output-tail-design-2026-10-20.json)

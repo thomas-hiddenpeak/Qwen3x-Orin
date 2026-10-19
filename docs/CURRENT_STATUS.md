@@ -125,6 +125,12 @@ its existing scope. **The complete objective is not yet achieved:** configured 2
 short Decode remains below 1.5x and prospective independent-process selection
 is outstanding. Production remains the installed non-MTP 0.8.2 artifact.
 
+The [balanced cap 2 tail](metadata/qwen36-27b-mtp-balanced-tail-rejection-2026-10-20.json)
+is closed after exact native admission and a short API result of 14.126 token/s,
+below its 1.5x floor. Replacing M3 plus native M1 with two M2 rounds did not
+close the budget. Integration and unused prerequisites are removed; v119 is
+restored. This does not change the retained table or qualify long contexts.
+
 ### Preceding v113 and closed directions
 
 The following v113 metrics and closed lineages are historical comparators;

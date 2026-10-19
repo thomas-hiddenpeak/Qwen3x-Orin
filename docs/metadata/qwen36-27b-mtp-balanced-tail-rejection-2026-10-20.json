@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-BALANCED-TAIL-20261020",
+  "architecture_candidate_id": "AC-MTP-BALANCED-TAIL-v120",
+  "authority": "Negative short API direction; no long-context, lifecycle or release qualification",
+  "design": "docs/metadata/qwen36-27b-mtp-balanced-tail-design-2026-10-20.json",
+  "identity": {
+    "source_parent": "956b170a9dfc9ea9007d212ffb1c5545b166aca1",
+    "server_sha256": "f215b9705c0cb80736e59cf39162f1a5a510cd9cf9fefa57c5a530771eda8b25",
+    "oracle_sha256": "76a140cc7b11e6b0faeb3c25ec475c8e0b9cff3ee64dbc8ab0b3f03aa1752b1e",
+    "files": {
+      "docs/MTP_ADMISSION.md": "8fdf59c7a9851018031d65f154c9519e7101659e5810b9bacfdd262ddc2b1cde",
+      "docs/ROADMAP.md": "d3c25ae954c7caa1c03add29b9cb486c9287f0eef1f7b905f9fabc9980f08ccd",
+      "include/q3x/server/evaluation_server.h": "ce99e7f433ad610f4fdbd9e7bb53684246e3c47e7a88cb687f78a6cb2f71f046",
+      "src/runtime/mtp_control.cpp": "8c4e3af606547d509923e11c98b015ad77ef940ab15848a0ac6ca0454aebf4f8",
+      "src/runtime/mtp_control.h": "7b297eceed8dc23a46bfea2cc2849ea1b65487391559540e153c7e540d867d92",
+      "src/runtime/mtp_service_internal.cpp": "c154c93ec4c73b180132fe8a98333060e3f70afa3acd00d6e216b5e773b58def",
+      "src/server/evaluation_server.cpp": "15543071b3ea1e8c29c1e1b8886f7656154ae77e4bb8a3ab42417385944ee5ef",
+      "tests/mtp_control_test.cpp": "21223667614c21570bd8a38d38f05dc9f5ca8078855d54dcd99198f00c4ef20b",
+      "tests/mtp_device_test.cpp": "2939a92da8ba9779544e09581cdc4fa458dfbfc2b4e3c682e3025fee0c3296f5",
+      "tools/evaluation/validate_mtp_service.py": "54823d9a6a70d0ceb1e565896f13ce354b911c10ce47ec26ba6f64c1cd30ec43"
+    }
+  },
+  "numerical": {
+    "host_checks": 373030,
+    "target_prefix_checks": 10,
+    "exact_state_full_logits_draft_kv_cases": 19,
+    "failure_recoveries": 6,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.125
+    }
+  },
+  "api": {
+    "completed_requests": 1,
+    "original_non_mtp_response_usage_finish_equal": true,
+    "v113_generated_token_ids_equal": true,
+    "route_and_work_audit": "pass",
+    "metrics": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.892412864,
+      "prefill_tps": 72.83624275501255,
+      "ttft_s": 0.911394305061549,
+      "elapsed_s": 1.9730899640126154,
+      "decode_tps": 14.126170304709895,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10220793856,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          5,
+          3,
+          0
+        ],
+        "budget_policy": "balanced-tail-v120",
+        "requested_budget_histogram": [
+          0,
+          1,
+          6,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          0,
+          2,
+          5,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 0,
+        "direct_gdn_state_rows": 912,
+        "full_graph_rounds": 7,
+        "full_graph_rows": 19,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 7,
+        "tail_kv_batches": 3,
+        "tail_kv_rows": 6,
+        "state_copy_bytes_elided": 1987054592,
+        "draft_initialization_ms": 5.555334,
+        "draft_ms": 88.27001200000001,
+        "verify_ms": 955.473747,
+        "reconcile_ms": 17.679673,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "lifecycle_qualified": false
+  },
+  "cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 65.75
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "decision": "Reject:14.1261703tps below1.5*9.5946785. Replacing M3+nativeM1 with M2+M2 preserves total19verifiedrows and7rounds but does not meet phase budget. Remove cap2 rule, proposal-limit interface and new tests; restore exact v119 binaries. No horizon/shape/profile scan. Full goal remains active.",
+  "production_changed": false,
+  "artifacts": {
+    ".q3x-work/mtp-balanced-tail-20261020/source/server": "f215b9705c0cb80736e59cf39162f1a5a510cd9cf9fefa57c5a530771eda8b25",
+    ".q3x-work/mtp-balanced-tail-20261020/source/oracle": "76a140cc7b11e6b0faeb3c25ec475c8e0b9cff3ee64dbc8ab0b3f03aa1752b1e",
+    ".q3x-work/mtp-balanced-tail-20261020/source/tracked.patch": "00957deab258fdf6193e6cff1de35ddb44fd56466efcec1b5b625227b2615b72",
+    ".q3x-work/mtp-balanced-tail-20261020/native-p65/run.log": "cdd0e50a18dbec07ec9217bc0e13b7405703aaae73501b162a1d49c20a80693a",
+    ".q3x-work/mtp-balanced-tail-20261020/d2/server.log": "519c1e4070718f3cdf2c5be0012136ee265d0ff2da7a912ea7ecf2a8b9acdd2f",
+    ".q3x-work/mtp-balanced-tail-20261020/d2/results.json": "462bf5b08c723ed4448c6bf7659f11142096c83bb352d23cc67753c4f7a3c4bd",
+    ".q3x-work/mtp-balanced-tail-20261020/d2-completed-audit.json": "3809f0eb300132f6ea45411ac8170ba72bdeda974797675e6b513bcf21fa2d03",
+    ".q3x-work/mtp-balanced-tail-20261020/audit-completed.py": "88184b80320c016bfd8256452cc63bce880d69ee7fd3c1b2eb923a0c4169be9f"
+  }
+}

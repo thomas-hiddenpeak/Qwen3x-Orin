@@ -1,0 +1,22 @@
+{
+  "work_package_id": "WP-MTP-BALANCED-TAIL-20261020",
+  "architecture_candidate_id": "AC-MTP-BALANCED-TAIL-v120",
+  "source_parent": "956b170",
+  "product_constraint": "Exact-output real API Decode >=1.5x non-MTP for configured caps2/3, joint Prefill/TTFT/Decode/total.",
+  "budget": "Cap2 short still misses floor by roughly21ms. Replace final M3+nativeM1 with M2+M2 when four outputs remain; same maximum verified rows and rounds if accepted, different projection execution shape. Saving is a hypothesis, not inferred from kernel totals.",
+  "mechanism": "Keep v119 cap3 unchanged. Cap2 remaining4 limits proposal to1; otherwise unchanged. Preserve configured cap validation with a separate bounded internal proposal limit. Confidence0.4 and all target/private arithmetic unchanged.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "threshold_scans": 0,
+    "profiles": 0
+  },
+  "validation": [
+    "Host mixed-budget replay, invalid-limit zero-enqueue checks",
+    "Native P65 full-prefix/state/logits and cap2 mixed-budget normal/cancel/failure",
+    "Immediate cap2 P65 API; require1.5x faster fresh nonMTP9.59467851190026, else remove cap2 rule and archive",
+    "If short positive,8K/40K and lifecycle then cap3 regression and prospective repeated selection"
+  ],
+  "composition_deadline": "One implementation and native admission followed immediately by real API; no boundary/shape scan.",
+  "production_changed": false
+}
