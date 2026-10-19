@@ -19,6 +19,23 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 EOS frontier — host assessment complete, implementation selected
+
+The [host assessment](metadata/qwen36-27b-mtp-eos-frontier-assessment-2026-10-20.json)
+passes 44,280 finite-alphabet control/history cases. The
+[bounded composition design](metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json)
+selects removing the first proposed EOS and its suffix from target inputs:
+the preceding target prediction supplies the same EOS or mismatch fallback.
+A proposed EOS never directly terminates the request. Actual private steps
+remain separately accountable even when no proposal is submitted to verification.
+
+This is a symbolic control proof, not native numerical or performance evidence.
+Implement the zero-frontier and valid seed-cache contracts together, verify full
+native state/logits/KV, then return immediately to capability-4 and P65/O16.
+One implementation and at most one correctness repair are allowed; no threshold
+scan. Cap 2 short closure, remaining qualification and production selection stay
+open. The completed capability panel is not repeated without a new question.
+
 ## 2026-10-20 sealed MTP capability — complete; EOS work audit next
 
 The [bounded design](metadata/qwen36-27b-mtp-sealed-capability-design-2026-10-20.json)

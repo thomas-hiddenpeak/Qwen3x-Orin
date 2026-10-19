@@ -1,0 +1,52 @@
+{
+  "work_package_id": "WP-MTP-EOS-FRONTIER-20261020",
+  "architecture_candidate_id": "AC-MTP-EOS-FRONTIER-v122",
+  "decision_unit": "architecture_candidate",
+  "status": "host assessment passed; native implementation and API return pending",
+  "parent_constraint": "Preserve exact target output/state while improving real API Decode by 50%-200% for draft caps2/3. Cap2 P65/O16 remains below1.5x; this package cannot claim to close it without that API result.",
+  "origin": "docs/metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json",
+  "downward_budget": {
+    "observed": "Six requests/cap: O4, three committed Decode tokens, two rounds, four proposals, six verified rows; accepted EOS leaves uncommitted verification suffix.",
+    "affected_shapes": "target M1..4 across all64layers; unchanged private head/MLP/Attention kernels",
+    "work_removal": "For first proposed EOS at zero-based j, retain j nonEOS proposals; verify seed plus those j inputs. Remove d-j target rows and private proposal steps after first EOS. The EOS-producing private step still costs work.",
+    "ceiling_scope": "At least one target row removable in an accepted-EOS round. No latency sum, same-cost-per-row assumption, or claim to eliminate the preceding rejection round."
+  },
+  "equivalence_ledger": {
+    "original": "Target transitions over [seed,d0,...,d(d-1)] produce p0..pd; commit matching prefix and first mismatch/bonus, stopping on target EOS.",
+    "candidate": "Let j be first draft EOS. Target transitions over [seed,d0,...,d(j-1)] produce p0..pj. pj is ordinary bonus: equal EOS stops, unequal EOS is original mismatch fallback.",
+    "proof": "For i<j all target input histories and predictions are identical. Earlier rejection/EOS/cancellation commits same prefix. If frontier reached, pj has the same token and complete committed state under either route; original accepts EOS or rejects it and always ends the round there.",
+    "finite_precision": "No changed operator, reduction, dtype, scale, publication or recurrent order in retained rows. Existing exact cross-M verifier kernels require native full-state/logit confirmation at every newly selected frontier.",
+    "ownership": "Begin reserves maximum snapshots as before; effective rows shrink after proposal. No request allocation. First private step computed from immutable target entry hidden remains valid even when effective drafts zero; reuse based on actual seed cache identity.",
+    "failure": "All retained failures drain and poison; faults in removed suffix operations cease to be observable. Do not claim same fault sequence for operations deliberately removed."
+  },
+  "interface_plan": [
+    "Pass options.stop_token_id from existing generation control to EOS-aware bounded proposal; never hardcode model EOS or let a proposed EOS stop request.",
+    "Permit effective count0 only under validated EOS-frontier result; preserve invalid count rejection for ordinary bounded proposal contract.",
+    "TargetTransaction must set rows_=effective+1 before verify and retain valid seed KV even for effective0. Ordinary no-proposal length tail keeps cache invalid.",
+    "Expose physical draft steps, EOS frontier stops, submitted proposals and verified rows separately. Require steps=proposed+EOS-frontier-stops, verified=proposed+rounds, explicit histograms. Update seed reuse bounds to actual proposal work.",
+    "Accepted EOS at frontier becomes target bonus, so accepted/proposed counts legitimately change; do not count bonus as accepted draft.",
+    "Assign independent candidate/route identity; preserve frozen v119 and nonMTP installed artifacts."
+  ],
+  "validation_and_composition": [
+    "One implementation plus at most one correctness repair; no threshold, draft-depth, layout or geometry scan.",
+    "Host actual-controller tests: all EOS positions, falseEOS, zero-frontier, confidence stop, noEOS, observer EOS/cancel precedence, failed begin/propose/verify/commit/finish abort.",
+    "Native scalar teacher-forced complete Conv/GDN/KV/hidden/full logits and reconciled draft KV for every frontier, accepted/rejected EOS, cancellation and recovery, under both caps. Preserve original-weight private numerical contract.",
+    "Immediate real API return: first affected capability-4 and P65/O16 cap2, unchanged output token IDs and complete receipts. Record Prefill, TTFT, Decode and total; preflight each fresh process.",
+    "If correctness or affected EOS request performance is negative, repair once or remove. Positive work reduction unlocks remaining five affected cases, representative noEOS capability case, bothcap8K/40K and lifecycle regression. Do not repeat full98 panel solely to reconfirm unchanged answers.",
+    "Retain only after affected wholeAPI improvement and no material noEOS regression; no production promotion. Independent selection and delivery gates remain outside this direction screen."
+  ],
+  "artifact_root": ".q3x-work/mtp-eos-frontier-20261020",
+  "tracked_result": "docs/metadata/qwen36-27b-mtp-eos-frontier-assessment-2026-10-20.json",
+  "rollback": "Remove EOS composition and unused prerequisites; retain independent assessment/evidence. Ordinary installed0.8.2 never changes in this package.",
+  "host_assessment": {
+    "source_commit": "bd8e6f0",
+    "checks": 44280,
+    "shortened_checks": 30294,
+    "false_eos_assignments": 20196,
+    "failures": 0,
+    "scope": "Host finite alphabet control/state-history equivalence only; no GPU numerical or timing authority",
+    "alphabet": "EOS plus two distinguishable ordinary IDs; seed is separate; d=0..3; all target prediction assignments; cancellation positions 0..5",
+    "limitation": "Symbolic history is not a bytewise GPU state oracle. Faults in removed work have no counterpart; all retained-operation failures still abort/poison.",
+    "script_sha256": "cea711389031a9edb13dae1aba5a5ab439205680c5d3702faa25fdddc9e65299"
+  }
+}
