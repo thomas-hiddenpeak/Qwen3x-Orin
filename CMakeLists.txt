@@ -1135,6 +1135,12 @@ if(BUILD_TESTING)
   target_include_directories(q3x_mtp_graph_inputs_test PRIVATE include src/runtime)
   set_target_properties(q3x_mtp_graph_inputs_test PROPERTIES
     CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
+  add_executable(q3x_mtp_tree_inputs_test EXCLUDE_FROM_ALL
+    tests/mtp_graph_inputs_cuda_test.cu src/runtime/mtp_verify_attention_internal.cu)
+  target_include_directories(q3x_mtp_tree_inputs_test PRIVATE include src/runtime)
+  target_compile_definitions(q3x_mtp_tree_inputs_test PRIVATE Q3X_TEST_TREE_INPUTS=1)
+  set_target_properties(q3x_mtp_tree_inputs_test PROPERTIES
+    CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
   add_executable(q3x_mtp_integer_head_test EXCLUDE_FROM_ALL
     tests/mtp_integer_head_cuda_test.cu)
   target_include_directories(q3x_mtp_integer_head_test PRIVATE include src/runtime)

@@ -68,8 +68,12 @@ slot. QK/PV remap only its self address and softmax uses its ancestor-only lengt
 original arithmetic order and BF16 publication remain unchanged. Thirty changing-
 length replays match contiguous-history output oracles; the 252-replay linear
 regression and bounded root memory/race/synchronization checks pass. This is
-synthetic Attention correctness only. Parent Conv/GDN, logical RoPE, canonical
-KV commit, full-model state oracles and service integration remain unfinished.
+synthetic Attention correctness only. The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json)
+now preserves scalar Q/gate and complete cache bytes in 14 tree Graph cases;
+21 linear regression cases and bounded GPU sanitizer checks also pass. The last
+node's logical RoPE position is entry+1 while its physical K/V slot remains the
+tail. This is still an isolated entry: parent Conv/GDN, canonical KV commit,
+full-model state oracles and service integration remain unfinished.
 
 ## 2026-10-20 canonical singleton state — closed neutral
 

@@ -97,6 +97,8 @@ Current generation and performance remain v113; no new speedup is claimed.
 The [native Attention prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-attention-2026-10-20.json) passes 30 synthetic tree replays,
 252 linear regression replays and bounded GPU sanitizer checks. It remains
 unselected by the service; full hybrid-state and real-model validation are pending.
+The [tree position/preprocessing prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-inputs-2026-10-20.json) separately passes scalar Q/gate and
+complete-cache checks; it likewise has no current service or speedup authority.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request

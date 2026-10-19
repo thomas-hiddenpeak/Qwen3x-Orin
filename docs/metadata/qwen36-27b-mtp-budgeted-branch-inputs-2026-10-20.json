@@ -1,0 +1,62 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "source_parent": "3dd0f3dd9159ea06ca79aaeafbb119741ea6b119",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "decision_unit": "local_mutation",
+  "status": "dependency_only; native milestone1 remains incomplete",
+  "implementation": "Separate compile-time alternate-tail preprocessing. Logical last-node RoPE is entry+1; physical K/V destination remains entry+rows-1. Existing normalization, arithmetic order, BF16 publication and gate copy unchanged; linear entry retains Tree=false.",
+  "contract": "Private tree entry admits rows3/4, caller owns valid device capsule, positions and bounded/disjoint buffers; no new allocations, extra target rows or public route.",
+  "validation": {
+    "tree_graph_cases": 14,
+    "linear_graph_cases": 21,
+    "positions": [
+      0,
+      64,
+      509,
+      511,
+      512,
+      8192,
+      44091
+    ],
+    "oracle": "Frozen original scalar preprocess independently invoked per node at logical path position. Complete Q/gate, embedding, full 44095-position K/V cache and guards bitwise equal.",
+    "sanitizers": "memcheck/racecheck/synccheck exit0; bounded rows3 position511 tree case",
+    "payload": "Synthetic correctness only; no real-model numerical or performance authority."
+  },
+  "remaining": "Parent Conv/GDN, selected-path canonical KV and draft reconciliation, complete scalar model state/logit oracles, then startup Graph/lifetime/resource/route composition and immediate real d2 API return; useful direction unlocks d3.",
+  "budget": "Part of original native milestone1; no reset or extension of two-milestone plus one-repair budget.",
+  "source_sha256": {
+    "src/runtime/mtp_verify_attention_internal.cu": "a36ce6ceb31b6605e0f1b90f33940e58874245acb5199b6f36efd056f1bfc7a3",
+    "src/runtime/mtp_verify_graph_internal.h": "c3c02ad7e3a20cc96da8509bbdbe35cf751dc05998d3c099bae7cb4ce879ca89",
+    "tests/mtp_graph_inputs_cuda_test.cu": "451b2ce738b4cb1e5744850896736e0687dd64e0936c853b78cb5c6ef78d0c23"
+  },
+  "artifacts": {
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-inputs/cache-preparation.json": "c48c39adaeea8413e42b6bd64c93bccef7c4ada73753f1e13ed1949ca334d2b6",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-inputs/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-inputs/preflight-console.log": "9161d8451437e1f3c2ee2aa257b3f76dbac9cd193dc66cf78d51cd30095d09d1",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-inputs/preflight.json": "0e8c896a05eab1eaa2bfeb1fde826107322970b031304014d0961add7ee888b6",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-inputs/test.log": "c4575ab39a645b09d5b506dbbb0554eb027a80e7fbf2286f1c2fbf22d465f53c",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-inputs/cache-preparation.json": "68eeb74607f3c39e20b3d509cb9876266850d5b4350bbb46827b6bd0db02670c",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-inputs/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-inputs/preflight-console.log": "d5dea271f3c5b9f325c9f778bf668e233b00dc686052ae7b2ec8cb979b7d0508",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-inputs/preflight.json": "4588180dd7f4ba2c974c8cec591146475431555902ad9fb60944f8b06af951e6",
+    ".q3x-work/mtp-budgeted-branch-20261020/linear-inputs/test.log": "49778b46216bd7abfb46aef472f0c02f2da747194fe8cd6a0499f96c6b2812ab",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-memcheck/cache-preparation.json": "1a786e86a548a069d4f4ae07be08c8e52a2d73ca69fc9dc5eec7c60ec2c100a5",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-memcheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-memcheck/preflight-console.log": "91c62aac7ecef3574e1ed2614e836ed244bc54f8c95aa4b6a86c6aad34ad3e5f",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-memcheck/preflight.json": "fb602885d40c674359053ffbfc7d24253e9e24a880d422eed6988a70a9b30b4e",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-memcheck/test.log": "051b2f700d5c3c456f2f1dd15843fde5040899dbfe9d3a1035298967213352b7",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-racecheck/cache-preparation.json": "d54e4334ad9e97978c97719cbdff7e86747623a16c2de1422e3519db80cf517f",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-racecheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-racecheck/preflight-console.log": "d8e512a95d780a22e5b8bf6a3885af986f1ef0c5100bc48d9af67ab8d47ac6a1",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-racecheck/preflight.json": "38bb65fe5f68b97ef2b08f54629cb89fa1f31314a40cd7724d7c92e82a8fe25b",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-racecheck/test.log": "7f85fdb53fd74a7229a853ece0a47093b15af82a031bb207f46b0ba6ff66c91e",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-synccheck/cache-preparation.json": "6c649713c7e3081d5c962441e29131c54a4964a5fdefc33fa53caa86715fbc5a",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-synccheck/exit-code": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-synccheck/preflight-console.log": "dcbb6130908b43f566d15ffe8faa10b363d8fa10297f4af9d02e496c58c8d86a",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-synccheck/preflight.json": "18ad5694cb4d3949cf1cbca85e1b32af304d660bfaf78e5ea630c382b3516a9b",
+    ".q3x-work/mtp-budgeted-branch-20261020/tree-input-synccheck/test.log": "051b2f700d5c3c456f2f1dd15843fde5040899dbfe9d3a1035298967213352b7"
+  },
+  "new_performance_claim": false,
+  "production_changed": false
+}

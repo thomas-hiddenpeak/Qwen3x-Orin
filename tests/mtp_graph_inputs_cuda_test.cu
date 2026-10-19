@@ -111,7 +111,13 @@ void ck(int s){if(s)throw std::runtime_error(cudaGetErrorString(cudaError_t(s)))
 void req(bool b){if(!b)throw std::runtime_error("embedding/preprocess/cache/guard mismatch");}
 int main(int argc,char**){
  unsigned cases=0;bool small=argc>1;
+#if defined(Q3X_TEST_TREE_INPUTS)
+ constexpr bool tree=true;
+#else
+ constexpr bool tree=false;
+#endif
  for(unsigned rows:{2U,3U,4U}) {
+  if(tree && rows==2)continue;
   const unsigned capacity=44095;
   std::vector<std::uint16_t> q(rows*12288),k(rows*1024),v(k.size()),weights(512),emb(4*5120),actual(rows*12288+16),expected(actual.size()),tokens(rows*5120);
   std::vector<float> cosines(capacity*32),sines(cosines.size());
@@ -127,7 +133,7 @@ int main(int argc,char**){
   cudaStream_t stream;cudaGraph_t graph;cudaGraphExec_t exec;
   ck(cudaStreamCreate(&stream));ck(cudaStreamBeginCapture(stream,cudaStreamCaptureModeThreadLocal));
   ck(mtp::launch_mtp_graph_embedding(de,input,rows,dt,stream));
-  ck(mtp::launch_mtp_graph_preprocess(dq,dk,dv,dw,dw+256,dc,ds,input,rows,db+8,kb,vb,stream));
+  ck((tree ? mtp::launch_mtp_tree_graph_preprocess : mtp::launch_mtp_graph_preprocess)(dq,dk,dv,dw,dw+256,dc,ds,input,rows,db+8,kb,vb,stream));
   ck(cudaStreamEndCapture(stream,&graph));ck(cudaGraphInstantiate(&exec,graph,nullptr,nullptr,0));
   for(unsigned position:{0U,64U,509U,511U,512U,8192U,44091U}) {
    if(small && (rows!=3 || position!=511))continue;
@@ -137,7 +143,7 @@ int main(int argc,char**){
    ck(cudaMemset(ka,0xa5,cache_bytes));ck(cudaMemset(kb,0xa5,cache_bytes));ck(cudaMemset(va,0xa5,cache_bytes));ck(cudaMemset(vb,0xa5,cache_bytes));ck(cudaMemset(da,0xa5,actual.size()*2));ck(cudaMemset(db,0xa5,expected.size()*2));
    for(unsigned row=0;row<rows;++row){
     ck(cudaMemcpy(ka+(position+row)*1024ULL,k.data()+row*1024,2048,cudaMemcpyHostToDevice));ck(cudaMemcpy(va+(position+row)*1024ULL,v.data()+row*1024,2048,cudaMemcpyHostToDevice));
-    reference_preprocess<<<28,256>>>(dq+row*12288,ka+(position+row)*1024ULL,dw,dw+256,1.e-6F,da+8+row*12288,da+8+row*12288+6144,dc,ds,position+row);ck(cudaGetLastError());
+    reference_preprocess<<<28,256>>>(dq+row*12288,ka+(position+row)*1024ULL,dw,dw+256,1.e-6F,da+8+row*12288,da+8+row*12288+6144,dc,ds,position+(tree && row==rows-1 ? 1 : row));ck(cudaGetLastError());
    }
    ck(cudaDeviceSynchronize());ck(cudaGraphLaunch(exec,stream));ck(cudaStreamSynchronize(stream));
    ck(cudaMemcpy(actual.data(),da,actual.size()*2,cudaMemcpyDeviceToHost));ck(cudaMemcpy(expected.data(),db,expected.size()*2,cudaMemcpyDeviceToHost));req(actual==expected);
@@ -150,5 +156,5 @@ int main(int argc,char**){
   ck(cudaGraphExecDestroy(exec));ck(cudaGraphDestroy(graph));ck(cudaStreamDestroy(stream));
   for(auto ptr:{dq,dk,dv,dw,de,dt,da,db,ka,kb,va,vb})ck(cudaFree(ptr));ck(cudaFree(dc));ck(cudaFree(ds));ck(cudaFree(input));
  }
- printf("input_graph_cases=%u complete_cache_extent=44095\n",cases);return cases==(small?1U:21U)?0:1;
+ printf("input_graph_cases=%u complete_cache_extent=44095\n",cases);return cases==(small?1U:tree?14U:21U)?0:1;
 }

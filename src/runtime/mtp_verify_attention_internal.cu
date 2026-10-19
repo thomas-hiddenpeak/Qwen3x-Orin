@@ -652,6 +652,7 @@ __global__ void mtp_graph_embedding_kernel(const std::uint16_t* embedding,
     output[row * 5120 + column] =
         embedding[std::size_t(parameters->token_ids[row]) * 5120 + column];
 }
+template<bool Tree = false>
 __global__ void mtp_graph_preprocess_kernel(
     const std::uint16_t* const interleaved_q_gate,
     std::uint16_t* const key,
@@ -731,7 +732,8 @@ __global__ void mtp_graph_preprocess_kernel(
     std::uint16_t* const head_output =
         normalized_output + packed_offset - dimension;
     const std::size_t table_offset =
-        (first_position + token) * kHalfRotary + dimension;
+        (first_position + (Tree && token == gridDim.x / kCombinedHeads - 1 ? 1 : token)) *
+            kHalfRotary + dimension;
     const float cosine = cosines[table_offset];
     const float sine = sines[table_offset];
     const float first = decode_bf16_device(head_output[dimension]);
@@ -767,7 +769,8 @@ int launch_mtp_graph_embedding(const std::uint16_t* embedding,
       static_cast<cudaStream_t>(opaque)>>>(embedding, parameters, output);
   return cudaGetLastError();
 }
-int launch_mtp_graph_preprocess(const std::uint16_t* q_gate,
+template<bool Tree>
+int launch_graph_preprocess_impl(const std::uint16_t* q_gate,
     std::uint16_t* key_stage, const std::uint16_t* value_stage,
     const std::uint16_t* q_norm, const std::uint16_t* k_norm,
     const float* cosines, const float* sines,
@@ -776,11 +779,33 @@ int launch_mtp_graph_preprocess(const std::uint16_t* q_gate,
     std::uint16_t* value_cache, void* opaque) noexcept {
   if (!q_gate || !key_stage || !value_stage || !q_norm || !k_norm ||
       !cosines || !sines || !parameters || !query_gate || !key_cache ||
-      !value_cache || rows < 2 || rows > 4) return cudaErrorInvalidValue;
-  mtp_graph_preprocess_kernel<<<28 * rows, 256, 0,
+      !value_cache || rows < (Tree ? 3U : 2U) || rows > 4) return cudaErrorInvalidValue;
+  mtp_graph_preprocess_kernel<Tree><<<28 * rows, 256, 0,
       static_cast<cudaStream_t>(opaque)>>>(q_gate, key_stage, q_norm, k_norm,
       1.e-6F, query_gate, query_gate + 6144, cosines, sines, parameters,
       value_stage, key_cache, value_cache);
   return cudaGetLastError();
+}
+int launch_mtp_graph_preprocess(const std::uint16_t* q_gate,
+    std::uint16_t* key_stage, const std::uint16_t* value_stage,
+    const std::uint16_t* q_norm, const std::uint16_t* k_norm,
+    const float* cosines, const float* sines,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* query_gate, std::uint16_t* key_cache,
+    std::uint16_t* value_cache, void* opaque) noexcept {
+  return launch_graph_preprocess_impl<false>(q_gate, key_stage, value_stage,
+      q_norm, k_norm, cosines, sines, parameters, rows, query_gate,
+      key_cache, value_cache, opaque);
+}
+int launch_mtp_tree_graph_preprocess(const std::uint16_t* q_gate,
+    std::uint16_t* key_stage, const std::uint16_t* value_stage,
+    const std::uint16_t* q_norm, const std::uint16_t* k_norm,
+    const float* cosines, const float* sines,
+    const MtpVerifyDeviceInputs* parameters, unsigned rows,
+    std::uint16_t* query_gate, std::uint16_t* key_cache,
+    std::uint16_t* value_cache, void* opaque) noexcept {
+  return launch_graph_preprocess_impl<true>(q_gate, key_stage, value_stage,
+      q_norm, k_norm, cosines, sines, parameters, rows, query_gate,
+      key_cache, value_cache, opaque);
 }
 }  // namespace q3x::runtime::mtp_detail
