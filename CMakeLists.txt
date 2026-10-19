@@ -1118,6 +1118,13 @@ q3x_enable_warnings(qwen3x-inspect)
 
 if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
+  # Explicit GPU correctness invocation; never an automatic or timed CTest.
+  add_executable(q3x_mtp_graph_attention_test EXCLUDE_FROM_ALL
+    tests/mtp_graph_attention_cuda_test.cu
+    src/runtime/mtp_verify_attention_internal.cu)
+  target_include_directories(q3x_mtp_graph_attention_test PRIVATE include src/runtime)
+  set_target_properties(q3x_mtp_graph_attention_test PROPERTIES
+    CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
   # Host-only MTP prerequisites. No MTP symbol/selector enters the installed
   # engine or the ordinary BUILD_TESTING=OFF service.
   add_executable(q3x_mtp_control_test

@@ -1,0 +1,42 @@
+{
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "status": "active_dependency_implementation",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "1266bb9",
+  "incumbent_profile": "q3x.sm87.admission.mtp-mlp-register-api.v101",
+  "parent_constraint": "Real API MTP Decode 1.5x\u20133x matched non-MTP, d2/d3, exact target output/state, private max-row error<=.02; joint Prefill/TTFT/Decode/total",
+  "downward_budget": "v101 d2 P65/40K still needs31.201/348.446 ms at floor. Current verifier launches16GDN graph segments plus all16FA and tail operators per round. Older v94 full-trace outside-GPU-union140.448ms is diagnostic, not predicted saving; graph scheduling may also alter inter-node issue. No claim this alone closes the complete objective.",
+  "composition": "Startup-owned full verifier Graphs for M2/M3/M4 and short/long Attention families; stable device token/position capsule, stable K/V projection staging then dynamic exact preprocess/cache publication, all64layers and prefix hidden/full logits/argmax staged in one graph. Upload one input capsule; long path updates16QK grid extents only; one Graph launch and one bounded results read per round. No rejected prefix becomes canonical before existing commit.",
+  "bounds": "Singleton/native and tiny/cross-family boundary transactions retain explicitly attested incumbent route. Full capacity validation remains before any enqueue. No dynamic allocation, JIT, capture or layout selection during requests. Graph capture/instantiate/upload at construction only.",
+  "equivalence": "Exact original FP32 product/add/FMA order, causal limits, BF16 rounding, Conv/GDN sequence, hidden and full logits. Device parameters replace scalar launch arguments only; each true row retains its exact causal length. No fixed-length padding enters arithmetic. Invalid QK capacity CTAs return before touching shared state or memory. Canonical commit/abort/observer contract unchanged.",
+  "milestones": [
+    {
+      "id": 1,
+      "deliverable": "Device-input Attention interface and immutable-graph replay across changing actual lengths/pitches, with optional QK grid node update. Exact complete probabilities/output/guards against frozen v101 kernels; no runtime selection or speed claim."
+    },
+    {
+      "id": 2,
+      "deliverable": "Token embedding, exact K/V preprocess/publication, bounded capsule/results ownership, full verifier startup graph composition, current P65/P513/8K state/transaction checks."
+    },
+    {
+      "id": 3,
+      "deliverable": "Immediate d2 real API direction P65/8K/40K plus lifecycle; useful full direction unlocks d3; negative direction removes composed graph and unused prerequisites."
+    }
+  ],
+  "deadline": "This prerequisite must compose and return to API within the next two implementation milestones or be archived. One complete dataflow; no block-size, graph-bucket, compiler or parameter scan.",
+  "screen": "Any numerical/ownership failure stops promotion and permits one bounded correctness repair. On API, short regression>3% or nonpositive 8K/40K closes; useful direction still requires full qualification before production.",
+  "reference_study": [
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/compilation/cuda_graph.py",
+      "sha256": "cbc474f9098386d2eef2e3ff61364c611fbc1338d9c259ad5a24439aa7f06412"
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/v1/worker/gpu/spec_decode/dflash/cudagraph.py",
+      "sha256": "556acfbce5ef2310a738d254d0029f2976846fa51f37332d1fb07a140b8ac017"
+    }
+  ],
+  "reference_transfer": "vLLM keeps stable graph input addresses and uses device-side sequence/slot metadata; input ownership outside graph wrapper. Translate to a fixed32-byte capsule and current SM87 exact kernels. No external code imported or dependency added.",
+  "artifacts": ".q3x-work/mtp-full-graph-20261014",
+  "default": "ordinary non-MTP production and measured v101 binary unchanged"
+}

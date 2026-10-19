@@ -1,0 +1,210 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "decision_unit": "local_mutation",
+  "status": "dependency_only",
+  "milestone": 1,
+  "design": "docs/metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json",
+  "source_parent": "1266bb9",
+  "artifacts": ".q3x-work/mtp-full-graph-20261014",
+  "implementation": [
+    "32-byte aligned position/token capsule; caller validates and owns its lifetime. Only position is consumed at this milestone.",
+    "Device-parameter specializations of existing short Attention and exact QK/softmax/ordered PV. Existing static entry retained.",
+    "Long QK uniform inactive-CTA return and QK-node identification for grid-only updates. Host capsule null/alignment/overlap and capacity guards.",
+    "Explicit EXCLUDE_FROM_ALL q3x_mtp_graph_attention_test; no automatic GPU CTest or production inclusion."
+  ],
+  "equivalence": "No arithmetic expression, operand tree, BF16 boundary or causal range changed. Dynamic first_sequence=position+1 supplies actual per-row lengths and aligned probability pitch. Capacity-only CTAs touch no data. Each long replay compares entire probability storage including padding/canaries, and complete BF16 output including guards.",
+  "frozen_oracle": {
+    "path": ".q3x-work/mtp-full-graph-20261014/original-attention.cu",
+    "sha256": "a918eec3b4feb8234d912b9541c787e9bdeeb2551b421b721bba2e7dfa25c6f8",
+    "origin": "git1266bb9 src/runtime/mtp_verify_attention_internal.cu",
+    "test_transform": "Namespace-only rename to original_mtp; unchanged function bodies."
+  },
+  "coverage": {
+    "rows": [
+      2,
+      3,
+      4
+    ],
+    "capacity_first_sequence": "68,129,512-M,515,8192,40000,44096-M",
+    "patterns": [
+      "finite signed values",
+      "signed zeros",
+      "NaN/infinity and signed-zero values"
+    ],
+    "replays_per_graph": [
+      "capacity length/capacity grid",
+      "minimum family length/capacity grid",
+      "minimum family length/tight grid",
+      "capacity minus one length/regrown tight grid"
+    ],
+    "frozen_original_graphs": 63,
+    "frozen_original_dynamic_replays": 252,
+    "frozen_original_static_entry_checks": 252,
+    "repository_regression_graphs": 63,
+    "repository_regression_replays": 252,
+    "sanitizer_panel": "M3/capacity-first515, three patterns and12replays per process; bounded long-path memory/race/sync evidence, not exhaustive sanitizer coverage.",
+    "initial_check": "Initial63graphs/189replays passed. Final harness additionally covers legacy static specialization and shortened actual length with unchanged capacity grid. No kernel correctness repair was needed."
+  },
+  "checks": {
+    "synthetic": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/attention-test"
+        ],
+        "binary_sha256": "cd21e69ba0747953bc45e5eb0e8d1cfc3800b1255ca7de6c7a4dbe57bd2c71fc",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.593
+      },
+      "last_line": "graph_cases=63 graph_replays=189 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass"
+    },
+    "synthetic-final": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/attention-test"
+        ],
+        "binary_sha256": "07c0a44e86288b0e4e6dd79da4b039dbc0f745ba58fba311b71a44807fa1f560",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.25
+      },
+      "last_line": "graph_cases=63 graph_replays=252 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass"
+    },
+    "repository-test": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_graph_attention_test"
+        ],
+        "binary_sha256": "7ec832ddee04c4d1e151faa168f8d073c782eb30dc3832f3891f916c48df73ec",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.062
+      },
+      "last_line": "graph_cases=63 graph_replays=252 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass"
+    },
+    "memcheck": {
+      "identity": {
+        "command": [
+          "sudo",
+          "-n",
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "memcheck",
+          "--error-exitcode",
+          "1",
+          "--log-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/memcheck/sanitizer.log",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/attention-test",
+          "--small"
+        ],
+        "binary_sha256": "07c0a44e86288b0e4e6dd79da4b039dbc0f745ba58fba311b71a44807fa1f560",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": null
+      },
+      "last_line": "graph_cases=3 graph_replays=12 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass",
+      "sanitizer_summary": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors"
+    },
+    "racecheck": {
+      "identity": {
+        "command": [
+          "sudo",
+          "-n",
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "racecheck",
+          "--error-exitcode",
+          "1",
+          "--log-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/racecheck/sanitizer.log",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/attention-test",
+          "--small"
+        ],
+        "binary_sha256": "07c0a44e86288b0e4e6dd79da4b039dbc0f745ba58fba311b71a44807fa1f560",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 62.406
+      },
+      "last_line": "graph_cases=3 graph_replays=12 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass",
+      "sanitizer_summary": "========= COMPUTE-SANITIZER\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"
+    },
+    "synccheck": {
+      "identity": {
+        "command": [
+          "sudo",
+          "-n",
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "synccheck",
+          "--error-exitcode",
+          "1",
+          "--log-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/synccheck/sanitizer.log",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-full-graph-20261014/attention-test",
+          "--small"
+        ],
+        "binary_sha256": "07c0a44e86288b0e4e6dd79da4b039dbc0f745ba58fba311b71a44807fa1f560",
+        "scope": "synthetic correctness only; no timing or API authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": null
+      },
+      "last_line": "graph_cases=3 graph_replays=12 fixed_input_pointer=pass qk_grid_update=pass invalid_contracts=pass",
+      "sanitizer_summary": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors"
+    }
+  },
+  "builds": {
+    "service": true,
+    "whole_core_oracle": true,
+    "explicit_regression_target": true,
+    "host_checks_passed": 3
+  },
+  "composition_required": [
+    "Implement dynamic embedding and exact K/V staging/preprocess/cache publication.",
+    "Own host/device input capsule and contiguous device result rows at construction; preserve all prefix slots and stream lifetimes.",
+    "Capture full verifier at startup, update16long QK grids, one input upload/Graph launch/output read; preserve current commit/abort observers.",
+    "Run current full-state/numerical admission, then immediate d2 API direction and useful-direction d3."
+  ],
+  "deadline": "Compose in the next implementation milestone and return to real API by the following milestone, otherwise archive the dependency. No scan or indefinite local retention.",
+  "performance_authority": "None. Synthetic correctness only; no new real model/API result. Current v101 joint Prefill/TTFT/Decode/total figures remain owned by docs/CURRENT_STATUS.md.",
+  "measured_cached_server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+  "ordinary_production_changed": false,
+  "new_entry_on_request_path": false,
+  "goal_completed": false,
+  "cleanup_gpu_handles": [],
+  "worktree_count": 47,
+  "reproduction": {
+    "build": "cmake --build .q3x-work/build/orin-whole-core-exact-decode-admission --target q3x_mtp_graph_attention_test --parallel 3",
+    "run_with_preflight": "python3 -B .q3x-work/mtp-full-graph-20261014/run-repository-test.py NEW_WORKSPACE_OUTPUT_NAME",
+    "scope": "Correctness-only; explicit clean ownership preflight required before GPU process."
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-full-graph-20261014/stage1-artifact-manifest.json",
+    "sha256": "679e4534acea307f02f9054527d1fd9cd054638ca2c289cd9229ab20d3343dd2",
+    "files": 81,
+    "bytes": 33136441
+  },
+  "document_validation": {
+    "control": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1563\nerrors: 0",
+    "unit_checks": 7
+  }
+}

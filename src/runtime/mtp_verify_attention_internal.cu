@@ -16,6 +16,7 @@
 // Internal admission wrapper. v7 preserves scalar arithmetic and pipelines KV
 // movement; the previous FlashInfer numerical lineage remains in Git history.
 #include "decode_fused_gqa_internal.h"
+#include "mtp_verify_graph_internal.h"
 #include "q3x/runtime/decode_ops.h"
 #include <cuda_runtime.h>
 #include <array>
@@ -88,10 +89,15 @@ __device__ __forceinline__ void stage_keys(
   asm volatile("cp.async.commit_group;" ::);
 }
 
-template<unsigned M>
+template<unsigned M, bool DeviceInputs = false>
 __global__ void attention_scores_shared_rows_kernel(
     const std::uint16_t* query, const std::uint16_t* keys,
-    unsigned int first_sequence, unsigned int rows, float* scores) {
+    unsigned int first_sequence, unsigned int rows, float* scores,
+    const MtpVerifyDeviceInputs* parameters = nullptr) {
+  if constexpr (DeviceInputs) {
+    first_sequence = parameters->position + 1;
+    if (blockIdx.x * 128 >= first_sequence + M - 1) return;
+  }
   const unsigned int warp = threadIdx.x >> 5;
   const unsigned int m = warp % M, position_warp = warp / M;
   const unsigned int tile = blockIdx.x;
@@ -163,8 +169,14 @@ __global__ void attention_scores_shared_rows_kernel(
 
 // Same 256-thread max/sum trees and two expf evaluations as scalar softmax.
 // Padding owns storage only; actual causal columns alone enter arithmetic.
+template<bool DeviceInputs = false>
 __global__ void aligned_softmax(float* p, unsigned first_sequence,
-                                unsigned stride) {
+                                unsigned stride, unsigned rows = 0,
+                                const MtpVerifyDeviceInputs* parameters = nullptr) {
+  if constexpr (DeviceInputs) {
+    first_sequence = parameters->position + 1;
+    stride = (first_sequence + rows + 2) & ~3U;
+  }
   const unsigned row = blockIdx.x, columns = first_sequence + row / 24;
   p += row * stride;
   __shared__ float partial[256];
@@ -231,9 +243,12 @@ __device__ __forceinline__ void ordered_stage(
   asm volatile("cp.async.commit_group;" ::);
 }
 
+template<bool DeviceInputs = false>
 __global__ void attention_values_ordered_pair_kernel(
     const std::uint16_t* values, const float* probabilities,
-    unsigned int first_sequence, unsigned int rows, std::uint16_t* output) {
+    unsigned int first_sequence, unsigned int rows, std::uint16_t* output,
+    const MtpVerifyDeviceInputs* parameters = nullptr) {
+  if constexpr (DeviceInputs) first_sequence = parameters->position + 1;
   const unsigned int m = blockIdx.x % rows, dimension = blockIdx.x / rows;
   const unsigned int sequence = first_sequence + m;
   const unsigned int probability_stride = (first_sequence + rows + 2) & ~3U;
@@ -293,14 +308,16 @@ __global__ void attention_values_ordered_pair_kernel(
   output[destination] = encode_bf16_device(accumulator);
   output[destination + 1] = encode_bf16_device(second);
 }
+template<bool DeviceInputs = false>
 __global__ void short_attention_rows_kernel(
     const std::uint16_t* query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
-    const unsigned first_sequence,
+    unsigned first_sequence,
     const float attention_scale,
     const std::uint16_t* gate,
-    std::uint16_t* output) {
+    std::uint16_t* output, const MtpVerifyDeviceInputs* parameters = nullptr) {
+  if constexpr (DeviceInputs) first_sequence = parameters->position + 1;
   __shared__ float partial[256];
   __shared__ float probabilities[512];
 
@@ -525,3 +542,72 @@ int launch_mtp_short_attention(const std::uint16_t* query,
   return cudaGetLastError();
 }
 } // namespace q3x::runtime::mtp_detail
+
+namespace q3x::runtime::mtp_detail {
+int launch_mtp_graph_attention(const std::uint16_t* query,
+    const std::uint16_t* key, const std::uint16_t* value,
+    const MtpVerifyDeviceInputs* parameters, unsigned maximum_first_sequence,
+    unsigned rows, void* workspace, std::size_t workspace_bytes,
+    std::uint16_t* output, void* opaque) noexcept {
+  if (rows < 2 || rows > 4 || maximum_first_sequence < 65 ||
+      maximum_first_sequence > fused_decode::kMaximumSequence - (rows - 1) ||
+      !parameters || reinterpret_cast<std::uintptr_t>(parameters) % 16)
+    return cudaErrorInvalidValue;
+  const bool short_path = maximum_first_sequence < 512;
+  if (short_path && maximum_first_sequence > 512 - rows)
+    return cudaErrorInvalidValue;
+  const std::size_t last = maximum_first_sequence + rows - 1;
+  const unsigned stride = (last + 3) & ~std::size_t(3);
+  const std::size_t bytes = rows * 24ULL * stride * sizeof(float);
+  const Span spans[] = {
+    {reinterpret_cast<std::uintptr_t>(query), rows * 12288ULL * 2},
+    {reinterpret_cast<std::uintptr_t>(key), last * 1024 * 2},
+    {reinterpret_cast<std::uintptr_t>(value), last * 1024 * 2},
+    {reinterpret_cast<std::uintptr_t>(output), rows * 6144ULL * 2},
+    {reinterpret_cast<std::uintptr_t>(parameters), sizeof(*parameters)},
+    {reinterpret_cast<std::uintptr_t>(workspace), bytes}};
+  if (!short_path && workspace_bytes < bytes) return cudaErrorInvalidValue;
+  for (unsigned i = 0; i < (short_path ? 5U : 6U); ++i) {
+    const auto a = spans[i];
+    if (!a.begin || a.begin % 16 ||
+        a.begin > std::numeric_limits<std::uintptr_t>::max() - a.bytes)
+      return cudaErrorInvalidValue;
+    for (unsigned j = 0; j < i; ++j)
+      if (a.begin < spans[j].begin + spans[j].bytes &&
+          spans[j].begin < a.begin + a.bytes) return cudaErrorInvalidValue;
+  }
+  (void)cudaGetLastError();
+  const auto stream = static_cast<cudaStream_t>(opaque);
+  if (short_path) {
+    short_attention_rows_kernel<true><<<dim3(24, rows), 256, 0, stream>>>(
+        query, key, value, 0, .0625F, query + 6144, output, parameters);
+    return cudaGetLastError();
+  }
+  auto* probabilities = static_cast<float*>(workspace);
+  const dim3 grid((last + 127) / 128, 4);
+  if (rows == 2)
+    attention_scores_shared_rows_kernel<2, true><<<grid, 128, 0, stream>>>(
+        query, key, 0, rows, probabilities, parameters);
+  else if (rows == 3)
+    attention_scores_shared_rows_kernel<3, true><<<grid, 192, 0, stream>>>(
+        query, key, 0, rows, probabilities, parameters);
+  else
+    attention_scores_shared_rows_kernel<4, true><<<grid, 256, 0, stream>>>(
+        query, key, 0, rows, probabilities, parameters);
+  auto status = cudaGetLastError();
+  if (status != cudaSuccess) return status;
+  aligned_softmax<true><<<24 * rows, 256, 0, stream>>>(
+      probabilities, 0, 0, rows, parameters);
+  status = cudaGetLastError();
+  if (status != cudaSuccess) return status;
+  attention_values_ordered_pair_kernel<true><<<dim3(4 * rows, 4), 192, 0, stream>>>(
+      value, probabilities, 0, rows, output, parameters);
+  return cudaGetLastError();
+}
+
+bool is_mtp_graph_qk_kernel(const void* function) noexcept {
+  return function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<2, true>) ||
+         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<3, true>) ||
+         function == reinterpret_cast<const void*>(attention_scores_shared_rows_kernel<4, true>);
+}
+}  // namespace q3x::runtime::mtp_detail

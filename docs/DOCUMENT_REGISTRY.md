@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-10-14
+  last_reviewed: 2026-10-20
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -602,3 +602,7 @@ The [GDN publication density rejection](metadata/qwen36-27b-mtp-state-density-re
 The [private BF16 Down design](metadata/qwen36-27b-mtp-bf16-down-design-2026-10-14.json) scopes one admission composition in existing MTP/Roadmap documents; no Markdown paths or classifications change.
 
 The [private BF16 Down rejection](metadata/qwen36-27b-mtp-bf16-down-rejection-2026-10-14.json) records numerical admission and a nonpositive two-request API direction with full runtime removal; no Markdown paths or classifications change.
+
+The [complete verifier Graph design](metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json) activates a bounded dependency/composition/API sequence in existing MTP/Roadmap documents; no Markdown paths or classifications change.
+
+The [full-Graph Attention prerequisite](metadata/qwen36-27b-mtp-full-graph-attention-2026-10-20.json) records dependency-only numerical/Graph admission, its explicit regression target, and the remaining two-milestone composition deadline. No Markdown paths or classifications change.

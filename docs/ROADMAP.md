@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-10-14
+  last_reviewed: 2026-10-20
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -18,6 +18,35 @@ q3x_document:
 This page owns unfinished work and dependency order. [Current Status](CURRENT_STATUS.md)
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
+
+## 2026-10-14 complete verifier Graph — active composition
+
+`WP-MTP-FULL-GRAPH-20261014` selects the
+[complete verifier dataflow](metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json).
+Bind token IDs and absolute position in a stable device capsule, stage K/V
+projection outputs before exact dynamic cache publication, and capture all
+64 layers plus full prefix outputs at startup. Preserve every arithmetic and
+state boundary. Long Attention updates only the sixteen QK grid extents before
+one graph launch; actual causal lengths remain device inputs. Singleton, tiny
+and cross-family boundary transactions retain explicit incumbent dispatch.
+First admit changing-length Attention replay; within the next two implementation
+milestones complete ownership/composition/state checks and return to d2 API.
+Useful full direction unlocks d3. Failed API selection removes the composition
+and unused prerequisites. No parameter scan, new default or speed claim follows
+from a prerequisite. v101 and the full objective remain current.
+
+The [2026-10-20 Attention prerequisite](metadata/qwen36-27b-mtp-full-graph-attention-2026-10-20.json)
+adds the fixed 32-byte token/position capsule, device-length short/long Attention
+entry and QK-node identification. Exact arithmetic and the static entry remain
+intact. Against frozen v101 kernels, 63 graphs and 252 changing-length replays
+preserve complete outputs, long-path probabilities, padding and guards; the
+static entry is checked separately. Root memory/race/synchronization checks
+pass on the bounded long-path panel. The explicit `q3x_mtp_graph_attention_test` GPU regression
+target covers the same 63-graph/252-replay sequence against the static entry.
+This is `dependency_only`: no request calls the new entry yet and no API
+performance is claimed. The next milestone must complete dynamic embedding,
+exact K/V publication, capsule/results ownership and full verifier capture;
+the following milestone must return the composition to the real API or archive it.
 
 ## 2026-10-14 private BF16 Down — closed without API gain
 
