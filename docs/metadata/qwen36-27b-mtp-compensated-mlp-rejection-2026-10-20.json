@@ -1,0 +1,494 @@
+{
+  "work_package_id": "WP-MTP-COMPENSATED-MLP-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v114",
+  "source_parent": "481dce6",
+  "decision": "closed_without_API_gain; integration and unused executor removed",
+  "design": "docs/metadata/qwen36-27b-mtp-compensated-mlp-design-2026-10-20.json",
+  "prerequisite": "docs/metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json",
+  "identity": {
+    "parent": "481dce61e27216a7f718f71b115db192345d22b9",
+    "files": {
+      "CMakeLists.txt": "957ef17dc9843f0ad4aff285809fe85e47b23733b9b3019dfa5705d532d74c25",
+      "include/q3x/server/evaluation_server.h": "a84432e9f8272a77f7438acc6fac7626b1765b716a55de9d832903398fd7fc87",
+      "src/runtime/mtp_device_internal.cpp": "62d875c785e74341391a6b0f2241c24f5db6b3afd163dd3f32fd14de25b7c474",
+      "src/runtime/mtp_device_internal.h": "48a0a3a6ef999215deaab8fde2bcafad4ca0af9802e962302e783969e2d05b14",
+      "src/runtime/mtp_service_internal.cpp": "add6fe7990155e335ac5251678b713fabc6291c833bb12a2542f750318277710",
+      "src/server/evaluation_server.cpp": "8caca24d82d89eb8fe2d7fb14a791f1abf6d032a3293259297fbf481693c5118",
+      "tools/evaluation/validate_mtp_service.py": "f70bf771d1f9642480035c346647906770465edd646803dca6ec6e46e41c708c"
+    },
+    "server_sha256": "7c4b1d4a3796376ac65541e5d9a7f49883dbf3755e689fe1c9243596d4770f89",
+    "oracle_sha256": "c4c57a7bbde611bb419047e69f84b7652b3da500a7ffacb1640dc01d8bdb100f",
+    "build_note": "CMake target is qwen3x-eval-server; output filename qwen3x-eval-server-mtp-admission is not the build target. Prior no-op filename calls did not update binary; identity check caught this before API."
+  },
+  "native_p65": {
+    "scope": "independent CPU FP64 projection and causal attention; BF16 boundaries",
+    "threshold_max_row_relative_l2": 0.02,
+    "prompt_tokens": 65,
+    "payload_sha256": {
+      "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+      "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+      "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+      "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+      "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+      "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+      "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+      "selected_embedding_rows": "3ceb8a71d82d00ea485f084a2b062670a2cbfa3caa9cb9b178ad2ff41b2a87b1",
+      "model.language_model.norm.weight": "b9f0006803317a0207979bb4dcb453698d257c0a2150cc4a867666c2a8cd3092"
+    },
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.013693371955898682,
+        "max_absolute_error": 0.671875,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0018966317489639915,
+        "max_absolute_error": 0.046875,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0013001843549924304,
+        "max_absolute_error": 0.125,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "pass": true,
+    "capture_sha256": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-hidden.bf16": "4625d2589ae42fafd0668905bbc6e055e1973dc4c6a7b10806a953e7453c5b8a",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548"
+    }
+  },
+  "native_recursive_p513": {
+    "scope": "three recursively propagated original-weight FP64 steps, conditional on captured initial KV and fixed captured input token IDs",
+    "initial_position": 512,
+    "threshold_max_row_relative_l2": 0.02,
+    "comparisons": {
+      "hidden": {
+        "row_relative_l2": [
+          0.00785946871826384,
+          0.01026464381544691,
+          0.014163534721925579
+        ],
+        "max_row_relative_l2": 0.014163534721925579,
+        "pass": true
+      },
+      "k": {
+        "row_relative_l2": [
+          0.0010111829366827375,
+          0.01059719414432804,
+          0.012865795933975807
+        ],
+        "max_row_relative_l2": 0.012865795933975807,
+        "pass": true
+      },
+      "v": {
+        "row_relative_l2": [
+          0.0008184016269332484,
+          0.006128406267800784,
+          0.007226555571683343
+        ],
+        "max_row_relative_l2": 0.007226555571683343,
+        "pass": true
+      }
+    },
+    "payload_sha256": {
+      "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+      "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+      "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+      "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+      "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+      "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+      "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+      "selected_embedding_rows": "40070fe5f2e6107ca049671f088969608392cfec1a69396fb3f6d8ef41154b00"
+    },
+    "pass": true,
+    "capture_sha256": {
+      "initial-v.bf16": "c76d605d38c0d364a1c941f9add0714e57d895fc72304ddf1c10e08c310cd714",
+      "real-p.f32": "5b649e5587c35cf232b813a99787b4d963c21e5931e5cebe59aa602910eded92",
+      "initial-hidden.bf16": "8239751770be5b3c09fdb2bbea74e09e7de5dbf5b3aa0fdf9dd3e036f7f2938c",
+      "initial-k.bf16": "6565a9b8300a56643ac620003ae25f90c24a35833466ce3da559f244bd815f6d",
+      "recursive-v.bf16": "0269af770c975686d0c71170b530fd5935d64497b982f9c082367ae83a9a8aa7",
+      "recursive-tokens.u32": "1183b5387afd5564612e2af5cec0f7d184d616bbc8883d5d71dbbed795bff15e",
+      "real-v.bf16": "ce6b8c12c5ac8a42a1ef954058759dbf994781a1e1363fca8bbe83cadc6e0d16",
+      "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+      "recursive-k.bf16": "d56b37df3a6987b1281cb1d9e30c26f14c5b94b87662a067b19f01ed651b8d4a",
+      "recursive-hidden.bf16": "c87db7ed5e299e2dfc91030ef93717cedcf53de8fb8672205d117b45582f3b4c"
+    }
+  },
+  "native_counts": {
+    "complete_prefix_panels": 4,
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v113": true,
+    "all_generated_ids_equal_v113": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 2,
+    "server_sha256": "7c4b1d4a3796376ac65541e5d9a7f49883dbf3755e689fe1c9243596d4770f89",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8903149150000002,
+        "prefill_tps": 73.00787497196988,
+        "ttft_s": 0.9087329610483721,
+        "decode_tps": 14.131869065938089,
+        "elapsed_s": 1.970109667046927,
+        "incumbent_decode_tps": 14.14897114978091,
+        "decode_delta_percent": -0.120871571945258,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10058567680
+          ],
+          "draft_mlp": [
+            null,
+            "group128-two-component-imma-v1"
+          ],
+          "draft_compensated_mlp_steps": [
+            null,
+            12
+          ],
+          "draft_initialization_ms": [
+            5.454666,
+            5.453103
+          ],
+          "draft_ms": [
+            87.193625,
+            87.36340600000001
+          ],
+          "verify_ms": [
+            955.2385310000001,
+            956.3917099999999
+          ],
+          "reconcile_ms": [
+            17.373451000000003,
+            17.332021
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.318960432999997,
+        "prefill_tps": 473.00760525965234,
+        "ttft_s": 17.341091471957043,
+        "decode_tps": 15.622415046475442,
+        "elapsed_s": 33.66409182094503,
+        "incumbent_decode_tps": 15.635467587236855,
+        "decode_delta_percent": -0.08348033526075493,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10058567680
+          ],
+          "draft_mlp": [
+            null,
+            "group128-two-component-imma-v1"
+          ],
+          "draft_compensated_mlp_steps": [
+            null,
+            187
+          ],
+          "draft_initialization_ms": [
+            549.616703,
+            552.242689
+          ],
+          "draft_ms": [
+            1386.2916779999996,
+            1389.9792659999998
+          ],
+          "verify_ms": [
+            14620.652988,
+            14632.324597999992
+          ],
+          "reconcile_ms": [
+            297.1908079999999,
+            295.5464879999997
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.437
+    }
+  },
+  "stop": {
+    "stage": {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.318960432999997,
+      "prefill_tps": 473.00760525965234,
+      "decode_tps": 15.622415046475442,
+      "ttft_s": 17.341091471957043,
+      "elapsed_s": 33.66409182094503,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10058567680,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 187,
+        "accepted": 157,
+        "verified_rows": 285,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          0,
+          9,
+          89,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 187,
+        "draft_mlp": "group128-two-component-imma-v1",
+        "draft_compensated_mlp_steps": 187,
+        "draft_ordered_attention_steps": 187,
+        "entry_hidden_snapshots": 98,
+        "scalar_verify_rows": 0,
+        "direct_gdn_state_rows": 13680,
+        "full_graph_rounds": 98,
+        "full_graph_rows": 285,
+        "graph_qk_updates": 1568,
+        "seed_kv_reuses": 98,
+        "tail_kv_batches": 71,
+        "tail_kv_rows": 142,
+        "state_copy_bytes_elided": 29253216256,
+        "draft_initialization_ms": 552.242689,
+        "draft_ms": 1389.9792659999998,
+        "verify_ms": 14632.324597999992,
+        "reconcile_ms": 295.5464879999997,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "v113_direction_decode_tps": 15.635467587236855,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "scope": "Two completed valid d2 requests. 8K nonpositive direction triggered declared stop during post-request spacing; SIGINT driver -2 is intentional, server terminated normally with no cleanup errors. Overall panel success=false correctly indicates incomplete lifecycle/40K/d3 panel. No repeated/statistical slowdown claim.",
+  "causal_scope": "Both compared requests preserve acceptance and work counts. Complete direction shows no useful API gain; no component profile or hardware ceiling is inferred.",
+  "remaining_goal": "Full 50%\u2013200% remains unmet. Retained v113 short d2 needs approximately17.903ms; final repeated selection outstanding. No group/component/tile/quantizer scan follows this closed compensated architecture.",
+  "restored_profile": "q3x.sm87.admission.mtp-integer-head-api.v113",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-compensated-mlp-20261020",
+  "evidence_sha256": {
+    ".q3x-work/mtp-compensated-mlp-20261020/assess.py": "66135e245936865e7f73cd0e94397df59e558d19e97eca7674e11714503ff52d",
+    ".q3x-work/mtp-compensated-mlp-20261020/assessment.json": "573a6c4fc9e1b07848e626cd3e5010506c699d19dd9ce8acf476a5df71a920c5",
+    ".q3x-work/mtp-compensated-mlp-20261020/assessment.log": "d9058f01b4f4f62eb9e9eba093cbb02f9abbe63b9906811e8adcfa7ded291828",
+    ".q3x-work/mtp-compensated-mlp-20261020/baseline-d2-metrics.json": "f1d1853ca04f741e5df05c3d892ad673340a29f0868095edc8b94fa726eb75fa",
+    ".q3x-work/mtp-compensated-mlp-20261020/baseline-d3-metrics.json": "88dfc7909a28d69a4e53e3c15a474c52ae6da25597fc6e25f463025230261ef4",
+    ".q3x-work/mtp-compensated-mlp-20261020/build-oracle.log": "5d7e3085a895e430288bc63b81d9a55d3c4fee4ebecd55a0ca6c5dcec9b8b380",
+    ".q3x-work/mtp-compensated-mlp-20261020/build-server-target.log": "22bb856a412bd93680192f59944e185d3f57fe3ad2957962d8bbe4437b1371c2",
+    ".q3x-work/mtp-compensated-mlp-20261020/build-server.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/build.log": "12b9910eafaf6f0c93ccc978bade4082e69b5703cdff7639a29534458d46981b",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-hidden.npy": "0f5685abf3ca7657eab153267e6fa1a35c2f366bd478e1bf28dbeeb02468150d",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-oracle.json": "bdfbccc7e151902edd782a9cb643cb2cef90347a3e346a06c136a5f32d0f05ee",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-compensated-mlp-20261020/cmake-build.log": "606e6b847090f88a188d2293b694a2f7ca7b98f966bd4ad715324706a4d58e3c",
+    ".q3x-work/mtp-compensated-mlp-20261020/cmake-configure.log": "a203e1a00bbe095a2ebcf5508a538f1172fb649f6605785b47253f5a99f5f698",
+    ".q3x-work/mtp-compensated-mlp-20261020/compare.py": "447898eb5a2fd44fecd1443c93a4d24d8f43062775d230bc504e16edf14dd5c1",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/cache-preparation.json": "df3b6dab2015c9c537de580337a3bc52b74686c04e85eb31d847d420e900f30a",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/cleanup.json": "2ebff584e02d13516408029dae978baef4495d59f06880a7f4d0e4a1bca2fdb2",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/health.json": "4d0df0e09885ae384e3cef9ab1c418ecef09455a531c0a4ca7d30e0b7b16beda",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/identity.json": "9df2f5f2e7fb8b0a004b3fd9d132755a8a8409c940433dd8de760513904b6199",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/p65.json": "953c7d2d1933e1143e0f863bad046ee7a2340044c392555e16436762f6aa0051",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/p8192.json": "ba400ff024e0ea07e983acc88a090a9f2149f12dbf8cc49b3bbfa77f5ec991e8",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/preflight-console.log": "09efa07fffae2039887f41aeee70ff38d669ba6a7fdc2e3ed800abf5b1c610ce",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/preflight.json": "68d90708c25f066d8a4b85fa57a856707b1498cc23cd7061ae7a5013254336b9",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/results.json": "aa66d30eb4e741aa6ca94e14ccff409bd13e064bbcd470ebdf7388bc1891929a",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/server.log": "655d4353e2f4dbf9b1f93ac6e68d4d8bed219906ee8462ed723fe6d8caff7a0a",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2/telemetry.log": "40374cf843a7d285a2d97a89c0770a1a1046da24f50def8189bd8aec6f6524fd",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-comparison.json": "da6a0fc816987d259f62831548cf10e43b0cd5c3b0252dbbcd6315ee783e32ce",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-comparison.log": "da6a0fc816987d259f62831548cf10e43b0cd5c3b0252dbbcd6315ee783e32ce",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-console.log": "d27be481eaeb577fe84953430edd07a78267ed3c56f25f6ea0feeda68ba0c3dd",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-direction-decision.json": "a85f5214c44ef90376598ee15b663f309646a43b59145c32298ec3dae81ee3bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-driver.log": "ea374b2b4cca731dfd22e8e5d108559381f4b3b25dac5178fe68e120d3e42c1f",
+    ".q3x-work/mtp-compensated-mlp-20261020/d2-process.json": "72098092e8af8ae69be70067111a35d3372d24f2594bd2e76b2c1199e5b61a59",
+    ".q3x-work/mtp-compensated-mlp-20261020/docs-check.log": "2e2ab627e2454bd6ba17f77e2c395e099523b7c7a32eda208bf9d4d29050a46f",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/cache-preparation.json": "ea72601f1663f3124c476951096035ddbd39b935d803f7732d44dc49a27c1e4e",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/preflight-console.log": "c535c981ff2866a9daabfd3538e5571852c84406e5d71195d63a78d0bce12593",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/preflight.json": "8cc7158f05c5e28256988e1795c74c32e730613f8d46f17c41cbb5407525d6d5",
+    ".q3x-work/mtp-compensated-mlp-20261020/hygiene.json": "940d32736116ea52823ff280c540076a51a379d905c9d5ac63b8a39dcbf79bd2",
+    ".q3x-work/mtp-compensated-mlp-20261020/independent-p65.log": "5015b6ee635f27ec2c379c5bfabf8727d21056adebdf281c7a492e4cff9658eb",
+    ".q3x-work/mtp-compensated-mlp-20261020/independent-recursive.log": "6b2ca802b0ddbcb14a635357301503a67d3a0ddf3ca06a3f4cb181fc4093d8e2",
+    ".q3x-work/mtp-compensated-mlp-20261020/kernel.o": "8e376475c71e23d40f4f1cb8f2d9165c752842663de48718688059b2900afddf",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/cache-preparation.json": "854e6b00ff89782bb89806020f86546c131de90e413cc510dbc4fa93f640877e",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/identity.json": "7acf7523cdc7f504dec699baf8191bab7df5f6d96e2a82193d2aac391f926363",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/preflight-console.log": "babd860d8f7f71e8a3e17eab84d137f1ec1bd6a4bd13f1242f81a0262b0ada92",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/preflight.json": "57c71cf49c4d2bcef56b308ed4b436cd152278c59acb3bec166a7a2e225b5ad6",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/sanitizer.log": "a9d061cee538182f762e132abeea7bac7bddb844338f25751bbbb043f242c425",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/cache-preparation.json": "fd7850e48e1a97c4ec5a4bbd50ec4d33c2b287cd99f773826217c4f129317d57",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/identity.json": "ba830d21cb35577d4b56d47de2b0113300ec82d73dacb18a3d96afe5bda2b62e",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/preflight-console.log": "7693fd334f6ea30251818fbed955acf8fcd56606981d32c2a0c37afc14e49bde",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/preflight.json": "2b38ab15631de990b7313d3c0c643702a25449781f0ccc4dc46e5c2956cd79db",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/native-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/native-test": "9148eadb0a78945ac0efb7039c66811dfb49e3156aca9af0c2a5c945b4c4e4ce",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-driver.log": "4446e5936569c5ed38613fd7972edebd592406d1000548729785affcdcada356",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/cache-preparation.json": "e67f948d0f660deafe6289f07aa092ee0691b3038f4362573ae2eb434086d372",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/cleanup.json": "96684c414db45556e8116686f51cc0bb19c79914aee46bf8745b314dbb66b61f",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/draft-prefill-hidden.bf16": "4625d2589ae42fafd0668905bbc6e055e1973dc4c6a7b10806a953e7453c5b8a",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/identity.json": "b42361064bbbeca051ce32904a449e5090f70971651cde88725a8e1a34ac043b",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/independent-draft-oracle.json": "f55f06e8deee85361617038dd7b8f5b2421d3148fcff9ee72020283034abe110",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/preflight-console.log": "b4cd0ddfb6dd3f4bb0873fac5025a669939dd146959553bcd39b505d1140f678",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/preflight.json": "9b3aa27fcde3a3054198ce589cf9e5fc0db5b11e10c1ec82e2b146e048ab28e2",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/q3x_mtp_whole_core_test": "c4c57a7bbde611bb419047e69f84b7652b3da500a7ffacb1640dc01d8bdb100f",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/run.log": "ced7a4364f29a93c8bfcb5a0c742c694193b309421f5aad852c21604dcae01da",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-p65/telemetry.log": "d3d5be0f729caf70cae4cd9ad0ff79bf4d1c51d27ff1fe9cb0844d9f07d91252",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-transformation.py": "60b42e13a7ec24f3a4385f6ff5d9b26fbb21a373bd7b486e19ee4928c650d948",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/CMakeLists.txt": "2cf1e1facec0c0aa67af9f4f043652ad256eef4bd7fe865fd7d00c9b3a7a1368",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/include/q3x/server/evaluation_server.h": "2f4451bc44abb5357f27a492dec79debda3665678b54205a0d947060c1c9c5ad",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/src/runtime/mtp_device_internal.cpp": "e538e5cde15abe79b6bfe970760b84d764de6da8652ea06086fc0b2302c9ad53",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/src/runtime/mtp_device_internal.h": "4671857f4969b73a1dd2b3e59140a15b2db779ab7eb2139d9213573cdd3d22fb",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/src/runtime/mtp_service_internal.cpp": "7e310b0bf8dd14f1eb16325dfaba1e948c6ce28cbfb06c12506e525e0504eba4",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/src/server/evaluation_server.cpp": "920d2dc92629a801d72568bc30b62cb3437e39ae1022b1280ea50057e81df34d",
+    ".q3x-work/mtp-compensated-mlp-20261020/original/tools/evaluation/validate_mtp_service.py": "cbebf746b102400bc5deb65fa2488add7c647a891c6ecdb5752a79903bdf91a6",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/cache-preparation.json": "239227b4daae5ee26d2dd621660e3e289ceaa58cd39988946598d0bb6f241749",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/identity.json": "87ff36baad4e70f2682a7e1b4d9c3271c44753b712a373432c69b016b65b1ca8",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/preflight-console.log": "f3a2d521711cc635a93685384f05f0a94edf5adc87fb243635f4783f18338444",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/preflight.json": "5729d959c785209bf8dab7fe599a673f084479decbf9058e01f8f4e2f27b6889",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/sanitizer.log": "91dbb142f8feb8786cd6fde6ac035e816b67db14e4b7b400a01386ec106b75c4",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-driver.log": "45bd3841a3cd537db85b929c7dc7e389bb826af96f543b76aa280b5d89c38405",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/cache-preparation.json": "a8d3a6bf0ad2e225d0388211582823236da66685469b6b17bbc0f79b6f10e571",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/cleanup.json": "ab9c325adbb1ca6a58006e080275aa6ecfd02c601b3834d1f79368a6c78104b7",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/identity.json": "9804b8b990751aa253417e683136a8186612fac0c70ce4f1d1590a06e52b66f7",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/independent-recursive-oracle.json": "8c22faabaeb90c72fe16bb30e9c45026fef3af5dfe92a381a0568ec6085b66b9",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/initial-hidden.bf16": "8239751770be5b3c09fdb2bbea74e09e7de5dbf5b3aa0fdf9dd3e036f7f2938c",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/initial-k.bf16": "6565a9b8300a56643ac620003ae25f90c24a35833466ce3da559f244bd815f6d",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/initial-v.bf16": "c76d605d38c0d364a1c941f9add0714e57d895fc72304ddf1c10e08c310cd714",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/preflight-console.log": "8ea1063be333445a1816daa2af3376f02611fef680cbd40b996143424fdfcea8",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/preflight.json": "13616e7cb5489161f04cd42521e978252841a9a39d09375f772181a038e304f5",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/q3x_mtp_whole_core_test": "c4c57a7bbde611bb419047e69f84b7652b3da500a7ffacb1640dc01d8bdb100f",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/real-p.f32": "5b649e5587c35cf232b813a99787b4d963c21e5931e5cebe59aa602910eded92",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/real-v.bf16": "ce6b8c12c5ac8a42a1ef954058759dbf994781a1e1363fca8bbe83cadc6e0d16",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/recursive-hidden.bf16": "c87db7ed5e299e2dfc91030ef93717cedcf53de8fb8672205d117b45582f3b4c",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/recursive-k.bf16": "d56b37df3a6987b1281cb1d9e30c26f14c5b94b87662a067b19f01ed651b8d4a",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/recursive-tokens.u32": "1183b5387afd5564612e2af5cec0f7d184d616bbc8883d5d71dbbed795bff15e",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/recursive-v.bf16": "0269af770c975686d0c71170b530fd5935d64497b982f9c082367ae83a9a8aa7",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/recursive.json": "33397022acfda5dc3a3a7c849ed4569e0597048947e297cd354ac183cca4d419",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/run.log": "d6ef8bb427428f61958fc7e7ca55939d05dcc41299aa352f77c5d8178878a479",
+    ".q3x-work/mtp-compensated-mlp-20261020/recursive-p513/telemetry.log": "4a92e3dc38de7092d2f24c36e01a9204ef4a917b1676adc8b695baacb44956a9",
+    ".q3x-work/mtp-compensated-mlp-20261020/run-api.py": "4f0c98340f22c47b8fb20657474bfe43a79d4b8550c3afb78deb7eb78567077b",
+    ".q3x-work/mtp-compensated-mlp-20261020/run-native.py": "c49aef73197cd582e58d40b31953b7152ff89bd5ab9eaf2742f6b1461df128c3",
+    ".q3x-work/mtp-compensated-mlp-20261020/run-oracle.py": "936ea2252c981f4fa36f728dde0d66f3f02405c1086b4c3d8ba58d8629a2d96b",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/CMakeLists.txt": "957ef17dc9843f0ad4aff285809fe85e47b23733b9b3019dfa5705d532d74c25",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/changes.patch": "a9a09471653c389a3293cb553e646a3a246c5e0248b677cd61d3235841afa32a",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/include/q3x/server/evaluation_server.h": "a84432e9f8272a77f7438acc6fac7626b1765b716a55de9d832903398fd7fc87",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/integration.patch": "a9a09471653c389a3293cb553e646a3a246c5e0248b677cd61d3235841afa32a",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/oracle": "c4c57a7bbde611bb419047e69f84b7652b3da500a7ffacb1640dc01d8bdb100f",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/prerequisite.patch": "f0b2fb456e8d803de8e095ea39727ea737a002012ed5ce66524d271cf1d07b4d",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/server": "7c4b1d4a3796376ac65541e5d9a7f49883dbf3755e689fe1c9243596d4770f89",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/runtime/mtp_compensated_mlp_internal.cu": "f68c0ccc38524e0d0132d940e6e418915d9646d056c0c62e3e5adb7e52c7f233",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/runtime/mtp_compensated_mlp_internal.h": "02f7b858018163be6dd90624f4cfc1f9d8ab850ae9bd18168b28921e95d69375",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/runtime/mtp_device_internal.cpp": "62d875c785e74341391a6b0f2241c24f5db6b3afd163dd3f32fd14de25b7c474",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/runtime/mtp_device_internal.h": "48a0a3a6ef999215deaab8fde2bcafad4ca0af9802e962302e783969e2d05b14",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/runtime/mtp_service_internal.cpp": "add6fe7990155e335ac5251678b713fabc6291c833bb12a2542f750318277710",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/src/server/evaluation_server.cpp": "8caca24d82d89eb8fe2d7fb14a791f1abf6d032a3293259297fbf481693c5118",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/tests/mtp_compensated_mlp_cuda_test.cu": "a5368298e1ccb5018fc1f8cc7ca3e32117e44ae33f84596e7b47a3d85f7f0e46",
+    ".q3x-work/mtp-compensated-mlp-20261020/source/tools/evaluation/validate_mtp_service.py": "f70bf771d1f9642480035c346647906770465edd646803dca6ec6e46e41c708c",
+    ".q3x-work/mtp-compensated-mlp-20261020/source-identity.json": "2f39b6361e5383920a8f0b3c2c914683f5a398c728e9636148da8b5342c5f6d1",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/cache-preparation.json": "7e6df4d2280119bc89f779006cc8716ab5288ef8a2b7a226db1b075d3e2ddd2f",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/identity.json": "dfee954e2db025da17046ed10440c76ac703bcc165c143466678ae72731a9d6d",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/preflight-console.log": "2fbb7e44d12d376e5c1621d2ac8bffd64e25d07092ae488a79c8390dff682c5e",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/preflight.json": "4ce9456fd253fe4e3041e548944a4a0d917a9cab8f25f94cb5efb333babc151b",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/sanitizer.log": "a9d061cee538182f762e132abeea7bac7bddb844338f25751bbbb043f242c425",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/test-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/rejection-docs-check.log": "b51bd5fa8d77debc43c7e48e70973293223085acd44dc5a5c04e5aca8ee18ec5",
+    ".q3x-work/mtp-compensated-mlp-20261020/restored-oracle-build.log": "3cbf303c5371da1457d71ce31fe1754e564f4f9a19319f9baf0705d59d4e1313",
+    ".q3x-work/mtp-compensated-mlp-20261020/restored-server-build.log": "7de6d18bea1b700a15b2b551e0aec56f5f165f967d5e6c08d9c8a6d960cf08c2",
+    ".q3x-work/mtp-compensated-mlp-20261020/closure-preflight/cache-preparation.json": "40bde324cae18e0fababdf240f15424326c56b91aae128917720be30376582b5",
+    ".q3x-work/mtp-compensated-mlp-20261020/closure-preflight/preflight-console.log": "391a6687322c9e6028ed0eb6255a1a8d85d205c7bb7d604a19ae879b3985ef08",
+    ".q3x-work/mtp-compensated-mlp-20261020/closure-preflight/preflight.json": "7857f84619afea5b54c959516e369d69690cd4284e12ad0ddc17f86c5ed8bcad"
+  },
+  "restoration": {
+    "source_equals": "7daee8a for all src/include/tests/tools/CMakeLists.txt",
+    "rebuilt_binary_sha256": {
+      ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+      ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test": "afba7435f997e514d50ce48b44146b7564827c95f8ad03d1ffdd9cd4f4ed9773"
+    },
+    "worktree_count": 47
+  }
+}

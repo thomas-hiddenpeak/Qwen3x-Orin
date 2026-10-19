@@ -25,32 +25,28 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-20 compensated private MLP — executor prerequisite complete
+## 2026-10-20 compensated private MLP — closed without API gain
 
-`WP-MTP-COMPENSATED-MLP-20261020` selects the
-[two-component integer composition](metadata/qwen36-27b-mtp-compensated-mlp-design-2026-10-20.json).
-Preserve group128 weight payloads, but represent each private activation by
-primary and residual INT8 components in two MMA columns. This is a new
-representation/dataflow; the rejected single-component W8A8 and its group scan
-remain closed. Original-weight FP64 hidden/K/V error must stay within 2%.
-Target arithmetic and committed state/output remain exact. One fixed native
-composition follows a passing host gate, then current numerical/transaction
-admission and immediate d2 API return; d3 follows useful full direction.
-The next two implementation milestones bound composition and API return.
-No new request allocation, numerical waiver, production switch or performance
-claim follows from the representation check. Current v113 and its remaining
-17.903 ms short-Decode gap stay the comparator.
+`WP-MTP-COMPENSATED-MLP-20261020` implemented the
+[two-component integer composition](metadata/qwen36-27b-mtp-compensated-mlp-design-2026-10-20.json):
+primary/residual activation components share two MMA columns, Gate/Up share one
+quantization, and Down requantizes after SiLU in existing dead scratch. The
+[prerequisite](metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json)
+and [complete integration decision](metadata/qwen36-27b-mtp-compensated-mlp-rejection-2026-10-20.json)
+preserve numerical bounds: native P65 hidden maximum 1.3693%, three recursive
+P513 hidden/K/V maxima 1.4164%/1.2866%/0.7227%, and complete target state/logits,
+transactions and failure recovery pass.
 
-The [completed prerequisite](metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json)
-passes the authenticated 64-row host representation check: maximum original-weight
-FP64 hidden error is 1.1214%; K/V are unchanged. The standalone native executor
-passes two-column integer MMA, residual quantization, zero/nonfinite, guards,
-five changing-input quantizer Graph replays and bounded root sanitizer checks.
-It uses 64 projection registers, 18,432 shared bytes and no spills. This is
-`dependency_only`: it is not yet linked into the model path. Complete real-weight
-GPU/full-layer admission and target transactions, then return to d2 API within
-the next two implementation milestones; otherwise archive it. Existing v113
-performance remains the latest measured result. No local timing scan follows.
+Real d2 short/8K Decode is 14.1319/15.6224 token/s, approximately
+0.121%/0.083% below v113, with unchanged acceptance and verification work.
+This is no useful direction gain, not a repeated statistical regression claim.
+The predeclared 8K stop closes before 40K/d3/lifecycle qualification. The driver
+interrupt occurs during post-request spacing; both requests are complete and
+the server exits normally. Integration, executor and unused test target are
+removed; frozen source/binaries and raw failures remain in evidence. No
+component, group, quantizer or tile scan follows. Retained v113 and the full
+50%–200% target remain unchanged; a materially new architecture must address
+the remaining short-context gap and return to the real API.
 
 ## 2026-10-20 private integer vocabulary — API direction complete
 

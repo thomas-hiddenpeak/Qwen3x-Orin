@@ -86,12 +86,13 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [compensated private-MLP prerequisite](metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json)
-is implemented separately: its two-component representation passes the independent
-host full-layer bound (maximum hidden error 1.1214%), and bounded native integer
-MMA/quantization/Graph/sanitizer checks pass. It is not connected to generation;
-real-weight native admission and API composition remain outstanding. The measured
-service and performance below remain v113.
+The [compensated private-MLP integration](metadata/qwen36-27b-mtp-compensated-mlp-rejection-2026-10-20.json)
+is closed without an API gain. Native full-layer and three-step recursive
+numerical checks pass, but completed d2 short/8K Decode is 14.1319/15.6224
+token/s (approximately -0.121%/-0.083% versus v113), with unchanged work.
+The declared 8K stop ends this version before 40K/d3; integration and unused
+executor are removed. This is a direction decision, not a statistically
+qualified slowdown or a new performance baseline. Current v113 remains below.
 
 Current isolated source retains the complete verifier Graph and adds a private
 integer draft vocabulary projection. Profile is
