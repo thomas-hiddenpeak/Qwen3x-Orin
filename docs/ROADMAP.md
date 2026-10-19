@@ -22,7 +22,9 @@ owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 ## 2026-10-20 current short verifier budget — diagnostic closed
 
 The [one-capture protocol](metadata/qwen36-27b-mtp-v113-short-budget-design-2026-10-20.json)
-is [complete](metadata/qwen36-27b-mtp-v113-short-budget-2026-10-20.json).
+is [complete](metadata/qwen36-27b-mtp-v113-short-budget-2026-10-20.json), with a
+[classifier-label erratum](metadata/qwen36-27b-mtp-v113-short-budget-erratum-2026-10-20.json)
+that leaves the timings and decision unchanged.
 Frozen v113 P65/O16 d2 preserves all16 output tokens, response and work counts.
 In the instrumented interval from first verifier FP8 through the last kernel,
 multirow projection families total802.211ms: Gate/Up307.106ms, FP8308.891ms,

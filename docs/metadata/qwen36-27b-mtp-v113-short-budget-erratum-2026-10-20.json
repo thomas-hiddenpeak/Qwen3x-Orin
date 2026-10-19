@@ -1,0 +1,15 @@
+{
+  "corrects": "docs/metadata/qwen36-27b-mtp-v113-short-budget-2026-10-20.json",
+  "reason": "A final classifier-label refinement introduced an indentation error; the initial successful analysis remained the recorded numbers, but its classifier labelled the singleton native vocabulary kernel as draft and grouped short verifier attention under other. Corrected analysis reruns from the same immutable SQLite; no new capture.",
+  "changes": {
+    "scalar_target_vocabulary_ms": 4.416767999999999,
+    "verify_short_attention_ms": 1.9740159999999998
+  },
+  "unchanged": "projection802.211328ms, singleton104.623904ms/104.050016ms kernel/0.573888ms outside, GPU union, all output/work checks and next-action decision",
+  "files": {
+    ".q3x-work/mtp-v113-short-budget-20261020/analyze-corrected.py": "2df8349ac41aa0f44c1f410bc6729417cea0a7b471a2ec19ed13ad140f66d1b9",
+    ".q3x-work/mtp-v113-short-budget-20261020/finish-analysis-corrected.py": "a729d571fb9cdcf94d5171e178052ff03e4b1db6b33ec030cec33e2e8cf93b66",
+    ".q3x-work/mtp-v113-short-budget-20261020/analysis-corrected.json": "047fe7bcc3a56ebd074756d3b2d74e4fe7f54172f904743564c03422c0ed9c1f"
+  },
+  "old_evidence_preserved": true
+}
