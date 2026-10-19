@@ -10,6 +10,7 @@ inline constexpr std::uint32_t kServiceOutputLimit = 4096;
 struct ServiceReport {
   std::array<std::uint64_t, 4> proposal_histogram{}, requested_budget_histogram{};
   std::uint32_t draft_length = 0, prompt_rows = 0, draft_rows = 0, rounds = 0;
+  std::uint32_t eos_frontier_stops = 0;
   std::uint32_t proposed = 0, accepted = 0, verified = 0, committed = 0;
   std::array<std::uint32_t, 3> accepted_by_position{};
   double initialization_ms = 0, draft_ms = 0, verify_ms = 0, reconcile_ms = 0;

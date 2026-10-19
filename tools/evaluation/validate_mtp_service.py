@@ -59,7 +59,7 @@ class Client(q.Client):
 
 def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True):
     if expected_profile is None:
-        expected_profile = "q3x.sm87.admission.mtp-output-tail-api.v119"
+        expected_profile = "q3x.sm87.admission.mtp-eos-frontier-api.v122"
     receipts = {}
     for line in (out / 'server.log').read_text().splitlines():
         if not line.startswith('{'): continue
@@ -86,11 +86,17 @@ def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True)
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
                   m['verifier'] == 'multirow-full-graph-v112', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
-        q.require(m['draft_head'] == 'nvfp4-block16-dp4a-v1' and m['draft_integer_head_steps'] == m['proposed'], 'private integer head coverage')
+        frontier = 'mtp-eos-frontier-' in expected_profile
+        stops = m.get('eos_frontier_stops', 0)
+        q.require((not frontier and stops == 0) or
+                  (frontier and m.get('proposal_policy') == 'eos-frontier-v122' and
+                   type(stops) is int and 0 <= stops <= m['rounds']), 'EOS frontier identity/count')
+        steps = m['proposed'] + stops
+        q.require(m['draft_head'] == 'nvfp4-block16-dp4a-v1' and m['draft_integer_head_steps'] == steps, 'private integer head coverage')
         hits = m['draft_ordered_attention_steps']
-        q.require(0 <= hits <= m['proposed'], 'draft ordered work count')
+        q.require(0 <= hits <= steps, 'draft ordered work count')
         if w['prompt_tokens'] >= 512:
-            q.require(hits == m['proposed'], 'missing ordered draft route')
+            q.require(hits == steps, 'missing ordered draft route')
         panels = (w['prompt_tokens'] + 7999)//8000
         q.require(w['prefill_layer_hits'] == 64 and w['prefill_fill_hits'] == 64*panels and
                   w['prefill_drain_hits'] == 64*panels and w['prefill_fp8_launches'] == 208*panels and
@@ -113,7 +119,7 @@ def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True)
         q.require(m['entry_hidden_snapshots'] == m['rounds'] and
                   m['scalar_verify_rows'] == m['proposal_histogram'][0] and
                   m['direct_gdn_state_rows'] == 48*(m['verified_rows']-m['scalar_verify_rows']), 'prefix publication coverage')
-        q.require(max(0,m['rounds']-1) <= m['seed_kv_reuses'] <= min(m['rounds'],m['proposed']),
+        q.require(max(0,m['rounds']-1) <= m['seed_kv_reuses'] <= min(m['rounds'],steps),
                   'seed KV reuse coverage')
         q.require(0 <= m['tail_kv_batches'] <= m['rounds'] and
                   2*m['tail_kv_batches'] <= m['tail_kv_rows'] <= 3*m['tail_kv_batches'] and
@@ -201,8 +207,8 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = (f'q3x.sm87.candidate.mtp-sealed-cap{args.draft_length}.v1' if args.sealed_candidate
-                 else 'q3x.sm87.admission.mtp-output-tail-api.v119' if args.draft_length else q.PROFILE)
+    q.PROFILE = (f'q3x.sm87.candidate.mtp-eos-frontier-cap{args.draft_length}.v122' if args.sealed_candidate
+                 else 'q3x.sm87.admission.mtp-eos-frontier-api.v122' if args.draft_length else q.PROFILE)
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length and not args.sealed_candidate: cmd += ['--candidate-profile', 'whole-core-exact-decode']

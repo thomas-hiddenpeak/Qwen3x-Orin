@@ -681,7 +681,19 @@ bool TargetTransaction::propose(std::uint32_t seed, std::uint32_t count,
 }
 bool TargetTransaction::propose_bounded(std::uint32_t seed, std::uint32_t maximum,
     std::uint32_t* draft, std::uint32_t& actual) noexcept {
+  bool stopped = false;
+  return propose_prefix(seed, maximum, draft, actual, false, 0, stopped);
+}
+bool TargetTransaction::propose_eos_bounded(std::uint32_t seed, std::uint32_t maximum,
+    std::uint32_t stop, std::uint32_t* draft, std::uint32_t& actual,
+    bool& stopped) noexcept {
+  return propose_prefix(seed, maximum, draft, actual, true, stop, stopped);
+}
+bool TargetTransaction::propose_prefix(std::uint32_t seed, std::uint32_t maximum,
+    std::uint32_t* draft, std::uint32_t& actual, bool eos_frontier,
+    std::uint32_t stop, bool& stopped) noexcept {
   actual = 0;
+  stopped = false;
   if (!active_ || verified_ || maximum == 0 || maximum + 1 != rows_ ||
       draft == nullptr || draft_.position() + 1 != entry_position_) return false;
   const auto* input_hidden = reinterpret_cast<const std::uint16_t*>(
@@ -692,6 +704,7 @@ bool TargetTransaction::propose_bounded(std::uint32_t seed, std::uint32_t maximu
         i == 0 ? input_hidden : draft_.hidden(), true, draft[i],
         i + 1 < maximum ? &confidence : nullptr)) return false;
     if (i == 0) { cached_seed_ = seed; seed_cache_valid_ = true; }
+    if (eos_frontier && draft[i] == stop) { stopped = true; break; }
     ++actual;
     if (confidence < 0.4F) break;
   }
@@ -720,7 +733,7 @@ bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
   }
   // The first proposal already used the immutable target entry hidden.
   // All later recursive-draft rows remain invalid until target reconciliation.
-  seed_cache_valid_ = seed_cache_valid_ && count != 0 && cached_seed_ == seed;
+  seed_cache_valid_ = seed_cache_valid_ && cached_seed_ == seed;
   if (!draft_.rewind(entry_position_ - (seed_cache_valid_ ? 0 : 1))) return false;
   verified_ = true;
   return true;

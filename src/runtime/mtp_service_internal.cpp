@@ -44,6 +44,13 @@ struct TimedBackend final : RoundBackend {
     const bool ok = inner.propose_bounded(seed, maximum, ids, actual);
     report.draft_ms += elapsed(start); return ok;
   }
+  bool propose_eos_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t stop, std::uint32_t* ids, std::uint32_t& actual,
+      bool& stopped) noexcept override {
+    const auto start = Clock::now();
+    const bool ok = inner.propose_eos_bounded(seed, maximum, stop, ids, actual, stopped);
+    report.draft_ms += elapsed(start); return ok;
+  }
   bool verify(std::uint32_t seed, const std::uint32_t* ids, std::uint32_t count,
               std::uint32_t* predictions) noexcept override {
     const auto start = Clock::now(); const bool ok = inner.verify(seed, ids, count, predictions);
@@ -126,6 +133,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
     }
     RoundOptions round;
     round.confidence_lookahead = true;
+    round.eos_frontier = true;
     round.draft_length = length_; round.seed_token = control.generated_token_ids.back();
     round.remaining_output = options.max_new_tokens - control.generated_token_ids.size();
     round.draft_length = output_tail_budget(length_, round.remaining_output);
@@ -135,6 +143,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
     const auto result = run_round(round, backend, Observer::emit, &observer);
     if (result.ok()) ++report_.proposal_histogram[result.proposed_tokens];
     ++report_.rounds; report_.proposed += result.proposed_tokens;
+    report_.eos_frontier_stops += result.eos_frontier_stopped ? 1U : 0U;
     report_.accepted += result.accepted_tokens; report_.verified += result.verified_rows;
     for (std::uint32_t i = 0; i < result.accepted_tokens; ++i) ++report_.accepted_by_position[i];
     if (!result.ok()) { report_.failed = true; return failure(false); }
@@ -155,6 +164,7 @@ std::string Service::report_json() const {
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds
+      << ",\"proposal_policy\":\"eos-frontier-v122\",\"eos_frontier_stops\":" << r.eos_frontier_stops
       << ",\"proposed\":" << r.proposed << ",\"accepted\":" << r.accepted
       << ",\"verified_rows\":" << r.verified << ",\"committed_decode_tokens\":" << r.committed
       << ",\"accepted_by_position\":[" << r.accepted_by_position[0] << ','

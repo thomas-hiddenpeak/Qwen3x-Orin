@@ -61,6 +61,7 @@ class Backend final : public mtp::RoundBackend {
   bool poisoned = false;
   Fault fault = Fault::kNone;
   std::uint32_t bounded_count = 1;
+  unsigned invalid_frontier = 0;
 
   bool begin(std::uint32_t rows) noexcept override {
     ++begin_calls;
@@ -91,6 +92,22 @@ class Backend final : public mtp::RoundBackend {
     if (actual == 0 || actual > maximum) return true; // Deliberately invalid backend.
     staged_rows = actual + 1;
     return propose(seed, actual, ids);
+  }
+  bool propose_eos_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t stop, std::uint32_t* ids, std::uint32_t& actual,
+      bool& stopped) noexcept override {
+    actual = maximum;
+    stopped = false;
+    if (!propose(seed, maximum, ids)) return false;
+    for (std::uint32_t i = 0; i < maximum; ++i) {
+      if (ids[i] == stop) { actual = i; stopped = true; break; }
+    }
+    if (invalid_frontier == 1) { actual = 0; stopped = false; }
+    if (invalid_frontier == 2) { actual = maximum + 1; }
+    if (invalid_frontier == 3) { actual = maximum; stopped = true; }
+    if (invalid_frontier == 4) { actual = 0; stopped = true; ids[0] = (stop + 1) % 65536; }
+    staged_rows = actual + 1;
+    return true;
   }
   bool verify(std::uint32_t seed, const std::uint32_t* draft,
               std::uint32_t count, std::uint32_t* predictions) noexcept override {
@@ -237,7 +254,58 @@ void termination() {
   }
 }
 
-void failures() {
+void eos_frontier() {
+  for (unsigned invalid = 1; invalid <= 4; ++invalid) {
+    Backend backend;
+    backend.invalid_frontier = invalid;
+    auto opts = options(backend, 3, 10);
+    opts.eos_frontier = true;
+    const auto result = mtp::run_round(opts, backend);
+    require(result.status == mtp::RoundStatus::kInvalidPrediction);
+    require(result.output_count == 0 && backend.abort_calls == 1 && backend.poisoned);
+  }
+  for (unsigned history = 0; history < 64; ++history) {
+    for (unsigned cap : {2U, 3U}) {
+      for (unsigned remaining = 1; remaining <= 6; ++remaining) {
+        for (unsigned mismatch = 0; mismatch <= cap; ++mismatch) {
+          Backend fixture;
+          for (unsigned i = 0; i < history; ++i) consume(fixture.state, i + 7);
+          fixture.mismatch = mismatch;
+          auto opts = options(fixture, cap, remaining);
+          const unsigned count = std::min(cap, remaining - 1);
+          std::array<std::uint32_t, 3> proposals{};
+          fixture.entry = fixture.state;
+          if (count) require(fixture.propose(opts.seed_token, count, proposals.data()));
+          for (unsigned position = 0; position <= count; ++position) {
+            opts.stop_token = position < count ? proposals[position] : 65535;
+            if (opts.stop_token == opts.seed_token) continue;
+            for (unsigned cancel = 1; cancel <= 5; ++cancel) {
+              Backend before, after;
+              before.state = after.state = fixture.state;
+              before.mismatch = after.mismatch = mismatch;
+              Observer old_observer{&before, 0, cancel}, new_observer{&after, 0, cancel};
+              opts.eos_frontier = false;
+              const auto old_result = mtp::run_round(opts, before, Observer::call, &old_observer);
+              opts.eos_frontier = true;
+              const auto new_result = mtp::run_round(opts, after, Observer::call, &new_observer);
+              require(old_result.ok() && new_result.ok());
+              require(old_result.status == new_result.status);
+              require(old_result.output_count == new_result.output_count);
+              require(std::equal(old_result.output.begin(),
+                  old_result.output.begin() + old_result.output_count, new_result.output.begin()));
+              require(before.state == after.state && before.draft_state == after.draft_state);
+              require(before.pending == after.pending && old_observer.seen == new_observer.seen);
+              require(new_result.verified_rows <= old_result.verified_rows);
+              require(new_result.eos_frontier_stopped == (position < count));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+void failures(bool eos = false) {
   for (Fault fault : {Fault::kBegin, Fault::kPropose, Fault::kVerify,
                       Fault::kCommit, Fault::kFinish, Fault::kDraftId,
                       Fault::kTargetId, Fault::kAbort}) {
@@ -246,7 +314,9 @@ void failures() {
       backend.fault = fault;
       backend.fail_commit_at = commit;
       Observer observer{&backend};
-      auto result = mtp::run_round(options(backend, 3, 10), backend,
+      auto opts = options(backend, 3, 10);
+      opts.eos_frontier = eos;
+      auto result = mtp::run_round(opts, backend,
                                     Observer::call, &observer);
       require(!result.ok() && backend.poisoned && !backend.active);
       require(backend.abort_calls == 1);
@@ -285,10 +355,12 @@ void failures() {
 }  // namespace
 
 int main() {
+  eos_frontier();
   bounded();
   replay();
   replay(true);
   termination();
   failures();
+  failures(true);
   std::cout << "mtp_control_checks=" << checks << "\n";
 }

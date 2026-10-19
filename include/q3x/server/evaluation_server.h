@@ -231,14 +231,14 @@ inline constexpr EvaluationProductionDeploymentPlan
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
 #if defined(Q3X_ENABLE_MTP_SERVICE)
-      plan.id = "q3x.sm87.admission.mtp-output-tail-api.v119";
+      plan.id = "q3x.sm87.admission.mtp-eos-frontier-api.v122";
       plan.target_prompt_tokens = 40000U;
       plan.maximum_output_tokens = 4096U;
 #endif
       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
       plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
 #if defined(Q3X_ENABLE_MTP_SERVICE)
-      plan.decode_route_id = "mtp-multirow-output-tail.v119";
+      plan.decode_route_id = "mtp-multirow-eos-frontier.v122";
 #endif
       plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
       plan.decode_gate_up_layers = runtime::kQwen36DenseLayerCount;
@@ -264,9 +264,9 @@ inline constexpr EvaluationProductionDeploymentPlan kWholeCoreServiceProductionP
 inline constexpr EvaluationProductionDeploymentPlan kMtpServiceCandidatePlan = [] {
   auto plan = kWholeCoreExactDecodeAdmissionPlan;
 #if Q3X_MTP_COMPILED_DRAFT_LENGTH == 2
-  plan.id = "q3x.sm87.candidate.mtp-sealed-cap2.v1";
+  plan.id = "q3x.sm87.candidate.mtp-eos-frontier-cap2.v122";
 #else
-  plan.id = "q3x.sm87.candidate.mtp-sealed-cap3.v1";
+  plan.id = "q3x.sm87.candidate.mtp-eos-frontier-cap3.v122";
 #endif
   return plan;
 }();

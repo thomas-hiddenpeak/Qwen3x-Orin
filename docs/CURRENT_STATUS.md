@@ -86,6 +86,12 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [EOS-frontier v122 source](metadata/qwen36-27b-mtp-eos-frontier-implementation-2026-10-20.json)
+is implemented and builds for both sealed caps. Host controller and candidate
+checks pass, but native GPU state and real API validation are pending. It is
+not a retained performance result. The frozen validated artifacts and metrics
+below remain the incumbent evidence; ordinary non-MTP production is unchanged.
+
 The [sealed capability panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)
 passes once per cap: 98/98 complete responses and reference answers match,
 with 79/98 correct in each configuration. All output token IDs also match

@@ -7,7 +7,7 @@ if(NOT result EQUAL 0)
   message(FATAL_ERROR "MTP help failed: ${result}: ${error}")
 endif()
 foreach(required IN ITEMS
-    "q3x.sm87.candidate.mtp-sealed-cap${Q3X_MTP_CAP}.v1"
+    "q3x.sm87.candidate.mtp-eos-frontier-cap${Q3X_MTP_CAP}.v122"
     "MTP draft cap: ${Q3X_MTP_CAP} (compiled)"
     "candidate, not production qualified or installable"
     "Fixed concurrency: one GPU request, one queued request, three HTTP threads")

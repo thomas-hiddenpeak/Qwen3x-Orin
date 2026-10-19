@@ -19,7 +19,7 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 EOS frontier — host assessment complete, implementation selected
+## 2026-10-20 EOS frontier — implemented, native/API validation next
 
 The [host assessment](metadata/qwen36-27b-mtp-eos-frontier-assessment-2026-10-20.json)
 passes 44,280 finite-alphabet control/history cases. The
@@ -29,9 +29,12 @@ the preceding target prediction supplies the same EOS or mismatch fallback.
 A proposed EOS never directly terminates the request. Actual private steps
 remain separately accountable even when no proposal is submitted to verification.
 
-This is a symbolic control proof, not native numerical or performance evidence.
-Implement the zero-frontier and valid seed-cache contracts together, verify full
-native state/logits/KV, then return immediately to capability-4 and P65/O16.
+The [implementation milestone](metadata/qwen36-27b-mtp-eos-frontier-implementation-2026-10-20.json)
+composes zero-frontier verification, valid seed-cache reuse and explicit physical
+step receipts under v122 identities. Both sealed caps build and pass host CTest;
+the real C++ controller passes 1,375,905 checks. Native GPU state/logit/KV and
+API performance remain unvalidated. Extend the native oracle next, then return
+immediately to capability-4 and P65/O16.
 One implementation and at most one correctness repair are allowed; no threshold
 scan. Cap 2 short closure, remaining qualification and production selection stay
 open. The completed capability panel is not repeated without a new question.

@@ -24,6 +24,7 @@ struct RoundOptions {
   std::uint32_t vocabulary_size = 0;
   std::uint32_t stop_token = 0;
   bool confidence_lookahead = false;
+  bool eos_frontier = false;
 };
 
 enum class RoundStatus : std::uint8_t {
@@ -44,6 +45,7 @@ struct RoundResult {
   std::uint32_t accepted_tokens = 0;
   std::uint32_t verified_rows = 0;
   std::uint32_t committed_target_rows = 0;
+  bool eos_frontier_stopped = false;
   bool abort_succeeded = true;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -74,6 +76,11 @@ class RoundBackend {
     actual = maximum;
     return propose(seed, maximum, draft);
   }
+  // EOS-aware proposal leaves the first EOS in draft[actual], excluded from
+  // verification. actual may be zero only when stopped is true. Unsupported
+  // backends fail closed; ordinary bounded proposal retains its old contract.
+  virtual bool propose_eos_bounded(std::uint32_t, std::uint32_t, std::uint32_t,
+      std::uint32_t*, std::uint32_t&, bool&) noexcept { return false; }
   virtual bool verify(std::uint32_t seed, const std::uint32_t* draft,
                       std::uint32_t count,
                       std::uint32_t* predictions) noexcept = 0;

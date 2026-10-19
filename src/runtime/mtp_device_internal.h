@@ -103,12 +103,18 @@ class TargetTransaction final : public RoundBackend {
                std::uint32_t* draft) noexcept override;
   bool propose_bounded(std::uint32_t seed, std::uint32_t maximum,
       std::uint32_t* draft, std::uint32_t& actual) noexcept override;
+  bool propose_eos_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t stop, std::uint32_t* draft, std::uint32_t& actual,
+      bool& stopped) noexcept override;
   bool verify(std::uint32_t seed, const std::uint32_t* draft,
               std::uint32_t count, std::uint32_t* predictions) noexcept override;
   bool commit_prefix(std::uint32_t rows, std::uint32_t pending) noexcept override;
   bool finish() noexcept override;
   bool abort() noexcept override;
  private:
+  bool propose_prefix(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t* draft, std::uint32_t& actual, bool eos_frontier,
+      std::uint32_t stop, bool& stopped) noexcept;
   bool verify_multirow(std::uint32_t* predictions) noexcept;
   bool enqueue_multirow(bool full_graph, bool short_graph) noexcept;
   bool prepare_full_graphs() noexcept;

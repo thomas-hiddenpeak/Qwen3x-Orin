@@ -1,0 +1,48 @@
+{
+  "work_package_id": "WP-MTP-EOS-FRONTIER-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-eos-frontier-design-2026-10-20.json",
+  "source_parent": "407aea5",
+  "status": "implemented and host/build validated; native GPU and API validation pending",
+  "changes": [
+    "EOS-aware proposal stops private recursion at first EOS, excludes it from submitted target inputs, permits validated zero-frontier native singleton verification.",
+    "Retains seed KV from the actual completed private seed step at a zero frontier.",
+    "Separates EOS-producing private head steps from submitted proposals in service receipts and validator.",
+    "Independent v122 admission and sealed cap2/3 identities; ordinary nonMTP production unchanged."
+  ],
+  "host": {
+    "controller_checks": 1375905,
+    "coverage": "Real C++ controller compares full host recurrent/Conv/KV state, output, pending token, observer state and status against untrimmed replay; both caps, 64 histories, output horizons1..6, every rejection/EOS position and cancellation1..5; invalid zero/count/sentinel and failures abort/poison. Host state is symbolic, not GPU bytes.",
+    "capability_contract_tests": 6,
+    "historical_receipt_replay": {
+      "2": 98,
+      "3": 98
+    },
+    "candidate_ctest": "2/2 per cap passed"
+  },
+  "artifacts": {
+    "2": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap2",
+      "sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+      "ctest": ".q3x-work/mtp-eos-frontier-20261020/ctest-cap2.log"
+    },
+    "3": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap3",
+      "sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+      "ctest": ".q3x-work/mtp-eos-frontier-20261020/ctest-cap3.log"
+    }
+  },
+  "remaining": [
+    "Extend native full-state/logit/draft-KV scalar oracle for EOS frontiers including actual zero-proposal seed reuse, false EOS, cancellation and failure/reset.",
+    "Preflight and run native oracle before real API direction.",
+    "First affected capability-4 plus P65/O16 cap2 real API; then the bounded design gates."
+  ],
+  "performance": "No GPU execution or new performance observations in this implementation milestone. No retention, selection or production promotion.",
+  "scope": "Entire objective remains active, including cap2 short deficit; default production unchanged.",
+  "artifact_sha256": {
+    "control-test.log": "0250a9db143f6a35957a5f365a0771ff939d041e752a16734c0f49c0d09b057b",
+    "build-cap2.log": "4e20995c01c4f5a5ff5fc9b7b2bd82181eb1d197eb46b080367a66d9c8a8e45f",
+    "build-cap3.log": "d2a1053c60ac495646e088941e575d6a66d3802733173d8949b90db1d7fd1128",
+    "ctest-cap2.log": "67ce5c679db01c6542c897a5353d6758ad2de526f07912c3f32498391f1e6703",
+    "ctest-cap3.log": "473d61fc8d7a52b190c9f67abcbe747f7cfedd87fd01a3a326b9f1ca7b3b9b68"
+  }
+}

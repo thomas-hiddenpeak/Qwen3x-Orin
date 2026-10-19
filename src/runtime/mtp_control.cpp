@@ -32,11 +32,18 @@ RoundResult run_round(const RoundOptions& options, RoundBackend& backend,
   if (!backend.begin(count + 1)) return fail(RoundStatus::kBackendFailure);
   if (count != 0) {
     const auto maximum = count;
-    const bool ok = options.confidence_lookahead
+    bool stopped = false;
+    const bool ok = options.eos_frontier
+        ? backend.propose_eos_bounded(options.seed_token, maximum, options.stop_token,
+                                      draft.data(), count, stopped)
+        : options.confidence_lookahead
         ? backend.propose_bounded(options.seed_token, maximum, draft.data(), count)
         : backend.propose(options.seed_token, maximum, draft.data());
     if (!ok) return fail(RoundStatus::kBackendFailure);
-    if (count == 0 || count > maximum) return fail(RoundStatus::kInvalidPrediction);
+    if (count > maximum || (count == 0 && !stopped) ||
+        (stopped && (count >= maximum || draft[count] != options.stop_token)))
+      return fail(RoundStatus::kInvalidPrediction);
+    result.eos_frontier_stopped = stopped;
   }
   result.proposed_tokens = count;
   for (std::uint32_t i = 0; i < count; ++i) {
