@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-20",
+  "source": "6354ed7",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "scope": "bounded engineering retention decision, not release qualification",
+  "order": [
+    "nonmtp-a",
+    "candidate-d2",
+    "incumbent-d2",
+    "candidate-d3",
+    "incumbent-d3",
+    "nonmtp-b"
+  ],
+  "prior_forward_pair": ".q3x-work/mtp-full-graph-composition-20261020",
+  "repetition": "Prior same-day B/C direction observations are preserved; this declared C/B continuation reverses order for each policy. Two fresh installed non-MTP processes bracket this continuation. Explicitly not a fully prospective release experiment.",
+  "workloads": [
+    [
+      65,
+      16
+    ],
+    [
+      8192,
+      256
+    ],
+    [
+      40000,
+      256
+    ]
+  ],
+  "spacing_seconds": 60,
+  "rules": [
+    "exact output/request/usage and physical route checks mandatory",
+    "same frozen ELF and policy as forward pair",
+    "all processes preflight, successful cache drop, no foreign GPU handles/material contention/device faults, temperatures<=85C for this selection",
+    "retain only if candidate Decode minimum exceeds incumbent maximum in each workload/policy across both observations; otherwise archive without scanning",
+    "no more than these six processes unless an identified protocol/runtime error invalidates a process",
+    "full goal requires fresh non-MTP speedup >=1.5 across requested scope; no average conceals a bucket failure"
+  ],
+  "artifacts": ".q3x-work/mtp-full-graph-repeat-20261020"
+}

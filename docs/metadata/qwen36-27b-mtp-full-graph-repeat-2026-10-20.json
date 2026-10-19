@@ -1,0 +1,444 @@
+{
+  "date": "2026-10-20",
+  "source_parent": "6354ed7",
+  "work_package_id": "WP-MTP-FULL-GRAPH-20261014",
+  "architecture_candidate_id": "AC-MTP-FULL-GRAPH-v112",
+  "decision_unit": "architecture_candidate",
+  "authority": "bounded engineering retention only; not fully prospective release qualification",
+  "protocol": "docs/metadata/qwen36-27b-mtp-full-graph-repeat-design-2026-10-20.json",
+  "prior_forward_evidence": "docs/metadata/qwen36-27b-mtp-full-graph-api-2026-10-20.json",
+  "artifacts": ".q3x-work/mtp-full-graph-repeat-20261020",
+  "new_processes": 6,
+  "new_requests": 18,
+  "combined_timing_requests": 30,
+  "selection": [
+    {
+      "draft": 2,
+      "label": "p65",
+      "candidate_decode_tps": [
+        14.016209514568935,
+        14.020930796951687
+      ],
+      "incumbent_decode_tps": [
+        13.961541220231611,
+        13.963200654907624
+      ],
+      "nonmtp_decode_tps": [
+        9.59467851190026,
+        9.586434651991773
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.4025048356183891,
+      "conservative_speedup_vs_nonmtp": 1.460831595053931,
+      "median_speedup_vs_nonmtp": 1.4617055888236892,
+      "remaining_decode_ms_to_1_5x": 27.945076666666402
+    },
+    {
+      "draft": 2,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        15.496483533459568,
+        15.495192310601162
+      ],
+      "incumbent_decode_tps": [
+        15.412293122790745,
+        15.416145895277996
+      ],
+      "nonmtp_decode_tps": [
+        9.221503787892756,
+        9.218312971768075
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.5295007830150356,
+      "conservative_speedup_vs_nonmtp": 1.6803324779788473,
+      "median_speedup_vs_nonmtp": 1.6806932654481959,
+      "remaining_decode_ms_to_1_5x": 0
+    },
+    {
+      "draft": 2,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        11.673616914013307,
+        11.670423555337011
+      ],
+      "incumbent_decode_tps": [
+        11.62580757802115,
+        11.615611599744055
+      ],
+      "nonmtp_decode_tps": [
+        7.8653638487693325,
+        7.863533892639448
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.44154485920244735,
+      "conservative_speedup_vs_nonmtp": 1.4837741495154155,
+      "median_speedup_vs_nonmtp": 1.4841498020483335,
+      "remaining_decode_ms_to_1_5x": 236.35770966666595
+    },
+    {
+      "draft": 3,
+      "label": "p65",
+      "candidate_decode_tps": [
+        13.575542613759495,
+        13.569766344192598
+      ],
+      "incumbent_decode_tps": [
+        13.520154223497885,
+        13.516706098607942
+      ],
+      "nonmtp_decode_tps": [
+        9.59467851190026,
+        9.586434651991773
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.40111401454996365,
+      "conservative_speedup_vs_nonmtp": 1.4143013053915297,
+      "median_speedup_vs_nonmtp": 1.415210302238999,
+      "remaining_decode_ms_to_1_5x": 63.15414166666658
+    },
+    {
+      "draft": 3,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        14.521426188689102,
+        14.537273647392075
+      ],
+      "incumbent_decode_tps": [
+        14.456804023782697,
+        14.451664292342194
+      ],
+      "nonmtp_decode_tps": [
+        9.221503787892756,
+        9.218312971768075
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.5196799716728373,
+      "conservative_speedup_vs_nonmtp": 1.5747351541247323,
+      "median_speedup_vs_nonmtp": 1.5758670606559575,
+      "remaining_decode_ms_to_1_5x": 0
+    },
+    {
+      "draft": 3,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        11.003508459696963,
+        11.007628008342717
+      ],
+      "incumbent_decode_tps": [
+        10.96448140760509,
+        10.9627015564288
+      ],
+      "nonmtp_decode_tps": [
+        7.8653638487693325,
+        7.863533892639448
+      ],
+      "candidate_ranges_separated": true,
+      "median_increment_percent": 0.38287409807040707,
+      "conservative_speedup_vs_nonmtp": 1.39898276434073,
+      "median_speedup_vs_nonmtp": 1.3994074365485845,
+      "remaining_decode_ms_to_1_5x": 1560.6776806666653
+    }
+  ],
+  "joint_medians": [
+    {
+      "kind": "nonmtp",
+      "draft": 0,
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "observations": 2,
+      "prefill_s": 0.886889197,
+      "prefill_tps": 73.28995008039698,
+      "ttft_s": 0.9085503279929981,
+      "decode_tps": 9.590556581946018,
+      "elapsed_s": 2.4726190000073984,
+      "decode_range": [
+        9.586434651991773,
+        9.59467851190026
+      ]
+    },
+    {
+      "kind": "nonmtp",
+      "draft": 0,
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 16.783456457,
+      "prefill_tps": 488.0998301745501,
+      "ttft_s": 16.80555456544971,
+      "decode_tps": 9.219908379830414,
+      "elapsed_s": 44.465498865465634,
+      "decode_range": [
+        9.218312971768075,
+        9.221503787892756
+      ]
+    },
+    {
+      "kind": "nonmtp",
+      "draft": 0,
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 89.987854261,
+      "prefill_tps": 444.504471888532,
+      "ttft_s": 90.02303533704253,
+      "decode_tps": 7.86444887070439,
+      "elapsed_s": 122.44996688852552,
+      "decode_range": [
+        7.863533892639448,
+        7.8653638487693325
+      ]
+    },
+    {
+      "kind": "candidate",
+      "draft": 2,
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "observations": 2,
+      "prefill_s": 0.89063137,
+      "prefill_tps": 72.98193685433765,
+      "ttft_s": 0.913046701985877,
+      "decode_tps": 14.018570155760312,
+      "elapsed_s": 1.982976288010832,
+      "decode_range": [
+        14.016209514568935,
+        14.020930796951687
+      ],
+      "speedup_percent": 46.170558882368915
+    },
+    {
+      "kind": "candidate",
+      "draft": 2,
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 17.341596128000003,
+      "prefill_tps": 472.3902478609024,
+      "ttft_s": 17.363615657028276,
+      "decode_tps": 15.495837922030365,
+      "elapsed_s": 33.81994658551412,
+      "decode_range": [
+        15.495192310601162,
+        15.496483533459568
+      ],
+      "speedup_percent": 68.06932654481959
+    },
+    {
+      "kind": "candidate",
+      "draft": 2,
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 92.795830177,
+      "prefill_tps": 431.05465251025294,
+      "ttft_s": 92.83071305853082,
+      "decode_tps": 11.67202023467516,
+      "elapsed_s": 114.67940497148084,
+      "decode_range": [
+        11.670423555337011,
+        11.673616914013307
+      ],
+      "speedup_percent": 48.41498020483335
+    },
+    {
+      "kind": "candidate",
+      "draft": 3,
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "observations": 2,
+      "prefill_s": 0.8908627265,
+      "prefill_tps": 72.96298080501725,
+      "ttft_s": 0.9168755124555901,
+      "decode_tps": 13.572654478976046,
+      "elapsed_s": 2.0219894989859313,
+      "decode_range": [
+        13.569766344192598,
+        13.575542613759495
+      ],
+      "speedup_percent": 41.5210302238999
+    },
+    {
+      "kind": "candidate",
+      "draft": 3,
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 17.340369529999997,
+      "prefill_tps": 472.4236133741715,
+      "ttft_s": 17.36268298298819,
+      "decode_tps": 14.529349918040587,
+      "elapsed_s": 34.91366309649311,
+      "decode_range": [
+        14.521426188689102,
+        14.537273647392075
+      ],
+      "speedup_percent": 57.58670606559575
+    },
+    {
+      "kind": "candidate",
+      "draft": 3,
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "observations": 2,
+      "prefill_s": 92.738092986,
+      "prefill_tps": 431.3225661793516,
+      "ttft_s": 92.77321831998415,
+      "decode_tps": 11.00556823401984,
+      "elapsed_s": 115.94493575801607,
+      "decode_range": [
+        11.003508459696963,
+        11.007628008342717
+      ],
+      "speedup_percent": 39.940743654858444
+    }
+  ],
+  "identity_and_cleanup": {
+    "nonmtp-a": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/nonmtp-a",
+      "kind": "nonmtp",
+      "draft": 0,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 74.906
+      },
+      "binary_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f"
+    },
+    "candidate-d2": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/candidate-d2",
+      "kind": "candidate",
+      "draft": 2,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.968
+      },
+      "binary_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec"
+    },
+    "incumbent-d2": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/incumbent-d2",
+      "kind": "incumbent",
+      "draft": 2,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.968
+      },
+      "binary_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09"
+    },
+    "candidate-d3": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/candidate-d3",
+      "kind": "candidate",
+      "draft": 3,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.156
+      },
+      "binary_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec"
+    },
+    "incumbent-d3": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/incumbent-d3",
+      "kind": "incumbent",
+      "draft": 3,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.625
+      },
+      "binary_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09"
+    },
+    "nonmtp-b": {
+      "directory": ".q3x-work/mtp-full-graph-repeat-20261020/nonmtp-b",
+      "kind": "nonmtp",
+      "draft": 0,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.687
+      },
+      "binary_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f"
+    },
+    "forward-candidate-d2": {
+      "directory": ".q3x-work/mtp-full-graph-composition-20261020/d2",
+      "kind": "candidate",
+      "draft": 2,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.375
+      },
+      "binary_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec"
+    },
+    "forward-incumbent-d2": {
+      "directory": ".q3x-work/mtp-full-graph-composition-20261020/baseline-d2",
+      "kind": "incumbent",
+      "draft": 2,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.375
+      },
+      "binary_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09"
+    },
+    "forward-candidate-d3": {
+      "directory": ".q3x-work/mtp-full-graph-composition-20261020/d3",
+      "kind": "candidate",
+      "draft": 3,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.843
+      },
+      "binary_sha256": "32c1d7b10f9aa51db9b10b75297a460afe988b470b5d6d13670dac764eb9ceec"
+    },
+    "forward-incumbent-d3": {
+      "directory": ".q3x-work/mtp-full-graph-composition-20261020/baseline-d3",
+      "kind": "incumbent",
+      "draft": 3,
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.187
+      },
+      "binary_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09"
+    }
+  },
+  "all_complete_outputs_usage_and_request_identities_equal": true,
+  "all_mtp_ids_acceptance_and_work_counters_equal_v101": true,
+  "all_candidate_timing_requests_full_graph_covered": true,
+  "cold_cache_preparation_and_no_foreign_gpu_handles": true,
+  "retain": true,
+  "full_goal_achieved": false,
+  "production_changed": false,
+  "limitations": [
+    "Two observations per binary/policy/workload; no confidence interval or release-grade stability claim.",
+    "Forward pairs were engineering direction evidence before this reverse-order protocol was declared.",
+    "Prefill/TTFT/total variation is reported; Decode range separation does not establish stable total-request improvement."
+  ],
+  "next_boundary": "Close Graph verification package. Retain v112 as development incumbent; address remaining real API short/40K Decode budget through a new bounded architecture, without Graph/profile/parameter scans.",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-full-graph-repeat-20261020/artifact-manifest.json",
+    "sha256": "2349d7d5d3180c85be445034d5d4f35883d3c6eff3002586107180db62eba69f",
+    "count": 88,
+    "bytes": 9511552
+  }
+}

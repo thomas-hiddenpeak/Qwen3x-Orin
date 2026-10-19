@@ -97,27 +97,43 @@ passes all sixteen d2/d3 API/lifecycle requests. Generated IDs, responses and
 acceptance/work counters match v101; the six timing requests attest full Graph
 coverage. Minimum startup free memory is 10,006,945,792 bytes, above 8 GiB.
 
-These 2026-10-20 measurements compare one fresh process per policy and binary,
-with 60-second long-request spacing. They are direction observations, not
-mirrored architecture selection or release qualification. Prefill includes draft
-initialization; TTFT and total are external. The final column compares Decode
-to the freshly measured v101 of the same policy, not non-MTP.
+The [bounded reverse-order validation](metadata/qwen36-27b-mtp-full-graph-repeat-2026-10-20.json)
+is complete. Eighteen fresh API requests pass output, identity, route, work,
+resource and cleanup checks. Combining the same-day forward pairs with the
+reverse pairs gives two observations per MTP binary/policy/workload. Candidate
+Decode minima exceed v101 maxima in all six buckets. Median increments over
+v101 are 0.38%–0.53%; retain v112 as the development incumbent and close this
+Graph validation package. This is bounded engineering retention, not a fully
+prospective release experiment, a confidence-interval claim or production
+qualification. No further Graph parameter/profile scan follows.
 
-| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs fresh v101 |
+Two fresh installed 0.8.2 non-MTP processes bracket the reverse-order runs.
+The following table gives per-metric medians of two observations on the same
+request/binary/policy. Prefill includes draft initialization; TTFT and total are
+external. P65 uses O16; 8K/40K use O256. The final column compares Decode with
+the fresh non-MTP median. Complete raw ranges and individual rows are preserved
+in the evidence. Prefill/TTFT variation is not attributed to unchanged Prefill
+code, and Decode gains do not prove stable end-to-end gains over v101.
+
+| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | vs non-MTP |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.890 | 73.00 | 0.909 | 14.016 | 1.979 | +0.392% |
-| 8192 / 256 | d2 | 17.347 | 472.23 | 17.370 | 15.496 | 33.825 | +0.546% |
-| 40000 / 256 | d2 | 92.669 | 431.64 | 92.704 | 11.674 | 114.550 | +0.411% |
-| 65 / 16 | d3 | 0.891 | 72.96 | 0.917 | 13.576 | 2.022 | +0.410% |
-| 8192 / 256 | d3 | 17.341 | 472.39 | 17.364 | 14.521 | 34.924 | +0.447% |
-| 40000 / 256 | d3 | 92.655 | 431.71 | 92.690 | 11.004 | 115.866 | +0.356% |
+| 65 / 16 | non-MTP | 0.887 | 73.29 | 0.909 | 9.591 | 2.473 | — |
+| 8192 / 256 | non-MTP | 16.783 | 488.10 | 16.806 | 9.220 | 44.465 | — |
+| 40000 / 256 | non-MTP | 89.988 | 444.50 | 90.023 | 7.864 | 122.450 | — |
+| 65 / 16 | d2 | 0.891 | 72.98 | 0.913 | 14.019 | 1.983 | +46.17% |
+| 8192 / 256 | d2 | 17.342 | 472.39 | 17.364 | 15.496 | 33.820 | +68.07% |
+| 40000 / 256 | d2 | 92.796 | 431.05 | 92.831 | 11.672 | 114.679 | +48.41% |
+| 65 / 16 | d3 | 0.891 | 72.96 | 0.917 | 13.573 | 2.022 | +41.52% |
+| 8192 / 256 | d3 | 17.340 | 472.42 | 17.363 | 14.529 | 34.914 | +57.59% |
+| 40000 / 256 | d3 | 92.738 | 431.32 | 92.773 | 11.006 | 115.945 | +39.94% |
 
-The composition is retained as the next bounded development candidate. Its
-approximately 0.36%–0.55% Decode increments require mirrored confirmation before
-architecture selection; they do not establish the requested full-range
-1.5x–3x result. D2 remains faster than d3 on this panel. The next milestone is a
-matched repeated API decision with a fresh non-MTP denominator, or archival;
-no Graph geometry/profile scan is authorized. Production remains non-MTP.
+**The full-range 50%–200% objective remains unmet.** D2 remains faster than d3.
+Against the more conservative candidate-minimum/non-MTP-maximum comparison,
+d2 is 1.461x/1.680x/1.484x at P65/8K/40K. It still needs approximately
+27.945 ms removed from short Decode and 236.358 ms from 40K Decode to reach
+1.5x on those workloads. The next work must address these real API budgets
+through a new bounded architecture, not extend Graph measurement. Production
+and the ordinary installed non-MTP route remain unchanged.
 
 ### Preceding v101 reference
 

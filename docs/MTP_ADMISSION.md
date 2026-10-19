@@ -25,7 +25,7 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-14 complete verifier Graph — API direction complete
+## 2026-10-14 complete verifier Graph — bounded API retention complete
 
 `WP-MTP-FULL-GRAPH-20261014` selects the
 [complete verifier dataflow](metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json).
@@ -39,7 +39,7 @@ First admit changing-length Attention replay; within the next two implementation
 milestones complete ownership/composition/state checks and return to d2 API.
 Useful full direction unlocks d3. Failed API selection removes the composition
 and unused prerequisites. No parameter scan, new default or speed claim follows
-from a prerequisite. v101 and the full objective remain current.
+from a prerequisite. v101 was the package-entry incumbent; the full objective remains active.
 
 The [2026-10-20 Attention prerequisite](metadata/qwen36-27b-mtp-full-graph-attention-2026-10-20.json)
 adds the fixed 32-byte token/position capsule, device-length short/long Attention
@@ -71,9 +71,27 @@ Decode changes +0.392%/+0.546%/+0.411% at P65/8K/40K; d3 changes
 +0.410%/+0.447%/+0.356%. Complete joint metrics belong to
 [Current Status](CURRENT_STATUS.md#mtp-development-status). These are single
 process direction observations; no noise-qualified selection or production
-promotion is claimed. Retain v112 only through the next matched repeated API
-selection with a fresh non-MTP denominator, or archive it. No parameter scan
-follows. The complete 50%–200% objective remains active and unmet.
+promotion is claimed by that forward-only record.
+
+The [bounded reverse-order protocol](metadata/qwen36-27b-mtp-full-graph-repeat-design-2026-10-20.json)
+is now [complete](metadata/qwen36-27b-mtp-full-graph-repeat-2026-10-20.json).
+Eighteen fresh API requests preserve exact outputs, counters and physical routes;
+two fresh installed non-MTP processes bracket the C/B continuation. Including
+the prior B/C pairs, candidate Decode minima exceed incumbent maxima at all
+three workloads for both policies, satisfying the declared engineering
+retention rule. Median increments are 0.38%–0.53%. Retain v112 as the development
+incumbent and close the Graph package without further scanning or profiling.
+This remains bounded engineering evidence, not fully prospective release
+qualification. Complete joint metrics and individual limitations are linked
+from Current Status.
+
+The 50%–200% goal remains unmet: conservative d2 speedups are
+1.461x/1.680x/1.484x versus fresh non-MTP. The next architecture must remove at
+least approximately 27.945 ms from short Decode and 236.358 ms from 40K Decode,
+while preserving current Prefill, numerical/state, output and resource contracts.
+Choose a materially different complete dataflow using those budgets; repeated
+Graph measurements and local parameter scans are closed. D3 remains supported
+and measured but slower than d2. Production is unchanged.
 
 ## 2026-10-14 private BF16 Down — closed without API gain
 
