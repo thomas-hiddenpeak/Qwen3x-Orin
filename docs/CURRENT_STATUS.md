@@ -87,29 +87,36 @@ are external. Each row is one observation, with 60-second capacity spacing.
 ## MTP development status
 
 The [sealed candidate composition](metadata/qwen36-27b-mtp-sealed-service-2026-10-20.json)
-now runs cap 3 through a complete `BUILD_TESTING=OFF` service. The independent
-profile is `q3x.sm87.candidate.mtp-sealed-cap3.v1`; its exact binary hash and
-frozen source are in the linked record. It fixes the draft cap at build time,
+now runs both caps through complete `BUILD_TESTING=OFF` services. The
+[cap 2 completion](metadata/qwen36-27b-mtp-sealed-cap2-2026-10-20.json) binds clean source
+261bc9d and its independent artifact. Profiles are
+`q3x.sm87.candidate.mtp-sealed-cap2.v1` and
+`q3x.sm87.candidate.mtp-sealed-cap3.v1`; exact binary hashes and source identities
+are in their respective records. It fixes the draft cap at build time,
 contains no engine/runner test seams and rejects ambient draft selection.
-Eight successful API requests preserve v119 responses, token IDs and physical
-work. Authentication, invalid requests, cancellation/recovery and cleanup pass.
+Eight successful API requests per cap preserve v119 responses, token IDs and
+physical work. Authentication, invalid requests, cancellation/recovery and cleanup pass.
 The first attempt's hardcoded receipt identity was repaired; that interrupted
 artifact has no candidate performance qualification.
 
-One repaired cap 3 process gives the following joint metrics. Prefill includes
-draft initialization; TTFT and total are external. This is a build-composition
-regression, not repeated performance selection or production qualification.
+One process per cap gives the following joint metrics. Cap 3 uses the repaired
+receipt identity. Prefill includes draft initialization; TTFT and total are
+external. These are build-composition regressions, not repeated performance
+selection or production qualification.
 
-| P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | 0.892 | 72.89 | 0.910 | 14.986 | 1.911 |
-| 8192 / 256 | 17.335 | 472.57 | 17.357 | 15.627 | 33.675 |
-| 40000 / 256 | 93.064 | 429.81 | 93.099 | 11.844 | 114.630 |
+| P / O | Cap | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | 2 | 0.892 | 72.90 | 0.910 | 14.129 | 1.972 |
+| 8192 / 256 | 2 | 17.319 | 473.01 | 17.341 | 15.613 | 33.674 |
+| 40000 / 256 | 2 | 92.675 | 431.62 | 92.710 | 11.848 | 114.233 |
+| 65 / 16 | 3 | 0.892 | 72.89 | 0.910 | 14.986 | 1.911 |
+| 8192 / 256 | 3 | 17.335 | 472.57 | 17.357 | 15.627 | 33.675 |
+| 40000 / 256 | 3 | 93.064 | 429.81 | 93.099 | 11.844 | 114.630 |
 
 The candidate remains noninstallable and reports `production_eligible=false`,
 `release_qualified=false`. The ordinary non-MTP 0.8.2 service is unchanged.
-Cap 2 configuration passes, but full fixed-cap 2 build/API validation and its
-short-performance deficit remain open. Independent-process evidence below
+Both fixed-cap build/API checks are complete. Cap 2's short-performance
+deficit, repeated selection and delivery qualification remain open. Independent-process evidence below
 belongs to the earlier v119 artifact and does not qualify this new binary.
 The preceding [service-access boundary](metadata/qwen36-27b-mtp-service-boundary-2026-10-20.json)
 has composed into this candidate.

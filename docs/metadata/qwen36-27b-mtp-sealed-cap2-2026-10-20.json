@@ -1,0 +1,129 @@
+{
+  "work_package_id": "WP-MTP-SEALED-SERVICE-20261020",
+  "architecture_candidate_id": "AC-MTP-SEALED-SERVICE-v1",
+  "decision": "Complete fixed-cap2 BUILD_TESTING=OFF candidate composition and real API regression. Both cap build compositions now verified; not performance selection or production promotion.",
+  "source": {
+    "source_commit": "261bc9d18728611a76d19415bb4eb9eca0742d3b",
+    "source_clean": true,
+    "server_sha256": "642eea8f715abe928bb5cb1b7ea672ecfd2dcafea9f8cc108803c321315b59be"
+  },
+  "profile": "q3x.sm87.candidate.mtp-sealed-cap2.v1",
+  "build_audit": {
+    "server_sha256": "642eea8f715abe928bb5cb1b7ea672ecfd2dcafea9f8cc108803c321315b59be",
+    "compile_commands": 76,
+    "test_seams_absent": true,
+    "fused_and_mtp_admission_macros_absent": true,
+    "engine_test_access_absent": true,
+    "service_access_present": true,
+    "cublas_dynamic_dependency_absent": true,
+    "help_and_cli_rejection": "pass",
+    "cap": 2,
+    "scope": "Noninstallable BUILD_TESTING=OFF candidate, not production selection"
+  },
+  "successful_requests": [
+    {
+      "label": "p65",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p8192",
+      "tokens": 256,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p40000",
+      "tokens": 256,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "p65-nonstream",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "raw-text",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "chat-stop",
+      "tokens": 2,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "after-prefill-cancel",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    },
+    {
+      "label": "after-decode-cancel",
+      "tokens": 16,
+      "exact_response_token_and_work": true
+    }
+  ],
+  "lifecycle": "authentication, invalid request, Prefill/Decode cancellation and recovery pass",
+  "cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 75.406
+  },
+  "joint_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.89160507,
+      "prefill_tps": 72.90223237514789,
+      "ttft_s": 0.9102578039746732,
+      "elapsed_s": 1.9717884300043806,
+      "decode_tps": 14.129329853656174
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.318862018,
+      "prefill_tps": 473.0102931408435,
+      "ttft_s": 17.341122487094253,
+      "elapsed_s": 33.674199416069314,
+      "decode_tps": 15.612726530499145
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.674845593,
+      "prefill_tps": 431.6165810048171,
+      "ttft_s": 92.7098728090059,
+      "elapsed_s": 114.23330242699012,
+      "decode_tps": 11.848426529117235
+    }
+  ],
+  "numerical_scope": "No arithmetic changes; eight exact API token/work comparisons to v119 cap2, no broader numerical/capability qualification.",
+  "limitations": [
+    "Noninstallable opt-in candidate; ordinary non-MTP 0.8.2 unchanged.",
+    "Single process regression; no repeated performance selection of this ELF.",
+    "Cap2 short 1.5x target remains open; build closure does not waive it."
+  ],
+  "artifact_root": ".q3x-work/mtp-sealed-cap2-20261020",
+  "artifact_sha256": {
+    "source/identity.json": "35d8909abb8e1fad70ab3b77d011a89957879e5e9566c0d14d7a9922778a7e17",
+    "build-audit.json": "22c1b1eee7f12b2e56001ca6eaf95807522c65f701b09494bb6335a99de0fae9",
+    "environment-rejection.json": "ebc61dd7e29a7a7e21b7c9a1c24a79f96411af966f01331232a4751d036a2959",
+    "dynamic.txt": "e8753e56a0b24ded06de5882208fc5e5c34355729afa13ed916fd757fc070ea6",
+    "symbols.txt": "5f915abea540e98cd14bd4a7d50d3619ca0c052b4d3eeca271e2546ebbdbc0bc",
+    "help.txt": "973a00c5d7d4e351419a561226ab6e2726a78964016935221447ad0c00ba6018",
+    "parity.json": "184a6a5041a37fd965bbe2df7e7d35973d1a1a59b7f93596e2ec55565de4e08f",
+    "record.py": "b221d8118c7ee2ebdb6d6fdecf6694c51493403c148b0505c51768e4297558db",
+    "run-api.sh": "35e39a942654081c21a8065d58d5dfb5c7adb3496a0acb8eb3e74092e2640f6a",
+    "cap2/identity.json": "c47194295634dda9829a8451281f3de90011796eafcce1b29f4148ea8f9967b0",
+    "cap2/preflight.json": "2147fe5bce7e6d7ad806fd2ea163f72dd7024665cca193ccb73c1fdc2e2876ae",
+    "cap2/cache-preparation.json": "0a3124262f38437566fac6e9cb56eb02cf19ca7c05754c5422c6f7fcde61cd42",
+    "cap2/cleanup.json": "a205351f7d95079cd3aa1401657560349b45e97128011c4040d2c65d3292c877",
+    "cap2/results.json": "6da33366b26536babfd6743e55265695a0daa83b6eb7263ee6796376cb921eb3",
+    "cap2/audited-metrics.json": "a81f7d45d3b09c28c99cedf07dc3f9616bb5f009bc22ca39cd87e5b6e0c2519b",
+    "cap2/server.log": "690d3f79c9816f71333dc3b96c1c74c48ab3d25bb31de5ff7071339f78424ef4"
+  }
+}

@@ -25,7 +25,7 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-20 sealed MTP build — cap 3 composed, cap 2 pending
+## 2026-10-20 sealed MTP build — both caps composed
 
 The [bounded design](metadata/qwen36-27b-mtp-sealed-service-design-2026-10-20.json)
 now has a [complete cap 3 candidate/API return](metadata/qwen36-27b-mtp-sealed-service-2026-10-20.json).
@@ -42,10 +42,18 @@ This composes the preceding service-access prerequisite. Current joint metrics
 belong to [Current Status](CURRENT_STATUS.md); this one-process check does not
 transfer earlier repeated performance qualification to the new ELF.
 
-The same implementation accepts cap 2 configuration, but its complete fixed-cap
-binary/API check remains next. Cap 2 short performance, repeated selection and
-release qualification remain open. Do not widen this build milestone into
-kernel scanning or claim a production switch.
+The [fixed-cap 2 build and API regression](metadata/qwen36-27b-mtp-sealed-cap2-2026-10-20.json)
+is also complete: clean source 261bc9d, no test seams or cuBLAS dynamic dependency,
+fixed-cap CLI and environment rejection, eight exact response/token/work checks,
+authentication, invalid requests, cancellation/recovery and normal shutdown.
+This closes the two-cap build composition; do not repeat this panel without a
+new engineering question. Current joint metrics belong to Current Status.
+
+Cap 2 short performance remains below the 1.5x goal. The next performance
+implementation must select a materially different architecture with a downward
+phase budget and immediate real API return, respecting the closed lineages
+below. Repeated performance selection and delivery qualification remain open;
+this build closure does not select installation or a production switch.
 
 ## 2026-10-20 service ownership boundary — validated delivery prerequisite
 
