@@ -86,6 +86,11 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
+is closed neutral: complete state/output checks pass and one short request
+elides 157,906,944 copied bytes, but Decode changes only +0.0098%, below its
+predeclared gate. Its branch/counters are removed; v113 remains current.
+
 The [compensated private-MLP integration](metadata/qwen36-27b-mtp-compensated-mlp-rejection-2026-10-20.json)
 is closed without an API gain. Native full-layer and three-step recursive
 numerical checks pass, but completed d2 short/8K Decode is 14.1319/15.6224

@@ -1,0 +1,263 @@
+{
+  "work_package_id": "WP-MTP-SINGLETON-CANONICAL-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v115",
+  "source_parent": "90ca598",
+  "decision": "closed_neutral_direction; canonical-singleton branch and counters removed",
+  "design": "docs/metadata/qwen36-27b-mtp-singleton-canonical-design-2026-10-20.json",
+  "identity": {
+    "parent": "90ca59863dd6aaee2bd5e7357ad707143c532809",
+    "files": {
+      "docs/DOCUMENT_REGISTRY.md": "aa201526d14ba5ea6fc9ec3b0d14727512d7187cdcb7cc5f74c3fb95af9bdbf6",
+      "docs/MTP_ADMISSION.md": "8558a9c76fcd1db7ff667bce02013e904f08d66d9c6ba76816474bb39fab62af",
+      "docs/ROADMAP.md": "203e349ba6415f21e88b675a06564c678d239e062eb79e02ace2154c2b47857c",
+      "include/q3x/server/evaluation_server.h": "25dc29a54a9de9de4b2a784d62ff12cda8ff4e3d1e44ccf87cf946d69e0b9fc7",
+      "src/runtime/mtp_device_internal.cpp": "459477d61117c25349ebc4a9a1af8e2cf79229b020ea2fbe96e9d2da641fdea5",
+      "src/runtime/mtp_device_internal.h": "0c5bc40019164e130a1c9641b234353be8d8b3aaaa50d2e9eb3582295ec44000",
+      "src/runtime/mtp_service_internal.cpp": "87b63de0e62ed68f9faee02be676b441d308d1ce96dacfaf404b67d860198750",
+      "src/server/evaluation_server.cpp": "115d6cf719d78c707f890286758e2a7d0731fc32c5dad4bb094787ba5f9829c6",
+      "tools/evaluation/validate_mtp_service.py": "8cf1ca5cf0b733f09b755066babfabb423dd882962526d8c53945716f36446b9"
+    },
+    "server_sha256": "f5d33b8fae59c4f45bb54e3b9d3aaf0aee15a917e7dd8bfae05cc342ffe56729",
+    "oracle_sha256": "3a6cedeb04ac0e431ddcf1d7cf4868a9f351183313acd4e37f16572f6187abf1"
+  },
+  "native": {
+    "capture_equals_v113": {
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-hidden.bf16": "462b593f29976fb0edf1ce258828ab0d5c5297a3fc046d380e9b27cd05ffc083",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0"
+    },
+    "complete_prefix_panels": 4,
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.562
+    },
+    "initial_launch_failure": "oracle-p65 lacked executable mode; no model process started; corrected mode and fresh preflight in oracle-p65-r1"
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v113": true,
+    "all_generated_ids_equal_v113": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 1,
+    "server_sha256": "f5d33b8fae59c4f45bb54e3b9d3aaf0aee15a917e7dd8bfae05cc342ffe56729",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.899397214,
+        "prefill_tps": 72.27062635753283,
+        "ttft_s": 0.9185525019420311,
+        "decode_tps": 14.150355515701698,
+        "elapsed_s": 1.9784405059181154,
+        "incumbent_decode_tps": 14.14897114978091,
+        "decode_delta_percent": 0.009784216153474468,
+        "changed_mtp_fields": {
+          "startup_free_bytes": [
+            10145718272,
+            10089320448
+          ],
+          "canonical_singletons": [
+            null,
+            1
+          ],
+          "state_copy_bytes_elided": [
+            1911557120,
+            2069464064
+          ],
+          "draft_initialization_ms": [
+            5.454666,
+            5.586421
+          ],
+          "draft_ms": [
+            87.193625,
+            87.62618599999999
+          ],
+          "verify_ms": [
+            955.2385310000001,
+            955.3375290000001
+          ],
+          "reconcile_ms": [
+            17.373451000000003,
+            16.674207
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 63.406
+    }
+  },
+  "stop": {
+    "stage": {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.899397214,
+      "prefill_tps": 72.27062635753283,
+      "decode_tps": 14.150355515701698,
+      "ttft_s": 0.9185525019420311,
+      "elapsed_s": 1.9784405059181154,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10089320448,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "canonical_singletons": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 2069464064,
+        "draft_initialization_ms": 5.586421,
+        "draft_ms": 87.62618599999999,
+        "verify_ms": 955.3375290000001,
+        "reconcile_ms": 16.674207,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "v113_direction_decode_tps": 14.14897114978091,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "scope": "One complete P65/O16 d2 request; +0.009784% versus v113 below predeclared +0.1% short gate. No repeated gain, slowdown, hardware bound or long-context/d3 claim. The next8K request began before driver observed the short gate, then cancelled before initialization at bounded Prefill safe point; it is excluded from all metrics. Server exited0 with no cleanup errors.",
+  "causal_scope": "One canonical singleton physically elides157906944 bytes. Output/usage/acceptance/semantic work exact; local traffic saving does not establish useful whole-request speed. No follow-up singleton/overlap/kernel/policy scan.",
+  "production_changed": false,
+  "goal_complete": false,
+  "remaining_goal": "v113 short d2 still lacks17.903ms for1.5x; full50%\u2013200% objective and final independent repetition remain.",
+  "artifact_root": ".q3x-work/mtp-singleton-canonical-20261020",
+  "evidence_sha256": {
+    ".q3x-work/mtp-singleton-canonical-20261020/baseline-d2-metrics.json": "f1d1853ca04f741e5df05c3d892ad673340a29f0868095edc8b94fa726eb75fa",
+    ".q3x-work/mtp-singleton-canonical-20261020/baseline-d3-metrics.json": "88dfc7909a28d69a4e53e3c15a474c52ae6da25597fc6e25f463025230261ef4",
+    ".q3x-work/mtp-singleton-canonical-20261020/build-oracle-final.log": "95a18c983d096e02da45fabdcf437660f2ae526c10a6900f6b16587ae43589f0",
+    ".q3x-work/mtp-singleton-canonical-20261020/build-oracle.log": "005d7e296501ef12c5037c3ce5c54ba4a0a3684a382c956beb844597e2291efc",
+    ".q3x-work/mtp-singleton-canonical-20261020/build-server-final.log": "682d45c42f74dd1dadda201d721dbca9a2b62c6fc142da291ddbe3df5c8a88ab",
+    ".q3x-work/mtp-singleton-canonical-20261020/build-server.log": "76d3a1ea726230aac87229c2ba86c1fa5e1560adbc5a0b8a2c3c48df69f7e726",
+    ".q3x-work/mtp-singleton-canonical-20261020/compare.py": "6f043989109c45cddcb97a3313cf8661c81d84d0d8c99fc9ac9656108db264ac",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/cache-preparation.json": "27c6f4a9961724f9ff556cb0b97316172ccea8d0e55cb8f77441853c0e1b3e1f",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/cleanup.json": "841565187de12c45c36597643e59ee201c0a6d546820b5af7b7ab8e9d104f013",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/health.json": "44f9d33ffdb68accaa0495a49fbd62e3d8c48cdb0872c3cf2f0c263a97bb4de5",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/identity.json": "b254e3247d8040451184d8bf773e2f37a4dd794f02fcb02334d3a7ca8e173f35",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/p65.json": "348da8c6e2a8ebd7de7bde612b6795e9064cc4320e91e49c6e42ec8cfabc2faf",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/preflight-console.log": "55e0cae774b2a38ad08f4f4a9ea0d4c3bd348cfdac44fb2dc01c67efcf7f626d",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/preflight.json": "d0355f87d1937f8fd099b730f374da49c57da3f9483c790fd66f4afb8f62dd9e",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/results.json": "0e8af28ab63a31c31ee5807b2ed99635f400653b9769644362dbc64ec459fb93",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/server.log": "6b6e177bff52ff51228eae3997bb001426d195b3c203f697a9d1982f1c8eeb0a",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2/telemetry.log": "e8ef3c934036949b2eb8c047e2119462c2f6c37749e967d9adab3839f4c8f311",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-comparison.json": "e4352294c2e40c9ec6a3d98d0b4a44c9947d5201507c35d6dd31c55d80116bc7",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-comparison.log": "e4352294c2e40c9ec6a3d98d0b4a44c9947d5201507c35d6dd31c55d80116bc7",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-console.log": "92b2a1522ed332fbf56230558c4ebe3af796d7c6ee20bc2e80f89a8f76fb514a",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-direction-decision.json": "9de84dd7e76de278da92d14b733182832e66c7febb09fc077e43f5c654991e9c",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-driver.log": "9b19517e4e0156cb3e8127c4c6006b64f9fab201afe8256daca20d6c19823945",
+    ".q3x-work/mtp-singleton-canonical-20261020/d2-process.json": "d135c87e1ec0adda62eae286ae97b3bb9cd9bea3af0e9dde27bc94fcd7d06d3a",
+    ".q3x-work/mtp-singleton-canonical-20261020/docs-check.log": "82dd514589bb8eb74f6182f067a358a62eda87ef2ca66673ef7d302fa4fd8f27",
+    ".q3x-work/mtp-singleton-canonical-20261020/native-admission.json": "91b67b212750b336b25d2056b3d7c7c293f1fe729a05d060acb328ae59c649e3",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-driver.log": "45fc59d0d7d9beab6d3ccf0f4d79981ef7c722ca06f7ce40fff0ff895ae918a1",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/cache-preparation.json": "432ce36790792932b093aac10c4704944c33dfdadac732b7c4605c85b69b484c",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/identity.json": "f4fd4397c9cf8e706f45cbb19314c9c9595e72990d18847a3c0bdc26896ffa0c",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/preflight-console.log": "0656647ae4a2f344db14a4903bd588c61e90bb5dbabd0051be1efca2ce75e64d",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/preflight.json": "c791120e24053a6b7726ca27d55b924a9af9fb830d70f378083645302b0e9116",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/q3x_mtp_whole_core_test": "3a6cedeb04ac0e431ddcf1d7cf4868a9f351183313acd4e37f16572f6187abf1",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65/run.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/cache-preparation.json": "9e46002938f62fbadebdfa55ac1794ab5d7a330fe374e831d86b11563885b2fe",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/cleanup.json": "5a5b5be37ffabde77c74313248331a9666ed96c48b7714471951434b2ebf58b7",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/draft-prefill-hidden.bf16": "462b593f29976fb0edf1ce258828ab0d5c5297a3fc046d380e9b27cd05ffc083",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/identity.json": "fd15259d7818587be4cd44a7b33be3746e1ff1884d5dfabe327181685fe15695",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/preflight-console.log": "30de8450ed2cb60520d589acc26ff274098a872d0f89550511b447e20cd02090",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/preflight.json": "1eb2cfe9d5378c2f5479c81672b1f7765ddcc9c9067f836a146ed7651b5cc8c9",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/q3x_mtp_whole_core_test": "3a6cedeb04ac0e431ddcf1d7cf4868a9f351183313acd4e37f16572f6187abf1",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/run.log": "58aad66ba0de0b857ade3c43e72075e8034cfda1ce2f37c3c5f1fb81b9c69465",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-p65-r1/telemetry.log": "280f049708cb72db7784421de531ae4f8b54da6e6836b91ed3d1dedf82b96d0e",
+    ".q3x-work/mtp-singleton-canonical-20261020/oracle-r1-driver.log": "aaa3f8dae14c483e09a8ce59d66918a2285c4f6e590cf219c03691bb38167e9b",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/docs/DOCUMENT_REGISTRY.md": "9b58823d4a4a6147b38ab207dd5b41dd7478c184330c15a1b2a457a4f8d6fab2",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/docs/MTP_ADMISSION.md": "6a5aa692b1cda12827216140d78b4e260976cdaa315aa11b425fe3d3021da14c",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/docs/ROADMAP.md": "283328c2bda1435b917b0eda7b6cc641c189b16a25cb1abc8d46685a29d1ecd6",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/include/q3x/server/evaluation_server.h": "2f4451bc44abb5357f27a492dec79debda3665678b54205a0d947060c1c9c5ad",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/src/runtime/mtp_device_internal.cpp": "e538e5cde15abe79b6bfe970760b84d764de6da8652ea06086fc0b2302c9ad53",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/src/runtime/mtp_device_internal.h": "4671857f4969b73a1dd2b3e59140a15b2db779ab7eb2139d9213573cdd3d22fb",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/src/runtime/mtp_service_internal.cpp": "7e310b0bf8dd14f1eb16325dfaba1e948c6ce28cbfb06c12506e525e0504eba4",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/src/server/evaluation_server.cpp": "920d2dc92629a801d72568bc30b62cb3437e39ae1022b1280ea50057e81df34d",
+    ".q3x-work/mtp-singleton-canonical-20261020/original/tools/evaluation/validate_mtp_service.py": "cbebf746b102400bc5deb65fa2488add7c647a891c6ecdb5752a79903bdf91a6",
+    ".q3x-work/mtp-singleton-canonical-20261020/run-api.py": "2b48006f7544b7eeba54511055c8632ca22337f40ac54122178f9fbd1e759364",
+    ".q3x-work/mtp-singleton-canonical-20261020/run-oracle.py": "6a9a3ba683979e93e1c6e09d5b6c62e720a2a0d805e4ee9d7bd424b4cf0a41e5",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/changes.patch": "3fe9d9e2a1226d2d9ba05d4b4d1bc55f4d83be7e7bcb00a975f00cd2d63e4269",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/docs/DOCUMENT_REGISTRY.md": "aa201526d14ba5ea6fc9ec3b0d14727512d7187cdcb7cc5f74c3fb95af9bdbf6",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/docs/MTP_ADMISSION.md": "8558a9c76fcd1db7ff667bce02013e904f08d66d9c6ba76816474bb39fab62af",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/docs/ROADMAP.md": "203e349ba6415f21e88b675a06564c678d239e062eb79e02ace2154c2b47857c",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/final-changes.patch": "b4b9e426c25e24d446c472067f32b32c79a162b8d5656bda398ec7c354413102",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/include/q3x/server/evaluation_server.h": "25dc29a54a9de9de4b2a784d62ff12cda8ff4e3d1e44ccf87cf946d69e0b9fc7",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/oracle": "3a6cedeb04ac0e431ddcf1d7cf4868a9f351183313acd4e37f16572f6187abf1",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/server": "f5d33b8fae59c4f45bb54e3b9d3aaf0aee15a917e7dd8bfae05cc342ffe56729",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/src/runtime/mtp_device_internal.cpp": "459477d61117c25349ebc4a9a1af8e2cf79229b020ea2fbe96e9d2da641fdea5",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/src/runtime/mtp_device_internal.h": "0c5bc40019164e130a1c9641b234353be8d8b3aaaa50d2e9eb3582295ec44000",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/src/runtime/mtp_service_internal.cpp": "87b63de0e62ed68f9faee02be676b441d308d1ce96dacfaf404b67d860198750",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/src/server/evaluation_server.cpp": "115d6cf719d78c707f890286758e2a7d0731fc32c5dad4bb094787ba5f9829c6",
+    ".q3x-work/mtp-singleton-canonical-20261020/source/tools/evaluation/validate_mtp_service.py": "8cf1ca5cf0b733f09b755066babfabb423dd882962526d8c53945716f36446b9",
+    ".q3x-work/mtp-singleton-canonical-20261020/source-identity.json": "1059a42c63f20d18b3acfd41456e853956c2c54bcd2b5ca9e66faa5854443c9b",
+    ".q3x-work/mtp-singleton-canonical-20261020/restored-oracle-build.log": "005d7e296501ef12c5037c3ce5c54ba4a0a3684a382c956beb844597e2291efc",
+    ".q3x-work/mtp-singleton-canonical-20261020/closure-docs-check.log": "419a223cdfc6fac0a897bb3a5a9139f095d14e195771612a8dd2834df9e46c8d",
+    ".q3x-work/mtp-singleton-canonical-20261020/restored-server-build.log": "d97850d04556dea7851f64ce38adb055fc217be321ea47bbeb2d9c735d43ad13",
+    ".q3x-work/mtp-singleton-canonical-20261020/closure-preflight/cache-preparation.json": "e81c383392b3415cee427b2bcaaa2e5a495300aebe60f6719dc0306be9a05c4c",
+    ".q3x-work/mtp-singleton-canonical-20261020/closure-preflight/preflight-console.log": "aca8654690c36879464fdab0925365f0166d5bfc64357a871bc9c96a3a2dc3c3",
+    ".q3x-work/mtp-singleton-canonical-20261020/closure-preflight/preflight.json": "8976941e2366469a2d3ac9d039eb80a6e0bd2b4ccebdc65f7b3b156c75208aa4"
+  },
+  "restoration": {
+    "source_equals": "90ca598 for src/include/tests/tools/CMakeLists.txt",
+    "binaries_equal_v113": {
+      ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission": "4a2dac2971851bca6ada3111c423210af6f13362a28c2ab27dd89f761b339366",
+      ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test": "afba7435f997e514d50ce48b44146b7564827c95f8ad03d1ffdd9cd4f4ed9773"
+    },
+    "worktree_count": 47
+  }
+}

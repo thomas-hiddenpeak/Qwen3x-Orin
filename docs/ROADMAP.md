@@ -19,6 +19,27 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 canonical singleton state — closed neutral
+
+`WP-MTP-SINGLETON-CANONICAL-20261020` implemented one
+[sole-prefix ownership change](metadata/qwen36-27b-mtp-singleton-canonical-design-2026-10-20.json):
+retain the complete canonical state from the native zero-draft target step and
+remove its redundant snapshot/restore. The
+[completed direction](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
+preserves ten complete prefixes, fifteen transactions and failure/cancel
+recovery; six prompt/hidden/KV captures equal v113. One complete d2 P65/O16
+request attests one singleton and 157,906,944 fewer copied bytes, but Decode is
+14.15036 token/s, only +0.0098% versus v113, below the declared +0.1% gate.
+No useful gain is selected. The next 8K request was cancelled at a bounded
+Prefill safe point and supplies no timing evidence; 40K/d3 were not run.
+
+Remove the branch and counters; restore v113 source and binaries. Preserve
+all evidence, including the initial executable-mode launch failure before any
+model process started. No singleton, overlap, kernel or policy scan follows.
+The approximately17.903ms short gap and complete50%–200% objective remain.
+This is a direction rejection, not a repeated performance or hardware-bound
+claim. Production and numerical contracts remain unchanged.
+
 ## 2026-10-20 compensated private MLP — closed without API gain
 
 `WP-MTP-COMPENSATED-MLP-20261020` implemented the

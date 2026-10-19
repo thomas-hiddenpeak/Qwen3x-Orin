@@ -1,0 +1,22 @@
+{
+  "work_package_id": "WP-MTP-SINGLETON-CANONICAL-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v115",
+  "source_parent": "90ca598",
+  "product_constraint": "Complete50%\u2013200% same-workload Decode uplift, exact state/output, d2/d3 and jointPrefill/TTFT/Decode/total.",
+  "budget": "v113 short d2 needs17.903ms. One native singleton per P65 d2 currently copies78,953,472bytes into snapshot and immediately copies them back. Eliminate157,906,944bytes; this is a traffic ceiling, not a latency forecast or full-goal solution. No-tail8K/40K paths unchanged.",
+  "lineage": "v96 changed singleton execution to native scalar but explicitly kept snapshot/restore. New change deletes provably dead sole-prefix materialization. Closed commit-overlap and seed-prefix overlap remain closed; no scheduling/kernel/policy scan.",
+  "contract": "Only multirow-admission transactions with rows_=1. Native target.step synchronously completes all canonical recurrent/Conv/KV/hidden/full logits. No later row exists; commit observes the same canonical state without snapshot1 or restore1. Entry hidden snapshot0 remains live for draft append. Draft cache reconciles and both positions commit before observer. No arithmetic, output, allocation or multirow state change; scalar oracle remains original snapshot path. Failure drains/poisons and requires reset, never rollback.",
+  "gates": [
+    "P65 allM1..4 complete target state/full logits and transaction/cancel/failure recovery against unchanged scalar oracle.",
+    "Immediate d2 short API; >0.1% short direction gain unlocks complete8K/40K and d3 panel; otherwise close. No-tail requests must preserve output/semantic work and physical route. >3% regression stops.",
+    "Useful complete direction only permits bounded retention; independent repetition still required for overall target."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "scan": false,
+    "deadline": "Native admission then immediately real d2 API; useful short direction completes d2/d3.",
+    "production_changed": false
+  },
+  "artifact_root": ".q3x-work/mtp-singleton-canonical-20261020"
+}
