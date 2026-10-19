@@ -19,6 +19,17 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 retained cap 3 repetition — active validation
+
+The [prospective N-C3-C3-N protocol](metadata/qwen36-27b-mtp-output-tail-repeat-design-2026-10-20.json)
+resolves whether v119's short/8K/40K Decode floor survives two independent
+processes against two fresh installed non-MTP processes. Require the slowest
+candidate divided by the fastest baseline to reach 1.5 in each bucket, with
+exact outputs, route/resource checks and joint Prefill/TTFT/Decode/total.
+Four processes only; no timing retries or implementation changes. This does
+not close cap 2's short gap or grant release authority. Stop measurement after
+this question is answered and retain the complete result.
+
 ## 2026-10-20 balanced cap 2 tail — closed at short API gate
 
 The [bounded design](metadata/qwen36-27b-mtp-balanced-tail-design-2026-10-20.json)

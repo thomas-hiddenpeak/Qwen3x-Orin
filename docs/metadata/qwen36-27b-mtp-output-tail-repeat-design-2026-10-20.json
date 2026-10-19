@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-OUTPUT-TAIL-REPEAT-20261020",
+  "source_parent": "bb0b22d",
+  "decision": "Resolve stability of retained cap3 50% floor, particularly40K. Does not close cap2 short gap or promote production.",
+  "order": [
+    "nonmtp-a",
+    "candidate-a-cap3",
+    "candidate-b-cap3",
+    "nonmtp-b"
+  ],
+  "workloads": [
+    {
+      "P": 65,
+      "O": 16
+    },
+    {
+      "P": 8192,
+      "O": 256
+    },
+    {
+      "P": 40000,
+      "O": 256
+    }
+  ],
+  "artifacts": {
+    "candidate_sha256": "1dc8458a67231470344122c1f60a7aede6c199c7f50ce2b54b5cd37bc48e65dd",
+    "nonmtp_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f"
+  },
+  "protocol": "Fresh process/preflight/cache drop each cell,60s between8Kand40K. Same pinned requests. Require exact response/token IDs, route/work/capacity,8GiB reserve, clean ownership, successful cold preparation,temperature<=85, clean exit. No retries to select favorable timing.",
+  "floor": "For each bucket min(candidate rates)/max(nonMTP rates)>=1.5; report joint medians/ranges.",
+  "limits": "Four processes only, no new implementation, no lifecycle requalification, no final goal or release claim; cap2 remains open."
+}
