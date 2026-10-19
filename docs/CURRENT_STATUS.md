@@ -86,6 +86,35 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+### Cap 3 independent-process validation
+
+The prospective N-C3-C3-N [independent-process validation](metadata/qwen36-27b-mtp-output-tail-repeat-2026-10-20.json) is complete.
+Both frozen v119 cap 3 processes preserve exact response/token IDs, physical
+work, route and resource checks. All four processes exit normally after fresh
+preflight and successful cache preparation. No timing sample was retried.
+
+Each performance row below is the median of two independent processes.
+The last column is conservative: the slower MTP observation divided by the
+faster non-MTP observation, minus one. Prefill includes draft initialization;
+TTFT and total are external. These pinned three-bucket results do not claim
+all prompts, all output lengths or production-release qualification.
+
+| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | Conservative Decode gain |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | non-MTP | 0.886 | 73.33 | 0.905 | 9.592 | 2.469 | — |
+| 65 / 16 | adaptive cap 3 | 0.891 | 72.93 | 0.910 | 14.983 | 1.911 | +56.17% |
+| 8192 / 256 | non-MTP | 16.801 | 487.58 | 16.823 | 9.224 | 44.470 | — |
+| 8192 / 256 | adaptive cap 3 | 17.330 | 472.71 | 17.352 | 15.615 | 33.682 | +69.28% |
+| 40000 / 256 | non-MTP | 90.025 | 444.32 | 90.061 | 7.869 | 122.470 | — |
+| 40000 / 256 | adaptive cap 3 | 92.853 | 430.79 | 92.888 | 11.839 | 114.430 | +50.42% |
+
+Cap 3 clears the predeclared 1.5x floor in every repeated bucket. **The complete
+objective remains open:** cap 2 short Decode is below 1.5x, and this bounded
+cap 3 validation grants no production switch. The ordinary service stays
+non-MTP 0.8.2. The tables below retain the preceding single-process direction
+and cap 2 regression, rather than replacing this repeated evidence.
+
+
 Current isolated source is v119, profile
 `q3x.sm87.admission.mtp-output-tail-api.v119`, frozen server
 `1dc8458a67231470344122c1f60a7aede6c199c7f50ce2b54b5cd37bc48e65dd`.
@@ -122,8 +151,7 @@ failure/reset recoveries. API responses, token IDs and lifecycle checks are
 recorded for both caps in the linked direction record. Target and private
 arithmetic are unchanged, so prior original-weight numerical admission retains
 its existing scope. **The complete objective is not yet achieved:** configured 2
-short Decode remains below 1.5x and prospective independent-process selection
-is outstanding. Production remains the installed non-MTP 0.8.2 artifact.
+short Decode remains below 1.5x and cap 3 repeated selection does not close that gap. Production remains the installed non-MTP 0.8.2 artifact.
 
 The [balanced cap 2 tail](metadata/qwen36-27b-mtp-balanced-tail-rejection-2026-10-20.json)
 is closed after exact native admission and a short API result of 14.126 token/s,

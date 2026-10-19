@@ -25,6 +25,15 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 cap 3 repeated API return
+
+The [independent-process validation](metadata/qwen36-27b-mtp-output-tail-repeat-2026-10-20.json) completes the prospective four-process
+N-C3-C3-N panel. Exact output and physical-work checks pass and the conservative
+Decode ratio clears 1.5 in short/8K/40K. Numerical contracts and production
+remain unchanged. This selects bounded cap 3 retention, not cap 2 completion,
+universal workload speedup or release promotion. Current joint metrics belong
+to [Current Status](CURRENT_STATUS.md); remaining work belongs to [Roadmap](ROADMAP.md).
+
 ## 2026-10-20 balanced cap 2 tail — closed at short API gate
 
 The [bounded design](metadata/qwen36-27b-mtp-balanced-tail-design-2026-10-20.json)

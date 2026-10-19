@@ -19,16 +19,19 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 retained cap 3 repetition — active validation
+## 2026-10-20 retained cap 3 repetition — complete
 
-The [prospective N-C3-C3-N protocol](metadata/qwen36-27b-mtp-output-tail-repeat-design-2026-10-20.json)
-resolves whether v119's short/8K/40K Decode floor survives two independent
-processes against two fresh installed non-MTP processes. Require the slowest
-candidate divided by the fastest baseline to reach 1.5 in each bucket, with
-exact outputs, route/resource checks and joint Prefill/TTFT/Decode/total.
-Four processes only; no timing retries or implementation changes. This does
-not close cap 2's short gap or grant release authority. Stop measurement after
-this question is answered and retain the complete result.
+The [prospective protocol](metadata/qwen36-27b-mtp-output-tail-repeat-design-2026-10-20.json)
+and [independent-process validation](metadata/qwen36-27b-mtp-output-tail-repeat-2026-10-20.json) are complete. Four fresh processes pass
+exact outputs, physical work, resource/preflight and normal shutdown checks.
+The slower cap 3 rate divided by the faster non-MTP rate exceeds 1.5 in all
+three pinned buckets. Joint metrics are owned by [Current Status](CURRENT_STATUS.md).
+Stop this collection; no retry or wider evidence campaign is selected.
+
+Cap 2's short deficit remains the next implementation constraint. The rejected
+balanced tail is not reopened. A materially different composition must name
+its phase budget and return promptly to the API. This bounded cap 3 selection
+is not full-goal completion or production-release authority.
 
 ## 2026-10-20 balanced cap 2 tail — closed at short API gate
 
