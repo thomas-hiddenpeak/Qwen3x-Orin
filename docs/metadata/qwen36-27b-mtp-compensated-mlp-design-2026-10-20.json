@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-COMPENSATED-MLP-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v114",
+  "source_parent": "7daee8a",
+  "decision_unit": "architecture_candidate with prerequisite representation gate",
+  "product_constraint": "50%\u2013200% committed Decode uplift versus matched non-MTP; d2/d3; joint Prefill/TTFT/Decode/total; exact target state/output.",
+  "budget": "v113 short d2 needs 17.903350 ms saved; 40K single observation crosses 1.5x but repetition remains. Historical private matrix family 964 ms is an opportunity ceiling, not projected savings.",
+  "lineage": "Closed v107 single INT8 activation representation remains rejected. This adds an explicit residual component consumed in a second previously unused MMA column; not a group/threshold/quantizer scan. Fixed group128, two components, original retained weight payloads.",
+  "arithmetic": {
+    "activation": "For each BF16 group128, FP32 s0=maxabs/127 (zero -> 1), q0=RNE/clamp[-127,127](x/s0); r=FP32 fused(x-q0*s0); s1=maxabs(r)/127 (zero -> 1), q1=RNE/clamp(r/s1). Reconstruct q0*s0+q1*s1. Nonfinite inputs must fail closed.",
+    "weights": "Existing authenticated U8B128 codes and BF16 scales, unchanged. INT8 signed bytes by XOR0x80. No per-weight BF16 reconstruction in candidate.",
+    "projection": "Exact INT32 group128 dot for both components, group maximum 2064512; ascending-group FP32 scale accumulation; BF16 output. Explicit new private arithmetic, never target arithmetic.",
+    "mapping": "64 output rows / 128 threads; MMA m16n8k32.s32.s8.s8.s32; columns0/1 hold primary/residual activation components; four K32 instructions per group; existing two-stage packed-weight delivery.",
+    "ownership": "Single private stream, existing dead scratch; quantized normalized input shared by Gate/Up, requantize activated input before Down. No request allocation or new weight owner."
+  },
+  "gates": [
+    "Authenticate historical64 target-conditioned captures and original BF16-weight independent FP64 reference; hidden/K/V max-row relativeL2 <=0.02. No native or speed claim.",
+    "If pass, implement one fixed integer-MMA composition, exhaustive fragment/dot/guard/zero/nonfinite and complete real-projection checks, Graph replay and bounded sanitizer, current full-layer oracle and complete target transactions.",
+    "Return to real d2 P65/O16 and P8192/P40000 O256 API immediately after native admission; useful full direction unlocks d3. Compare v113 plus non-MTP; stop over3% short regression or nonpositive8K/40K Decode direction. Report acceptance changes separately."
+  ],
+  "bounds": {
+    "representations": 1,
+    "group_size": 128,
+    "components": 2,
+    "native_implementations": 1,
+    "correctness_repairs": 1,
+    "composition_deadline": "Next two implementation milestones after host gate: native composition/admission then real API; no local timing/profile scan.",
+    "production_changed": false
+  },
+  "artifact_root": ".q3x-work/mtp-compensated-mlp-20261020",
+  "reference": "NVIDIA PTX dense m16n8k32 integer fragment specification; existing read-only vLLM per-token-group INT8 design study; no imported runtime dependency."
+}

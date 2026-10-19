@@ -1,0 +1,214 @@
+{
+  "work_package_id": "WP-MTP-COMPENSATED-MLP-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v114",
+  "source_parent": "7daee8a",
+  "status": "dependency_only; native composition and real API return outstanding",
+  "decision": "Representation and bounded executor correctness permit integration; neither speed nor full native numerical admission is established. Complete native real-model oracle and d2 API in next two implementation milestones or archive.",
+  "representation": {
+    "scope": "Host compensated two-component INT8 representation feasibility only; FP32 activation scale and RNE codes, unrounded q*scale operands, FP64 projections against original FP64 complete layer. No native group-reduction, recursion, acceptance or performance result.",
+    "pass": true,
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.011213415751076847,
+        "max_absolute_error": 0.375,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0,
+        "max_absolute_error": 0.0,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0,
+        "max_absolute_error": 0.0,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "quantization": {
+      "mtp.layers.0.mlp.down_proj.weight": {
+        "shape": [
+          5120,
+          17408
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "1d1a3ab0a7fd08a0aad5ded869cd05abb47b3b658d402516c1ed973b4ea393bc",
+        "scales_bf16_sha256": "00bdaa0628e322d6e09fc7e3d1ad219856867ba6c98375e7405d20a295a508d1",
+        "weight_relative_l2": 0.007395204746419068,
+        "zero_codes": 971126
+      },
+      "mtp.layers.0.mlp.gate_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "e3997b0acd067b267ef7872782564fe580fa4c3d22e4f45b0fa22d588da25447",
+        "scales_bf16_sha256": "1fbbd6a6fd377fe6598fdd068014dae20c8e8449696572bf7faf3692ff0f4688",
+        "weight_relative_l2": 0.006615341926577433,
+        "zero_codes": 812005
+      },
+      "mtp.layers.0.mlp.up_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "c1c153608e99bd124c78e736f3fa9422ceeca006548d0c62ab64af4969705e11",
+        "scales_bf16_sha256": "2a5506a1cf3e959a1ab4f2cf6e398f5d4a8cec06f96db918cc1b96335e705814",
+        "weight_relative_l2": 0.006581736883179217,
+        "zero_codes": 813797
+      }
+    },
+    "original_reference_and_capture_hashes": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+      "original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+      "original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00"
+    },
+    "checkpoint_payload_authentication": "all prior payload hashes match",
+    "original_matrix_bytes": 849346560,
+    "mixed_matrix_and_scale_bytes": 586137600,
+    "additional_private_packed_owner_bytes": 271564800
+  },
+  "native_checks": {
+    "native": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "memcheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null,
+      "sanitizer_summary": "========= ERROR SUMMARY: 0 errors"
+    },
+    "racecheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null,
+      "sanitizer_summary": "========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"
+    },
+    "synccheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null,
+      "sanitizer_summary": "========= ERROR SUMMARY: 0 errors"
+    }
+  },
+  "resources": {
+    "projection_registers": 64,
+    "projection_shared_bytes": 18432,
+    "quantizer_registers": 21,
+    "quantizer_shared_bytes": 512,
+    "stack_bytes": 0,
+    "spill_bytes": 0
+  },
+  "native_scope": "Synthetic 64x256 projection: six complete output panels, independently varying both component columns, zero/signed extrema, exact ordered host FP32 reference, guards. Five changing-input quantizer Graph replays versus uncaptured and host quantizer, including NaN/inf and zero. No full-shape real-weight projection or recursive native claim yet.",
+  "references": {
+    "nvidia_ptx": "https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-fragment-mma-16832",
+    "local_primary_sources": {
+      "third_party/cutlass/include/cute/arch/mma_sm80.hpp": "4d1315c12cccc6652a1dced6d6cb2d13a0390da5829978b5e01895571b677a60",
+      "third_party/cutlass/include/cute/atom/mma_traits_sm80.hpp": "58b972a2ec119bb15db0605a2613cd39ca52e09f630095e35677f5a17770d084"
+    },
+    "transfer": "NVIDIA dense integer fragment mapping verified against local CUTLASS layout: A uses lane/4 output row, lane%4 K quads and row+8/K+16 registers; B uses lane/4 column. Existing project packed-weight staging independently implemented. No copied external implementation or new dependency."
+  },
+  "environment": "Every GPU process has recorded preflight; short test processes ended before a periodic run-temperature sample. No performance timing claim. Sanitizer checks are root runs.",
+  "production_changed": false,
+  "performance_changed": false,
+  "current_api_metrics": "docs/metadata/qwen36-27b-mtp-integer-head-api-2026-10-20.json",
+  "pending": [
+    "Complete real-weight full-shape GPU projection and original-weight FP64 full-layer/recursive admission",
+    "Integrate quantize-once Gate/Up and Down into isolated Draft, route identity/counter and full target transactions",
+    "Immediate real d2 API; d3 after useful full direction; report all four performance measures and acceptance changes"
+  ],
+  "evidence_sha256": {
+    ".q3x-work/mtp-compensated-mlp-20261020/assess.py": "66135e245936865e7f73cd0e94397df59e558d19e97eca7674e11714503ff52d",
+    ".q3x-work/mtp-compensated-mlp-20261020/assessment.json": "573a6c4fc9e1b07848e626cd3e5010506c699d19dd9ce8acf476a5df71a920c5",
+    ".q3x-work/mtp-compensated-mlp-20261020/assessment.log": "d9058f01b4f4f62eb9e9eba093cbb02f9abbe63b9906811e8adcfa7ded291828",
+    ".q3x-work/mtp-compensated-mlp-20261020/build.log": "12b9910eafaf6f0c93ccc978bade4082e69b5703cdff7639a29534458d46981b",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-hidden.npy": "0f5685abf3ca7657eab153267e6fa1a35c2f366bd478e1bf28dbeeb02468150d",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/mixed-oracle.json": "bdfbccc7e151902edd782a9cb643cb2cef90347a3e346a06c136a5f32d0f05ee",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-compensated-mlp-20261020/capture/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-compensated-mlp-20261020/cmake-build.log": "606e6b847090f88a188d2293b694a2f7ca7b98f966bd4ad715324706a4d58e3c",
+    ".q3x-work/mtp-compensated-mlp-20261020/cmake-configure.log": "a203e1a00bbe095a2ebcf5508a538f1172fb649f6605785b47253f5a99f5f698",
+    ".q3x-work/mtp-compensated-mlp-20261020/kernel.o": "8e376475c71e23d40f4f1cb8f2d9165c752842663de48718688059b2900afddf",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/cache-preparation.json": "854e6b00ff89782bb89806020f86546c131de90e413cc510dbc4fa93f640877e",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/identity.json": "7acf7523cdc7f504dec699baf8191bab7df5f6d96e2a82193d2aac391f926363",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/preflight-console.log": "babd860d8f7f71e8a3e17eab84d137f1ec1bd6a4bd13f1242f81a0262b0ada92",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/preflight.json": "57c71cf49c4d2bcef56b308ed4b436cd152278c59acb3bec166a7a2e225b5ad6",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/sanitizer.log": "a9d061cee538182f762e132abeea7bac7bddb844338f25751bbbb043f242c425",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/memcheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/cache-preparation.json": "fd7850e48e1a97c4ec5a4bbd50ec4d33c2b287cd99f773826217c4f129317d57",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/identity.json": "ba830d21cb35577d4b56d47de2b0113300ec82d73dacb18a3d96afe5bda2b62e",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/preflight-console.log": "7693fd334f6ea30251818fbed955acf8fcd56606981d32c2a0c37afc14e49bde",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/preflight.json": "2b38ab15631de990b7313d3c0c643702a25449781f0ccc4dc46e5c2956cd79db",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/native/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/native-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/native-test": "9148eadb0a78945ac0efb7039c66811dfb49e3156aca9af0c2a5c945b4c4e4ce",
+    ".q3x-work/mtp-compensated-mlp-20261020/oracle-transformation.py": "60b42e13a7ec24f3a4385f6ff5d9b26fbb21a373bd7b486e19ee4928c650d948",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/cache-preparation.json": "239227b4daae5ee26d2dd621660e3e289ceaa58cd39988946598d0bb6f241749",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/identity.json": "87ff36baad4e70f2682a7e1b4d9c3271c44753b712a373432c69b016b65b1ca8",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/preflight-console.log": "f3a2d521711cc635a93685384f05f0a94edf5adc87fb243635f4783f18338444",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/preflight.json": "5729d959c785209bf8dab7fe599a673f084479decbf9058e01f8f4e2f27b6889",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/sanitizer.log": "91dbb142f8feb8786cd6fde6ac035e816b67db14e4b7b400a01386ec106b75c4",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/racecheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/run-native.py": "c49aef73197cd582e58d40b31953b7152ff89bd5ab9eaf2742f6b1461df128c3",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/cache-preparation.json": "7e6df4d2280119bc89f779006cc8716ab5288ef8a2b7a226db1b075d3e2ddd2f",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/identity.json": "dfee954e2db025da17046ed10440c76ac703bcc165c143466678ae72731a9d6d",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/preflight-console.log": "2fbb7e44d12d376e5c1621d2ac8bffd64e25d07092ae488a79c8390dff682c5e",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/preflight.json": "4ce9456fd253fe4e3041e548944a4a0d917a9cab8f25f94cb5efb333babc151b",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/run.log": "94444c945dfa1af899c12277cf58ddcb5878b4b017e27c7c89fb5a8ce125ca79",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/sanitizer.log": "a9d061cee538182f762e132abeea7bac7bddb844338f25751bbbb043f242c425",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compensated-mlp-20261020/synccheck-driver.log": "eef73020499a3d7e347998d01246cb8eb1f78f683d9ae8c15eecbe42a65bd425",
+    ".q3x-work/mtp-compensated-mlp-20261020/test-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/runtime/mtp_compensated_mlp_internal.cu": "f68c0ccc38524e0d0132d940e6e418915d9646d056c0c62e3e5adb7e52c7f233",
+    "src/runtime/mtp_compensated_mlp_internal.h": "02f7b858018163be6dd90624f4cfc1f9d8ab850ae9bd18168b28921e95d69375",
+    "tests/mtp_compensated_mlp_cuda_test.cu": "a5368298e1ccb5018fc1f8cc7ca3e32117e44ae33f84596e7b47a3d85f7f0e46",
+    ".q3x-work/mtp-compensated-mlp-20261020/docs-check.log": "2e2ab627e2454bd6ba17f77e2c395e099523b7c7a32eda208bf9d4d29050a46f",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/cache-preparation.json": "ea72601f1663f3124c476951096035ddbd39b935d803f7732d44dc49a27c1e4e",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/preflight-console.log": "c535c981ff2866a9daabfd3538e5571852c84406e5d71195d63a78d0bce12593",
+    ".q3x-work/mtp-compensated-mlp-20261020/final-preflight/preflight.json": "8cc7158f05c5e28256988e1795c74c32e730613f8d46f17c41cbb5407525d6d5",
+    ".q3x-work/mtp-compensated-mlp-20261020/hygiene.json": "940d32736116ea52823ff280c540076a51a379d905c9d5ac63b8a39dcbf79bd2"
+  }
+}

@@ -25,6 +25,33 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 compensated private MLP — executor prerequisite complete
+
+`WP-MTP-COMPENSATED-MLP-20261020` selects the
+[two-component integer composition](metadata/qwen36-27b-mtp-compensated-mlp-design-2026-10-20.json).
+Preserve group128 weight payloads, but represent each private activation by
+primary and residual INT8 components in two MMA columns. This is a new
+representation/dataflow; the rejected single-component W8A8 and its group scan
+remain closed. Original-weight FP64 hidden/K/V error must stay within 2%.
+Target arithmetic and committed state/output remain exact. One fixed native
+composition follows a passing host gate, then current numerical/transaction
+admission and immediate d2 API return; d3 follows useful full direction.
+The next two implementation milestones bound composition and API return.
+No new request allocation, numerical waiver, production switch or performance
+claim follows from the representation check. Current v113 and its remaining
+17.903 ms short-Decode gap stay the comparator.
+
+The [completed prerequisite](metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json)
+passes the authenticated 64-row host representation check: maximum original-weight
+FP64 hidden error is 1.1214%; K/V are unchanged. The standalone native executor
+passes two-column integer MMA, residual quantization, zero/nonfinite, guards,
+five changing-input quantizer Graph replays and bounded root sanitizer checks.
+It uses 64 projection registers, 18,432 shared bytes and no spills. This is
+`dependency_only`: it is not yet linked into the model path. Complete real-weight
+GPU/full-layer admission and target transactions, then return to d2 API within
+the next two implementation milestones; otherwise archive it. Existing v113
+performance remains the latest measured result. No local timing scan follows.
+
 ## 2026-10-20 private integer vocabulary — API direction complete
 
 `WP-MTP-INTEGER-HEAD-20261020` selects one

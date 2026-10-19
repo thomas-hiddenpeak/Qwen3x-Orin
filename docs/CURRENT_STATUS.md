@@ -86,6 +86,13 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [compensated private-MLP prerequisite](metadata/qwen36-27b-mtp-compensated-mlp-prerequisite-2026-10-20.json)
+is implemented separately: its two-component representation passes the independent
+host full-layer bound (maximum hidden error 1.1214%), and bounded native integer
+MMA/quantization/Graph/sanitizer checks pass. It is not connected to generation;
+real-weight native admission and API composition remain outstanding. The measured
+service and performance below remain v113.
+
 Current isolated source retains the complete verifier Graph and adds a private
 integer draft vocabulary projection. Profile is
 `q3x.sm87.admission.mtp-integer-head-api.v113`, measured ELF
