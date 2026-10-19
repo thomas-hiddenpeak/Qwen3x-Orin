@@ -1,0 +1,18 @@
+{
+  "work_package_id": "WP-MTP-SERVICE-BOUNDARY-20261020",
+  "architecture_candidate_id": "AC-MTP-SERVICE-BOUNDARY-v122",
+  "source_parent": "3488f69",
+  "product_constraint": "MTP delivery through real service with exact output and50%-200%Decode; remove dependency on engine test-only raw-state access without lowering cap2 performance goal.",
+  "finding": "HTTP gateway accesses EngineAccess::service, whose definition is nested under Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS. BUILD_TESTING=OFF cannot carry this service boundary unchanged.",
+  "contract": "Separate source-private ServiceAccess from test-only runner/state/model access. Only service object borrowing changes; ownership, lifetime,report reset/receipt,numerics,route and dispatch remain identical. No new public option or installed API.",
+  "composition": "One implementation, compile reference_engine without engine test-seam macro and link full MTP server, verify EngineAccess symbols absent; return frozen composition to one cap3 realAPI panel and lifecycle. No speed claim. This is a prerequisite for AC-MTP-SEALED-SERVICE-v1 and must compose in that next single sealed-build milestone or be archived; no indefinite kernel work selected.",
+  "scope_limits": "Not full production admission, not installation/default switch, no cap2 gap waiver. Existing numeric qualification retains scope.",
+  "validation": [
+    "Normal service build",
+    "Engine object and complete server link without engine test seams",
+    "Host symbol boundary checks and docs tests",
+    "Fresh real API cap3 output/route/resource/lifecycle plus joint metrics"
+  ],
+  "production_changed": false,
+  "compile_discovery": "Removing engine test seams exposed fused-admission prediction-injection code referencing test-only snapshot_state. Guard that injection with both admission and test-seam macros; ordinary numerical path unchanged, test injection remains available only when its test state exists."
+}

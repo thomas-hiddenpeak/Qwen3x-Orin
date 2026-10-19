@@ -86,6 +86,28 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [service-boundary regression](metadata/qwen36-27b-mtp-service-boundary-2026-10-20.json)
+now validates source-private service access without engine test seams. The new
+frozen server is `2232752bc32e2b49a92ce29edf6dec1b3c62d7e75c383a99e0534e7efc384266`;
+it retains the v119 profile and arithmetic. All eight API responses, token IDs
+and physical-work records match the preceding v119 artifact. Authentication,
+invalid requests, cancellation and recovery pass, with normal cleanup.
+
+One cap 3 regression process gives the following joint metrics. Prefill includes
+draft initialization; TTFT and total are external. This is a delivery-boundary
+check, not repeated performance selection or release qualification.
+
+| P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | 0.891 | 72.95 | 0.909 | 14.975 | 1.911 |
+| 8192 / 256 | 17.363 | 471.82 | 17.385 | 15.617 | 33.713 |
+| 40000 / 256 | 92.692 | 431.54 | 92.727 | 11.829 | 114.287 |
+
+Only the engine object is compiled without test seams; the complete sealed
+build remains pending. Production and the cap 2 short-performance gap are
+unchanged. Independent-process performance evidence below belongs to the
+preceding frozen artifact and is not transferred to this new binary.
+
 ### Cap 3 independent-process validation
 
 The prospective N-C3-C3-N [independent-process validation](metadata/qwen36-27b-mtp-output-tail-repeat-2026-10-20.json) is complete.
@@ -115,7 +137,7 @@ non-MTP 0.8.2. The tables below retain the preceding single-process direction
 and cap 2 regression, rather than replacing this repeated evidence.
 
 
-Current isolated source is v119, profile
+The preceding v119 performance artifact uses profile
 `q3x.sm87.admission.mtp-output-tail-api.v119`, frozen server
 `1dc8458a67231470344122c1f60a7aede6c199c7f50ce2b54b5cd37bc48e65dd`.
 The [output-tail composition](metadata/qwen36-27b-mtp-output-tail-direction-2026-10-20.json)

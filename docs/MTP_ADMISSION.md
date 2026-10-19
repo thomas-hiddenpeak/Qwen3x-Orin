@@ -25,6 +25,23 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 service ownership boundary — validated delivery prerequisite
+
+The [bounded design](metadata/qwen36-27b-mtp-service-boundary-design-2026-10-20.json)
+and [completed API regression](metadata/qwen36-27b-mtp-service-boundary-2026-10-20.json)
+separate source-private `ServiceAccess` from test-only runner/state/model access.
+The engine retains ownership; HTTP borrows its service under serialized request
+execution. The engine object compiles without test seams and the complete linked
+service contains no `EngineAccess` symbols. Eight successful API requests preserve
+exact responses, token IDs and physical work; authentication, invalid-request,
+cancellation and recovery checks pass. Arithmetic and output policy are unchanged.
+
+Only the engine object has test seams disabled; other admission flags remain.
+This is not a complete `BUILD_TESTING=OFF` or production artifact. Retain the
+boundary as a prerequisite for the next single `AC-MTP-SEALED-SERVICE-v1` build
+milestone, or archive it at that composition point. No extra performance scan
+is selected. Cap 2's short deficit remains open and production stays non-MTP.
+
 ## 2026-10-20 Gate/Up scale residency — closed negative API direction
 
 The [startup-owned scale design](metadata/qwen36-27b-mtp-gate-scale-residency-design-2026-10-20.json)

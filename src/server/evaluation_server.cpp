@@ -1,7 +1,7 @@
 #include "q3x/server/evaluation_server.h"
 #include "utf8_output.h"
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
-#include "../runtime/mtp_engine_internal.h"
+#include "../runtime/mtp_service_access_internal.h"
 #include "../runtime/mtp_service_internal.h"
 #endif
 
@@ -1516,7 +1516,7 @@ void execute_job(runtime::ReferenceEngine& engine,
 
   runtime::ReferenceGenerateResult generated;
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
-  runtime::mtp_detail::EngineAccess::service(engine)->reset_report(nullptr, nullptr);
+  runtime::mtp_detail::ServiceAccess::service(engine)->reset_report(nullptr, nullptr);
 #endif
   const Clock::time_point generation_started_at = Clock::now();
   switch (job->request.prompt_kind) {
@@ -1536,7 +1536,7 @@ void execute_job(runtime::ReferenceEngine& engine,
   const Clock::time_point generation_finished_at = Clock::now();
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
   // Separate receipt: never emit the non-MTP witness's disabled-MTP claim.
-  const auto* mtp = runtime::mtp_detail::EngineAccess::service(engine);
+  const auto* mtp = runtime::mtp_detail::ServiceAccess::service(engine);
   if (mtp) {
     std::ostringstream receipt;
     receipt << std::setprecision(17) << std::boolalpha

@@ -4,6 +4,7 @@
 #include "q3x/runtime/reference_engine.h"
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
 #include "mtp_service_internal.h"
+#include "mtp_service_access_internal.h"
 #endif
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 #include "mtp_engine_internal.h"
@@ -2172,7 +2173,8 @@ class EngineWholeRequestTransactionGuard final {
         *context.snapshot_state, g_reference_engine_step_snapshot_hook.context);
   }
 #endif
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION) && \
+    defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
   if (outcome && outcome.value->prediction && context.snapshot_state != nullptr)
     outcome.value->prediction->predicted_token_id = fused_decode::prediction_token(
         outcome.value->prediction->predicted_token_id,
@@ -6296,12 +6298,12 @@ bool ReferenceEngine::attach_target_aot_projection_device_assets(
   return model_weights.attach_sm87_target_aot_projection_assets(owner);
 }
 
-#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
-mtp_detail::Service* mtp_detail::EngineAccess::service(ReferenceEngine& engine) noexcept {
+mtp_detail::Service* mtp_detail::ServiceAccess::service(ReferenceEngine& engine) noexcept {
   return engine.impl_ ? engine.impl_->mtp.get() : nullptr;
 }
 #endif
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 ReferenceRunner* mtp_detail::EngineAccess::runner(ReferenceEngine& engine) noexcept {
   return engine.impl_ && engine.impl_->runner ? &*engine.impl_->runner : nullptr;
 }

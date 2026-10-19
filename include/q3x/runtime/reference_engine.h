@@ -17,7 +17,7 @@
 #include <vector>
 
 namespace q3x::runtime {
-namespace mtp_detail { class EngineAccess; }
+namespace mtp_detail { class EngineAccess; class ServiceAccess; }
 
 struct Sm87TargetAotProjectionDevicePreparationStats;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
@@ -853,6 +853,7 @@ class ReferenceEngine {
       Sm87TargetAotLayer0M192OracleAccess;
 #endif
   friend class mtp_detail::EngineAccess;
+  friend class mtp_detail::ServiceAccess;
   friend struct ReferenceEngineCreateResult;
   friend ReferenceEngineCreateResult create_reference_engine(
       const std::filesystem::path&, const ReferenceEngineOptions&);
