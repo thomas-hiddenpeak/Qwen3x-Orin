@@ -1,0 +1,42 @@
+{
+  "work_package_id": "WP-MTP-BUDGETED-BRANCH-20261020",
+  "architecture_candidate_id": "AC-MTP-BUDGETED-BRANCH-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-budgeted-branch-design-2026-10-20.json",
+  "source_parent": "ca2abcb1b4b48356f1dd1a20e32c3bced22d2194",
+  "decision_unit": "local_mutation",
+  "status": "dependency_only; host controller complete; native milestone 1 remains open",
+  "product_constraint": "50%-200% same-workload real-API Decode improvement with exact committed output and joint Prefill/TTFT/Decode/total reporting.",
+  "downward_contract": "At most four physical target nodes, original draft maximum 2/3, fixed probability rule, no extra target verification row; publish full selected path state before every observer.",
+  "implementation": [
+    "Allocation-free fixed-budget proposal planner with finite log-probability validation and strict alternate-vs-joint comparison.",
+    "Frozen parent-map controller selects matching child and commits physical node plus logical consumed depth before observer. Unsupported topology and invalid predictions abort.",
+    "Existing linear controller, native runtime and service remain unchanged. New code is linked only into host test."
+  ],
+  "validation": {
+    "ctest": "mtp_control and mtp_tree_control: 2/2 pass",
+    "tree_assertions": 51369,
+    "sanitizers": "AddressSanitizer and UndefinedBehaviorSanitizer pass",
+    "oracle": "Independent scalar host recurrence, convolution history and KV history checked before every callback and through subsequent rounds. Not a GPU/numerical oracle.",
+    "coverage": "Linear/alternate/mismatch; lengths 2/3; bounded proposals; output limits; EOS/cancel precedence; invalid options/maps/IDs; begin/propose/verify/commit/finish/abort faults.",
+    "initial_failure": "Host test fixture incorrectly treated alternate log probability above top1 as valid for count1. Fixture corrected; implementation unchanged; original failure log retained."
+  },
+  "source_sha256": {
+    "src/runtime/mtp_tree_control.h": "e1a668d722dd6e7ab95b2d4bf8909231609ebda99f014114ad0b47b539406b38",
+    "src/runtime/mtp_tree_control.cpp": "7edf18f302312714b5c989a0bd4c715cd3d0671f25485fda0066670ba0b71b0a",
+    "tests/mtp_tree_control_test.cpp": "6063516e2d4506b9929f7f2b4dcfdbf4717c93951934dd2658a86312bdb1a196"
+  },
+  "artifacts": {
+    ".q3x-work/mtp-budgeted-branch-20261020/host-build-final.log": "6ae998e6a6139dc8cbf4c0b7821a57b8380f424e271c788f2a0c16253358029a",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-build-r1.log": "6ae998e6a6139dc8cbf4c0b7821a57b8380f424e271c788f2a0c16253358029a",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-build.log": "1c7469ff340cc51434170a78a7c65c5bc49ab93ee44bc49d08ad096182c0b5d7",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-sanitized.log": "3193d0b6c9ee807a6361ba6012966e9238f938a5be27439498156b2cf153f9bb",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-tests-final.log": "2e6f79b0909878e19c49740a6f0fbcb6e271f3fe4c4932d41d8a2953d33fb6f4",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-tests-r1.log": "2e6f79b0909878e19c49740a6f0fbcb6e271f3fe4c4932d41d8a2953d33fb6f4",
+    ".q3x-work/mtp-budgeted-branch-20261020/host-tests.log": "fa292c23d299b82d2601c733a38d2810d33e13ef1d02a098adefe6c524c1ec94"
+  },
+  "remaining": "Complete exact parent-state native Conv/GDN and ancestor-only Attention/KV commit oracles, then Graph/lifetime/resource/route composition and immediate d2 short/8K/40K API return; useful direction unlocks d3.",
+  "budget": "Original two native milestones plus one correctness repair unchanged; this is only the host portion of milestone 1, not a new deadline.",
+  "gpu_runs": 0,
+  "new_performance_claim": false,
+  "production_changed": false
+}

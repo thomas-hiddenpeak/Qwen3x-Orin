@@ -46,6 +46,12 @@ EOS/cancel/reject and same-depth sibling isolation. Private numerical bounds,
 startup reserve, production boundary and full50%–200% goal remain intact.
 A negative whole runner or expired composition budget archives this version.
 
+The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) completes only the host portion of
+milestone 1. Fixed-budget planning and parent-index transaction selection pass
+stateful host oracles and sanitizer checks. The original two-milestone budget
+is unchanged: native parent-state verification is next, then complete Graph
+and API composition. Host results do not establish GPU state or performance.
+
 ## 2026-10-20 canonical singleton state — closed neutral
 
 `WP-MTP-SINGLETON-CANONICAL-20261020` implemented one

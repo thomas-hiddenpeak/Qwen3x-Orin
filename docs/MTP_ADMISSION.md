@@ -52,6 +52,16 @@ EOS/cancel/reject and same-depth sibling isolation. Private numerical bounds,
 startup reserve, production boundary and full50%–200% goal remain intact.
 A negative whole runner or expired composition budget archives this version.
 
+The isolated [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) introduces `TreeRoundBackend`
+and `run_tree_round`; the existing linear backend/controller remain unchanged.
+The backend freezes the parent map before verification. Physical node identity
+and consumed path depth are distinct: commit must publish the selected node
+and canonical selected-path KV plus reconciled draft state before each observer.
+Only the final proposal may be a sibling of the first proposal; duplicate sibling
+tokens, unsupported maps and invalid predictions fail closed. This host-only
+contract passes a stateful scalar oracle, but has no native GPU or API authority.
+The native verifier portion of milestone 1 remains open under the original budget.
+
 ## 2026-10-20 canonical singleton state — closed neutral
 
 `WP-MTP-SINGLETON-CANONICAL-20261020` implemented one

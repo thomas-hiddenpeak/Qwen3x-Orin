@@ -1144,6 +1144,12 @@ if(BUILD_TESTING)
   target_compile_features(q3x_mtp_control_test PRIVATE cxx_std_17)
   add_test(NAME mtp_control COMMAND q3x_mtp_control_test)
   set_tests_properties(mtp_control PROPERTIES LABELS "host;correctness;mtp")
+  add_executable(q3x_mtp_tree_control_test
+    tests/mtp_tree_control_test.cpp src/runtime/mtp_tree_control.cpp)
+  target_include_directories(q3x_mtp_tree_control_test PRIVATE src)
+  target_compile_features(q3x_mtp_tree_control_test PRIVATE cxx_std_17)
+  add_test(NAME mtp_tree_control COMMAND q3x_mtp_tree_control_test)
+  set_tests_properties(mtp_tree_control PROPERTIES LABELS "host;correctness;mtp")
   add_executable(q3x_mtp_weights_test
     tests/mtp_weights_test.cpp src/model/mtp_weights_internal.cpp)
   target_include_directories(q3x_mtp_weights_test PRIVATE src)

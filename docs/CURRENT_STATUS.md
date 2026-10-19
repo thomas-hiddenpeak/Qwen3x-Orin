@@ -90,8 +90,10 @@ The [alternate-branch coverage screen](metadata/qwen36-27b-mtp-branch-coverage-2
 completed eight unchanged d2 API/lifecycle outputs. Second-ranked first-step
 candidates cover 1/2, 1/12 and 12/19 first-token rejections at short/8K/40K on
 observed linear paths. Diagnostic source is removed; no speedup is inferred.
-The bounded fixed-node-budget tree composition selected in Roadmap is not yet
-implemented. Current generation and performance remain v113.
+The [host controller prerequisite](metadata/qwen36-27b-mtp-budgeted-branch-host-2026-10-20.json) is implemented and passes
+51,369 host assertions plus AddressSanitizer/UBSan. It is linked only into a
+host test; native tree verification and service integration remain unfinished.
+Current generation and performance remain v113; no new speedup is claimed.
 
 The [canonical singleton-state experiment](metadata/qwen36-27b-mtp-singleton-canonical-rejection-2026-10-20.json)
 is closed neutral: complete state/output checks pass and one short request
