@@ -86,6 +86,28 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The default-off [v127 complete GDN owner composition](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
+passes native complete state/logit/draft-KV admission and its first sealed cap 2
+API return. It combines startup FP8 input ownership with selected GDN prefix
+storage; every committed token receipts that ownership. All three requests
+preserve full output IDs, response semantics and physical verification work.
+Startup free memory is 12,186,071,040 bytes; normal exit and thermal checks pass.
+
+| Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 65 / 16 | 0.89337 | 72.76 | 0.91202 | 14.398 | 1.95380 |
+| 2 | 8192 / 256 | 17.37361 | 471.52 | 17.39530 | 15.936 | 33.39714 |
+| 2 | 40000 / 256 | 92.52087 | 432.33 | 92.55642 | 12.030 | 113.75438 |
+
+Prefill includes draft initialization; TTFT and total are external. These are
+single-process direction observations. Short Decode is 1.50092x the frozen
+same-request non-MTP comparator, only 0.00883 token/s above the gate; stable
+1.5x remains unproven. Cap 3, affected ownership lifecycle/resource checks and
+independent selection remain open. The retained default candidate is still
+v122; this opt-in composition changes neither ordinary non-MTP production nor
+installation, and does not complete the full goal.
+
+
 The [completed two-cap sustained and fresh-restart panel](metadata/qwen36-27b-mtp-sustained-complete-2026-10-20.json)
 passes two hours per frozen v122 cap, followed by independent fresh-process
 recovery. Cap 2 completes 1,907 measured requests in 7,201 seconds; cap 3

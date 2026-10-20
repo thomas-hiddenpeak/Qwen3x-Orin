@@ -636,3 +636,9 @@ The v127 integration updates existing SDD, MTP, Engine, Runner and Request State
 contracts for default-off selected GDN ownership and its coupled startup input
 owner. The [bounded native admission](metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json)
 passes; API admission remains pending. No Markdown paths or classifications change.
+
+
+The [v127 cap 2 API direction](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
+passes its immediate short and long-context gates. Existing Current Status,
+MTP and Roadmap record bounded opt-in retention with cap 3, ownership lifecycle
+and independent selection pending. No Markdown paths or classifications change.

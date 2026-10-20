@@ -42,7 +42,13 @@ retained candidate selection remains v122. The complete selected-storage
 exception is specified in [Request State](REQUEST_STATE.md#isolated-v127-selected-gdn-ownership)
 and the runner/system contracts. The [native admission](metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json)
 now passes complete P65 state/logit/draft-KV and EOS/cancel/failure checks.
-Milestone 2 is complete; the immediate sealed cap 2 API gate remains pending. The complete
+Milestones 2 and 3 are complete: the
+[cap 2 API return](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
+passes P65/O16 at 14.398 Decode token/s and both 8K/40K regression gates with
+exact output/work. Retain the default-off composition for cap 3, affected
+ownership lifecycle/resource checks and independent performance selection.
+The short margin is only 0.00883 token/s; this single process does not establish
+stable >=1.5x. No further isolated measurement or parameter scan is selected. The complete
 API gate remains 14.389333336846462 Decode token/s with exact state/output and
 paired Prefill, TTFT and total; no additive gain is inferred from old timings.
 
