@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-STARTUP-INPUT-20261020",
+  "architecture_candidate_id": "AC-MTP-STARTUP-INPUT-v126",
+  "source_parent": "aff76d7d9045bcc5f4a174c78ecce77ef41a3591",
+  "product_constraint": "Both caps2/3,50%-200% same-workload Decode gain, exact target state/output; joint Prefill,TTFT,Decode,total",
+  "downward_budget": {
+    "v122_cap2_p65_gap_ms": 18.401223666666738,
+    "historical_v113_canonical_fp8_ms": 227.362816,
+    "required_fraction_of_historical_family": 0.08093330294900436,
+    "qualification": "Historical profile only, not a current latency or expected saving"
+  },
+  "source_assessment": "qwen36-27b-mtp-prefill-owner-audit-2026-10-20.json",
+  "mechanism": "One coupled build-isolated composition: whole-core canonical-only FP8 Prefill inventory/receipts plus startup-owned144 K5120 AoSoA4-preswizzled input layouts consumed by existing M2..4 native-prefetch verifier. All original Decode output/Gate/Down assets retained. No request packing or borrowed family buffer.",
+  "ownership": "TargetTransaction owns5,200,936,960bytes, constructs and byte-validates before graph capture, drains/releases graphs before freeing. Scalar oracle keeps canonical operands. Engine skips208 unused FP8 Marlin allocations only for candidate whole-core tactic. Canonical inputs and tensor scales remain authenticated and immutable.",
+  "equivalence": "Byte permutation and per-byte x XOR ((x>>5)&7) exactly match existing shared codebook index; preserve all FP32 FMA chains, reduction parents, tensor scales,BF16 publication and target transactions. Prefill computation unchanged; receipts bind actual canonical operands and scratch.",
+  "lineage": "v19 traded away useful Decode inventory;v24 packed per request and used earlier consumer. Both remain closed. This one startup owner and current native-prefetch consumer are assessed together; no layout/geometry scan.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "T0 build/isolation,full pack/check and complete M2..4 projection/Graph guards for4input shapes",
+    "Native P65 complete target prefixes,state/logits,draftKV and failure recovery;startup reserve8GiB",
+    "Immediate sealed cap2 P65/O16 API must reach14.389333336846462tps with exact output/work;otherwise close before long qualification",
+    "Passing short unlocks8K/40K bothcaps,Prefill no>3% regression,affected ownership/reset/cancellation/capacity qualification and independent selection"
+  ],
+  "expiry": "One coupled implementation through native and immediate short API, or remove; no uncomposed retention",
+  "artifact_root": ".q3x-work/mtp-startup-input-20261020",
+  "production_changed": false
+}

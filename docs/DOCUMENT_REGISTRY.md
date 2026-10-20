@@ -620,3 +620,5 @@ closes after exact native admission and negative short API direction, with
 v122 source restored. Existing MTP SDD and Roadmap record the actual-resource
 reconciliation and API rejection. Prior static-stop evidence remains frozen;
 no Markdown paths or classifications change.
+
+The [startup FP8 input closure](metadata/qwen36-27b-mtp-startup-input-rejection-2026-10-20.json) records exact native admission and insufficient short API direction; runtime and temporary Engine contract are removed. Existing MTP/Roadmap documents preserve the decision; no Markdown paths or classes change.

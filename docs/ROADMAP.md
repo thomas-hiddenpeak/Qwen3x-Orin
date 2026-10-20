@@ -19,6 +19,20 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 startup FP8 input composition — closed below API floor
+
+The [startup ownership composition](metadata/qwen36-27b-mtp-startup-input-design-2026-10-20.json)
+passes bounded complete numerical/state checks but closes at its
+[short API gate](metadata/qwen36-27b-mtp-startup-input-rejection-2026-10-20.json).
+Cap 2 P65/O16 observes 14.238 Decode token/s, below the declared 14.389 floor;
+Prefill is 0.89223s / 72.85 token/s, TTFT 0.91098s and total 1.96430s.
+Exact output and work match v122. The +0.70% single-process direction versus
+v122 is insufficient for this composition's gate and is not independent
+performance selection. The ownership repair is feasible, but no runtime
+prerequisite is retained without a new bounded composition. All candidate
+integration is removed and v122 source/binaries restored. Stop before long
+contexts/cap 3 and do not scan layouts. Full goal remains open.
+
 ## 2026-10-20 same-thread Gate/Up composition — closed at short API floor
 
 The [bounded API successor](metadata/qwen36-27b-mtp-gate-register-pair-api-design-2026-10-20.json)

@@ -1,0 +1,186 @@
+{
+  "work_package_id": "WP-MTP-STARTUP-INPUT-20261020",
+  "architecture_candidate_id": "AC-MTP-STARTUP-INPUT-v126",
+  "disposition": "Closed below predeclared short API floor; full integration removed",
+  "authority": "One-process engineering direction; no statistical regression, independent selection or production qualification",
+  "design": "qwen36-27b-mtp-startup-input-design-2026-10-20.json",
+  "source_parent": "aff76d7d9045bcc5f4a174c78ecce77ef41a3591",
+  "numerical": {
+    "authority": "Completed bounded numerical and startup ownership admission; not API speed or production qualification",
+    "design": "qwen36-27b-mtp-startup-input-design-2026-10-20.json",
+    "synthetic": {
+      "full_projection_cases": 12,
+      "changing_input_graph_replays": 48,
+      "pack_all_codes_inverse_and_corruption": "pass",
+      "guard_checks": "pass",
+      "sanitizer": "not run"
+    },
+    "native": {
+      "complete_prefixes": 10,
+      "transactions": 17,
+      "eos_state_checks": 26,
+      "verify_eos_failure_recoveries": 18,
+      "initialization_cancel_recoveries": 8,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.156
+      },
+      "scope": "P65, complete Conv/GDN/live targetKV/hidden/full logits/draftKV. CPU server compilation overlapped correctness; no native timing claim."
+    },
+    "known_failed_attempts": [
+      "Initial CMake configure rejected the new option until the explicit whole-core composition allowlist was updated. No model ran on that configuration.",
+      "Initial native compile rejected redeclared if-init variable; corrected before device execution.",
+      "Initial consumer run returned invalid argument because the old entry guard excluded input sidecars; candidate-only input shape admission was added, rebuilt and retested. Failed attempt retained."
+    ],
+    "source_manifest_sha256": "16e2f452cb681713164a21303e43d77d0f68aaeeeea4ec817bd20beda116dc6d",
+    "artifact_sha256": {
+      ".q3x-work/mtp-startup-input-20261020/source/oracle": "7f73dae077c66b14f4a93e31929c3eb6619536ccffc9ff52eafc9cdd7891052f",
+      ".q3x-work/mtp-startup-input-20261020/server-cap2": "ffc09f0cae0cccba2f49ffad33568c64aca2f83cf8ccde4498598f38f2811614",
+      ".q3x-work/mtp-startup-input-20261020/consumer-test": "7f9b7b7a22b811197e140121bfe13bfd7cc04205d9838de621cfea5e5d78f696",
+      ".q3x-work/mtp-startup-input-20261020/native/run.log": "b30ea498c1333f543ae5e9b70bc7ebf26fbc749de152851926a76bfbe8a5cf6e",
+      ".q3x-work/mtp-startup-input-20261020/synthetic-r1/run.log": "fedd94cdb1d02ddc10b189e604ca82a750de7bbc84a6f7155b5157c55e182b5d"
+    },
+    "production_changed": false,
+    "goal_achieved": false
+  },
+  "api": {
+    "label": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.892233558,
+    "prefill_tps": 72.85088015037425,
+    "ttft_s": 0.9109769110800698,
+    "elapsed_s": 1.9643044050317258,
+    "decode_tps": 14.238460064145668,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-full-graph-v112",
+      "draft_length": 2,
+      "startup_fp8_input_bytes": 5200936960,
+      "startup_free_bytes": 12095582208,
+      "prompt_rows": 65,
+      "draft_prefill_rows": 64,
+      "initialized": true,
+      "rounds": 7,
+      "proposal_policy": "eos-frontier-v122",
+      "eos_frontier_stops": 0,
+      "proposed": 12,
+      "accepted": 8,
+      "verified_rows": 19,
+      "committed_decode_tokens": 15,
+      "accepted_by_position": [
+        4,
+        4,
+        0
+      ],
+      "budget_policy": "output-tail-v119",
+      "requested_budget_histogram": [
+        0,
+        0,
+        7,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        1,
+        0,
+        6,
+        0
+      ],
+      "draft_head": "nvfp4-block16-dp4a-v1",
+      "draft_integer_head_steps": 12,
+      "draft_ordered_attention_steps": 0,
+      "entry_hidden_snapshots": 7,
+      "scalar_verify_rows": 1,
+      "direct_gdn_state_rows": 864,
+      "full_graph_rounds": 6,
+      "full_graph_rows": 18,
+      "graph_qk_updates": 0,
+      "seed_kv_reuses": 6,
+      "tail_kv_batches": 4,
+      "tail_kv_rows": 8,
+      "state_copy_bytes_elided": 1911557120,
+      "draft_initialization_ms": 5.441443,
+      "draft_ms": 87.51762,
+      "verify_ms": 948.3086099999999,
+      "reconcile_ms": 17.323501999999998,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "api_cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 65.687
+  },
+  "comparison": {
+    "v122_decode_tps": 14.13973742754571,
+    "percent_change": 0.6981928561674566,
+    "nonmtp_faster_decode_tps": 9.592888891230976,
+    "ratio_to_nonmtp": 1.4842723840115868,
+    "short_floor_tps": 14.389333336846462,
+    "verify_ms_delta": -8.514339000000064,
+    "remaining_decode_gap_ms": 11.045868666666593
+  },
+  "ownership_result": {
+    "startup_input_bytes": 5200936960,
+    "startup_free_bytes": 12095582208,
+    "old_fp8_marlin_payload_removed_bytes": 7216889856,
+    "planned_net_payload_reduction_bytes": 2015952896,
+    "interpretation": "Native/API startup succeeds with canonical-only FP8 Prefill binding, full existing Decode inventory and8GiB reserve. Actual free-memory delta is not a direct allocation measurement on shared-memory Jetson."
+  },
+  "stopped_before": [
+    "8K",
+    "40K",
+    "cap3 API",
+    "lifecycle/capacity/repetition",
+    "profiler"
+  ],
+  "correctness": "Complete response, output token IDs, usage and physical work match frozen v122. Native complete state/full-logit/draftKV oracle passes. No arithmetic change or new accuracy claim.",
+  "decision": "This composition does not close the full cap2 budget. Preserve the source ownership finding, but remove both ownership and input-layout integration; no unbounded prerequisite, layout/geometry scan or further measurement selected.",
+  "artifacts": ".q3x-work/mtp-startup-input-20261020",
+  "artifact_sha256": {
+    ".q3x-work/mtp-startup-input-20261020/source/final-candidate.patch": "d11e8fdf6d6463c3eac295b91ecf2dbb812cb588e8f2bb97273ce9e7b612c008",
+    ".q3x-work/mtp-startup-input-20261020/source/identity.json": "16e2f452cb681713164a21303e43d77d0f68aaeeeea4ec817bd20beda116dc6d",
+    ".q3x-work/mtp-startup-input-20261020/source/oracle": "7f73dae077c66b14f4a93e31929c3eb6619536ccffc9ff52eafc9cdd7891052f",
+    ".q3x-work/mtp-startup-input-20261020/server-cap2": "ffc09f0cae0cccba2f49ffad33568c64aca2f83cf8ccde4498598f38f2811614",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/audited-metrics.json": "553cb5795b19bab7ef4f0926c9143c55c8932516faad48456a61d05963420927",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/results.json": "522bf9657d6aa1f30884acfcb22f76a370aed3b62dae3eab0e1a873f2764e40f",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/server.log": "f43e3a658f01d173652e95f27bcb90f6ee507c15bc9e756d95cf2131c668739b",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/cleanup.json": "b117ccb5ee1f7097473b76f8b4343fa871ff5640cd58e008000105e54b513bee",
+    ".q3x-work/mtp-startup-input-20261020/native-admission.json": "8ebeb0cc16bed8bfac3ef601a4cf20231a34d1ba12c169ea401712bee5a35d2d",
+    ".q3x-work/mtp-startup-input-20261020/close.py": "9ddc4ae254feb31127d92ad3650d58c1c1594ea1311d74bf5ac998006ecdaf53",
+    ".q3x-work/mtp-startup-input-20261020/native/identity.json": "7bfe048a8828b2ce8fbb2f3d5380d5408ab7afb2d7d74d664694e33426aa7c66",
+    ".q3x-work/mtp-startup-input-20261020/native/cleanup.json": "09e34f6aaeaf43113b97291f89ee47c84efd585aa7ae3f43a700abc6301c2c2c",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/identity.json": "906e5b1d2a42e1a2b369ef9261acd38d9886f444609bc30162154b99f5adc711",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/cache-preparation.json": "d7baccc7a1c0bd19075d20d535a4ff26b5b2f4763edcb613b3b7a6210b70282c",
+    ".q3x-work/mtp-startup-input-20261020/api-cap2/direction.json": "d3dbbdb518f2bbc5632ed2c037c5d6bb7f774e14551cade2cd9788d277583805",
+    ".q3x-work/mtp-startup-input-20261020/restoration.json": "03a80f01e4dd2d7ed48501b4fe74c6a80b37694bc33940258958de08a11d809a"
+  },
+  "production_changed": false,
+  "goal_achieved": false,
+  "restoration": [
+    {
+      "build": "orin-whole-core-exact-decode-admission",
+      "restored_sha256": "d7b55fef69a05cc40326b70268874f7f311af7f55df2a5f9f94c10cc690e3e6a",
+      "source": ".q3x-work/mtp-eos-frontier-20261020/source/oracle"
+    },
+    {
+      "build": "orin-mtp-sealed-cap2",
+      "restored_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+      "source": ".q3x-work/mtp-eos-frontier-20261020/server-cap2"
+    }
+  ],
+  "closeout": {
+    "runtime_byte_identical_to_parent": true,
+    "document_control": "86 tracked/registered;1691 links;0 errors",
+    "document_unit_tests": 7,
+    "diff_check": "pass",
+    "remaining_api_keys": [],
+    "active_workloads": "Native and API driver handles terminal rc0; process inspection shows no candidate workload",
+    "temporary_scope": "All artifacts remain under repository .q3x-work; no external model/venv mutation",
+    "retained_state": "v122 runtime and frozen oracle/cap2 ELF; ordinary installed0.8.2 unchanged"
+  }
+}
