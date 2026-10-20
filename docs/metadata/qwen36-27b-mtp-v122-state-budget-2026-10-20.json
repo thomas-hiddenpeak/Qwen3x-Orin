@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-20",
+  "source_commit": "85229dadf21dfc03965efa772c6c5c1874677ebf",
+  "work_package_id": "WP-MTP-V122-STATE-BUDGET-20261020",
+  "authority": "Offline current-source and authenticated retained API receipt assessment; no new GPU timing or implementation qualification",
+  "product_constraint": "Both configured caps 2/3 must reach the full matched 50%-200% Decode objective with exact target semantics and paired Prefill/TTFT/Decode/total reporting.",
+  "question": "Can entry/commit state movement and unclassified controller overhead alone close the current cap2 short gap?",
+  "same_request_metrics": {
+    "label": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.887871368,
+    "prefill_tps": 73.20880292200165,
+    "ttft_s": 0.9062576320720837,
+    "elapsed_s": 1.9670174421044067,
+    "decode_tps": 14.13973742754571
+  },
+  "same_request_work": {
+    "enabled": true,
+    "verifier": "multirow-full-graph-v112",
+    "draft_length": 2,
+    "startup_free_bytes": 10297180160,
+    "prompt_rows": 65,
+    "draft_prefill_rows": 64,
+    "initialized": true,
+    "rounds": 7,
+    "proposal_policy": "eos-frontier-v122",
+    "eos_frontier_stops": 0,
+    "proposed": 12,
+    "accepted": 8,
+    "verified_rows": 19,
+    "committed_decode_tokens": 15,
+    "accepted_by_position": [
+      4,
+      4,
+      0
+    ],
+    "budget_policy": "output-tail-v119",
+    "requested_budget_histogram": [
+      0,
+      0,
+      7,
+      0
+    ],
+    "confidence_threshold": 0.4,
+    "proposal_histogram": [
+      1,
+      0,
+      6,
+      0
+    ],
+    "draft_head": "nvfp4-block16-dp4a-v1",
+    "draft_integer_head_steps": 12,
+    "draft_ordered_attention_steps": 0,
+    "entry_hidden_snapshots": 7,
+    "scalar_verify_rows": 1,
+    "direct_gdn_state_rows": 864,
+    "full_graph_rounds": 6,
+    "full_graph_rows": 18,
+    "graph_qk_updates": 0,
+    "seed_kv_reuses": 6,
+    "tail_kv_batches": 4,
+    "tail_kv_rows": 8,
+    "state_copy_bytes_elided": 1911557120,
+    "draft_initialization_ms": 5.584236,
+    "draft_ms": 86.282445,
+    "verify_ms": 956.822949,
+    "reconcile_ms": 17.377066,
+    "cancelled": false,
+    "failed": false
+  },
+  "budget": {
+    "native_faster_p65_tps": 9.592888891230976,
+    "required_decode_tps": 14.389333336846462,
+    "decode_ms": 1060.840067,
+    "required_decode_ms": 1042.4388433333334,
+    "gap_ms": 18.401223666666738,
+    "unclassified_ms": 0.35760700000014367,
+    "reconcile_plus_unclassified_ms": 17.734673000000143,
+    "gap_even_if_both_intervals_zero_ms": 0.6665506666665806
+  },
+  "source_findings": [
+    "snapshot(0) copies only 2*5120 bytes of immutable entry hidden and synchronizes. Entry recurrent state/logits copying is already absent; abort poisons rather than rolling back.",
+    "Multirow GDN consumes canonical state for row0 and previous immutable prefix thereafter, writing directly to the next prefix. It does not first copy a complete canonical GDN state into each prefix.",
+    "commit_prefix restores canonical recurrent/hidden/full logits and reconciles private KV before observer; observer may cancel. Removing publication needs an explicit state contract, not merely omitting memcpy.",
+    "TimedBackend times propose, verify and commit_prefix separately. begin/finish/controller/observer work falls in the nonnegative residual of the full Decode interval.",
+    "Native singleton snapshot/restore resides partly inside verify and is not included in the commit-only exclusion. Its separately rejected implementation remains closed; no new singleton timing is inferred."
+  ],
+  "decision": "Do not implement entry/commit-only relocation or synchronization removal as the complete cap2 short solution. Even an unrealistic zero-cost reconcile and residual leaves positive deficit in this retained observation. Next executable candidate must reduce verify/draft computation or work topology; no change to numerical contract or current route.",
+  "limits": [
+    "Arithmetic counterfactual uses one v122 observation and frozen same-request native comparator, not a hardware lower bound or statistically qualified new baseline.",
+    "The old 21.2568ms assessment used v119; retain it unchanged. Current v122 gap is recalculated rather than mixing its phase intervals with v119.",
+    "This does not reject a coupled future architecture that also reduces verification/drafting. No kernel or threshold scan is activated."
+  ],
+  "source_sha256": {
+    "docs/metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json": "7d467faf3373a8644711f0080cdd9e5964548759b1f5ef05ee57ca885f86823b",
+    ".q3x-work/mtp-eos-frontier-20261020/regression-cap2/audited-metrics.json": "394ce00e1fb4818ca4465ada6a9b3cf7b96583b15edd8296c2f4dcc89342aa93",
+    "docs/metadata/qwen36-27b-mtp-output-tail-repeat-2026-10-20.json": "7d758c9dc1681e2601152d998caaed9079613f31492317ac8243662c16cc5ae2",
+    "src/runtime/mtp_device_internal.cpp": "ec05f2690f716da9dc0e22042f812107d18879e3d032db5a9528932c0efacfaa",
+    "src/runtime/mtp_verify_internal.cpp": "69af74862d7ec602f73088499dc37bd275503f59a81d3200ce5b0173c01d6659",
+    "src/runtime/mtp_service_internal.cpp": "d2828cd77defd6f734c3ff6c8368e8935c5fff9ac6adeabcd72fba21cac0c8e1",
+    "src/runtime/mtp_control.cpp": "2c92c7bf5f1b3880a3267d5e0e44a05753cea140b19d39b362787151642170a1",
+    ".q3x-work/mtp-v122-state-budget-20261020/assess.py": "7663a859e43737ae062c56f26d0909d8067ce7b30b5dc3b51920bd5b35429283"
+  },
+  "production_changed": false,
+  "goal_achieved": false
+}
