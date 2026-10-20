@@ -1,0 +1,120 @@
+{
+  "work_package_id": "WP-MTP-INSTALLED-QUALIFICATION-20261020",
+  "parent": "WP-MTP-PACKAGE-20261020",
+  "authority": "Bounded exact-installed-artifact functional, capacity, capability and sustained-resource qualification; no new performance selection.",
+  "prerequisites": [
+    "Both installed API/lifecycle processes pass.",
+    "Completed installed six-process performance audit has both_cap_floor_pass=true; no early rejection."
+  ],
+  "order": [
+    "capability-cap2",
+    "capability-cap3",
+    "capacity-cap2",
+    "capacity-cap3",
+    "sustained-cap2",
+    "restart-cap2",
+    "sustained-cap3",
+    "restart-cap3"
+  ],
+  "process_limit": 8,
+  "servers": {
+    "2": {
+      "path": ".q3x-work/install/mtp-package-20261020-cap2/bin/qwen3x-mtp-server-cap2",
+      "sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "manifest": {
+        "schema": "q3x-mtp-executable-package-v1",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "source_dirty": false,
+        "version": "0.8.2",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1",
+        "draft_cap": 2,
+        "executable": "bin/qwen3x-mtp-server-cap2",
+        "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+        "BUILD_TESTING": false,
+        "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+        "qualification": "requires exact installed-artifact evidence",
+        "exports_cpp_abi": false
+      }
+    },
+    "3": {
+      "path": ".q3x-work/install/mtp-package-20261020-cap3/bin/qwen3x-mtp-server-cap3",
+      "sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "manifest": {
+        "schema": "q3x-mtp-executable-package-v1",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "source_dirty": false,
+        "version": "0.8.2",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+        "draft_cap": 3,
+        "executable": "bin/qwen3x-mtp-server-cap3",
+        "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+        "BUILD_TESTING": false,
+        "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+        "qualification": "requires exact installed-artifact evidence",
+        "exports_cpp_abi": false
+      }
+    }
+  },
+  "reference_hashes": {
+    ".q3x-work/softmax-package-20261014/patch/results.json": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+    ".q3x-work/prefill-convergence-20260928/capability-direct-cases.json": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+    ".q3x-work/prefill-convergence-20260928/vllm-capability/capability-results.json": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+    ".q3x-work/mtp-sealed-capability-20261020/cap2/results.json": "a88d835d5eb137fbc9cf30d509b222498e7b664523fe1af6f79862086da6a901",
+    ".q3x-work/mtp-sealed-capability-20261020/cap2/server.log": "3108faae18fc2043202794fb1274330594455fe6e44202d7fa15a263964891a9",
+    ".q3x-work/mtp-capacity-20261020/cap2/results.json": "64ba76b6a8ec228bbbc97c7348b3a1a248d7607ef7eb753965d35a511f8342e9",
+    ".q3x-work/mtp-capacity-20261020/cap2/server.log": "f74f37229c66f1347b9409244bff557450fcd7955fcbfad5eb44a79e66e8974f",
+    ".q3x-work/mtp-sustained-20261020/cap2/soak-summary.json": "ef5c54c10165f9c3557d4a552961b8bd3f65694cd82b0e9983974972c4db56d0",
+    ".q3x-work/mtp-sealed-capability-20261020/cap3/results.json": "d06b18d6c108866c940d943f128bd1236a432fd5c2f20fdcd805a07d9dc4511d",
+    ".q3x-work/mtp-sealed-capability-20261020/cap3/server.log": "7fc6d69132458f73af497478b7caa5ae78172c1568d4e7130deb77acbc126a30",
+    ".q3x-work/mtp-capacity-20261020/cap3/results.json": "d6a1cea978bd798cff00adcc00e785ee05570c2ccae1af762dc5e0c8b51070b4",
+    ".q3x-work/mtp-capacity-20261020/cap3/server.log": "e8704fd2ac1d1b60929c69abc0681a4bdc0b73cf88464c1ce7acdd50231e71ed",
+    ".q3x-work/mtp-sustained-20261020/cap3/soak-summary.json": "1efc19b3b237b1168f4da8150f779b3111267cc4951b22a2cfbae808d4421a5b"
+  },
+  "capability": {
+    "cases": 98,
+    "baseline": "Corrected installed non-MTP0.8.2 full response/usage; pinned external answers; complete MTP IDs compared separately to historical sealed capability and between new caps.",
+    "scope": "Four frozen C-Eval subjects, not all 52 subjects or universal model accuracy."
+  },
+  "capacity": {
+    "cases": [
+      "P40000/O4096",
+      "60s idle",
+      "P44095/O1",
+      "P44095/O2 rejects400 before generation",
+      "60s idle",
+      "P65/O16 recovery"
+    ],
+    "oracle": "Complete native-reference response/usage/finish; full MTP IDs compared to frozen same-cap v122 capacity and directly between new caps. Native historical output IDs absent."
+  },
+  "sustained": {
+    "prompt": 513,
+    "output": 16,
+    "warmup_requests": 8,
+    "minimum_measured_seconds": 7200,
+    "minimum_measured_requests": 200,
+    "inter_request_idle_s": 1,
+    "resource_sample_every": 10,
+    "rss_growth_kib_max": 262144,
+    "fd_growth_max": 4,
+    "thread_growth_max": 1,
+    "restart": "One fresh process immediately after each successful same-artifact soak, exact output/token recovery."
+  },
+  "environment": "Existing per-process Jetson CPU/device-handle/tegrastats preflight, successful cache preparation, control PIDs2556/2982 preserved, sanitized telemetry, >90C operational stop. Soak GPU clocks recorded; reliability at declared request cadence does not claim continuous maximum-load saturation.",
+  "gates": [
+    "Exact frozen clean-source installed binary/profile/cap; no ABI exports, test seams or cuBLAS dependency/API.",
+    "Complete route/resource and selected GDN commit coverage for every successful request; >=8GiB startup reserve.",
+    "Full response/usage/finish/DONE and token checks; O1 has no Decode rate.",
+    "Normal exit, no telemetry/device error, key cleanup, bounded RSS/FD/thread reuse and fresh-process recovery.",
+    "Report every phase jointly: Prefill duration/rate includes draft initialization, external TTFT/total, committed Decode."
+  ],
+  "stop": "Any failure preserves partial evidence and stops the batch. No blind retries or new runtime optimization. Actual correctness defects require a separately recorded repair; no timing threshold is relaxed.",
+  "artifact_root": ".q3x-work/mtp-installed-qualification-20261020",
+  "goal_achieved": false,
+  "dependencies": {
+    "tools/evaluation/validate_mtp_service.py": "803fff7cb774f7d0c780861da5168c310e1c7fb6cc20a19f670a9bf3595dae2b",
+    "tools/evaluation/qualify_service.py": "87e0b50c459553a82b6003f1f11917cbe6a78c9182b71469b9031fb39973ef62",
+    "tools/evaluation/audit_mtp_install.py": "d350b989bcfcddce7b5a1c4d05207ff331fd2cd1af559aac723a8a4b6b5822e6",
+    ".q3x-work/mtp-installed-qualification-20261020/run-capacity.py": "9ab70d83fa7620508f3a2ce52f407241a2e20437a1f2870a17e144532d323003",
+    ".q3x-work/mtp-installed-qualification-20261020/run-all.py": "e4c178b47acbd632e93bea97d45afcc1848202d012f8c0e4be626ec3522015dc"
+  }
+}
