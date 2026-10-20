@@ -2162,8 +2162,15 @@ launch_prompt_wide_p40_fp8_projection(
   if (backend != ProjectionBackend::kSm87WeightOnly || fp8 == nullptr ||
       input == nullptr || output == nullptr ||
       (token_count == 0U || token_count > kPromptWideP40WholeCorePanelTokens) ||
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+      fp8->weight == nullptr || fp8->weight_scale_device == nullptr ||
+      fp8->prefill_marlin_weight != nullptr ||
+      fp8->prefill_marlin_scales != nullptr ||
+      (fp8->input_size != 5120U && fp8->input_size != 6144U) ||
+#else
       fp8->prefill_marlin_weight == nullptr ||
       fp8->prefill_marlin_scales == nullptr ||
+#endif
       !kernels::sm87_fp8_marlin_supports_shape(fp8->output_size,
                                                fp8->input_size) ||
 #if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
@@ -3215,6 +3222,17 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
                          "reset_synchronize", kReferenceNoLayer,
                          static_cast<int>(sync_status));
   }
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  for (unsigned layer = 0; layer < 64; ++layer) {
+    if (layer % 4 == 3) continue;
+    const auto view = state_->gdn_state(layer);
+    if (!view) {
+      poisoned_ = true;
+      return runner_status(ReferenceRunnerError::kInvalidRequestState, "reset_gdn_owner");
+    }
+    views_.gdn_state[layer] = static_cast<std::uint16_t*>(view.value->device_data);
+  }
+#endif
   poisoned_ = false;
   request_reuse_boundary_ = static_cast<std::uint8_t>(
       reference_runner_request_reset_detail::RequestReuseBoundary::
@@ -3298,6 +3316,17 @@ ReferenceRunnerStatus ReferenceRunner::begin_ordinary_request(
   receipt.milliseconds =
       std::chrono::duration<double, std::milli>(Clock::now() - started).count();
 
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  for (unsigned layer = 0; layer < 64; ++layer) {
+    if (layer % 4 == 3) continue;
+    const auto view = state_->gdn_state(layer);
+    if (!view) {
+      poisoned_ = true;
+      return runner_status(ReferenceRunnerError::kInvalidRequestState, "reset_gdn_owner");
+    }
+    views_.gdn_state[layer] = static_cast<std::uint16_t*>(view.value->device_data);
+  }
+#endif
   poisoned_ = false;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;

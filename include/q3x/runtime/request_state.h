@@ -10,6 +10,9 @@
 #include <string_view>
 
 namespace q3x::runtime {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+namespace mtp_detail { class TargetTransaction; }
+#endif
 
 inline constexpr std::uint64_t kRequestArenaAlignment = 256U;
 inline constexpr std::uint64_t kDefaultRequestMaxSequenceLength = 128U;
@@ -719,6 +722,12 @@ class RequestState {
     friend RequestStateResult create_layer_major_request_state(
         const LayerMajorRequestMemoryOptions&);
     friend class ReferenceRunner;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    friend class mtp_detail::TargetTransaction;
+    // Non-installable MTP only. Zero selects the physical plan; otherwise
+    // typed GDN views select a complete prefix in this arena's dead workspace.
+    std::uint64_t mtp_gdn_offset_ = 0;
+#endif
     // Narrow correctness-test peer for exercising the lifecycle-selected
     // reset primitive against real CUDA storage. It is not a production
     // selector and cannot be reached through the public engine API.

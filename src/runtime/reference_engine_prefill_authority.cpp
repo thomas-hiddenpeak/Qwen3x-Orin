@@ -816,6 +816,19 @@ thread_local bool
          source_count == kExpectedSources;
 }
 
+// Candidate-only typed absence: no derived Marlin operand is borrowed.
+[[maybe_unused]] bool valid_fp8_canonical_binding(const LinearWeight& weight,
+    std::size_t n, std::size_t k) noexcept {
+  const auto* f = std::get_if<Fp8LinearWeight>(&weight);
+  return f && f->weight && reinterpret_cast<std::uintptr_t>(f->weight)%16U==0 &&
+      f->weight_scale_device && f->input_scale_device &&
+      std::isfinite(f->weight_scale) && f->weight_scale >= 0 &&
+      std::isfinite(f->input_scale) && f->input_scale >= 0 &&
+      f->output_size==n && f->input_size==k &&
+      !f->prefill_marlin_weight && !f->prefill_marlin_scales &&
+      !f->prefill_supermatrix_sidecar;
+}
+
 [[nodiscard]] bool complete_installed_projection_inventory(
     const ModelWeights& weights,
     const NvFp4MarlinGateUpLayout expected_gate_up_layout,
@@ -836,11 +849,15 @@ thread_local bool
       !complete_p40_vllm_marlin_parity_inventory(weights)) {
     return false;
   }
-  const auto valid_fp8 = [use_projection_reset, use_packed_nvfp4](
+  const auto valid_fp8 = [use_projection_reset, use_packed_nvfp4, expected_gate_up_layout](
                              const LinearWeight& weight,
                              const std::size_t output_size,
                              const std::size_t input_size) noexcept {
     const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+    if (expected_gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly)
+      return valid_fp8_canonical_binding(weight, output_size, input_size);
+#endif
     return (use_projection_reset
                 ? valid_fp8_supermatrix_binding(weight, output_size,
                                                  input_size)
@@ -2845,7 +2862,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     const DeviceBufferView& fp8_locks =
         views.legacy_c512.projection_bf16[3U].storage;
     const auto fp8_receipt = [&receipt, &fp8_reduction, &fp8_locks,
-                              projection_reset, packed_projection](
+                              projection_reset, packed_projection, whole_core_projection, &views](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
       if (packed_projection) {
@@ -2864,6 +2881,17 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
             kLayerMajorPrefillPromptWideP40Tokens, nullptr, 0U,
             kLayerMajorPrefillPromptWideP40Tokens);
       }
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+      if (whole_core_projection) {
+        constexpr std::size_t prefix =
+            ((kLayerMajorP40WholeCorePromptTokens * sizeof(std::uint32_t) + 255U) / 256U) * 256U;
+        const auto& scratch = views.p40_whole_core.linear.prompt_wide_workspace;
+        return receipt(role, NativePrefillTactic::kFp8CanonicalOwnedFillDrain,
+            weight.weight, static_cast<const std::uint8_t*>(scratch.device_data) + prefix,
+            scratch.byte_size - prefix, 1U, kLayerMajorPrefillPromptWideP40PanelTokens,
+            weight.weight_scale_device, sizeof(float), kLayerMajorPrefillPromptWideP40PanelTokens);
+      }
+#endif
       return receipt(
           role, NativePrefillTactic::kFp8PromptWideP40FillDrain,
           weight.prefill_marlin_weight, fp8_reduction.device_data,
@@ -3918,7 +3946,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const DeviceBufferView& locks =
         views.legacy_c512.projection_bf16[3U].storage;
     const auto fp8_matches = [&matches, &reduction, &locks,
-                              projection_reset, packed_projection](
+                              projection_reset, packed_projection, whole_core_projection, &views](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
       if (packed_projection) {
@@ -3937,6 +3965,17 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
             kLayerMajorPrefillPromptWideP40Tokens, nullptr, 0U,
             kLayerMajorPrefillPromptWideP40Tokens);
       }
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+      if (whole_core_projection) {
+        constexpr std::size_t prefix =
+            ((kLayerMajorP40WholeCorePromptTokens * sizeof(std::uint32_t) + 255U) / 256U) * 256U;
+        const auto& scratch = views.p40_whole_core.linear.prompt_wide_workspace;
+        return matches(role, NativePrefillTactic::kFp8CanonicalOwnedFillDrain,
+            weight.weight, static_cast<const std::uint8_t*>(scratch.device_data) + prefix,
+            scratch.byte_size - prefix, 1U, kLayerMajorPrefillPromptWideP40PanelTokens,
+            weight.weight_scale_device, sizeof(float), kLayerMajorPrefillPromptWideP40PanelTokens);
+      }
+#endif
       return matches(
           role, NativePrefillTactic::kFp8PromptWideP40FillDrain,
           weight.prefill_marlin_weight, reduction.device_data,

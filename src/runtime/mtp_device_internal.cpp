@@ -511,6 +511,67 @@ bool Draft::poison() noexcept {
   return status == cudaSuccess;
 }
 
+int launch_mtp_startup_fp8_pack(const std::uint8_t*, std::uint8_t*, unsigned, unsigned, void*) noexcept;
+int launch_mtp_startup_fp8_check(const std::uint8_t*, const std::uint8_t*, unsigned, unsigned, unsigned*, void*) noexcept;
+
+const std::uint8_t* TargetTransaction::fp8_input_layout(const Fp8LinearWeight& f) const noexcept {
+  for (std::size_t i=0; i<fp8_input_sources_.size(); ++i)
+    if (fp8_input_sources_[i] == &f) return fp8_input_views_[i];
+  return f.m1_aosoa4_preswizzled_weight;
+}
+void TargetTransaction::prepare_startup_inputs() {
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+  constexpr std::size_t bytes = 5'200'936'960ULL;
+  std::size_t count=0, planned=0;
+  const auto append = [&](const LinearWeight& weight, std::size_t n) {
+    const auto* f=std::get_if<Fp8LinearWeight>(&weight);
+    check(f && f->weight && f->weight_scale_device && f->input_size==5120 &&
+        f->output_size==n && !f->prefill_marlin_weight && !f->prefill_marlin_scales &&
+        !f->m1_aosoa4_preswizzled_weight && count<144,
+        "MTP startup FP8 canonical inventory");
+    fp8_input_sources_[count++]=f;
+    planned += n*5120;
+  };
+  for (const auto& layer : target_.weights_->layers()) {
+    if (const auto* a=std::get_if<LinearAttentionWeights>(&layer.attention)) {
+      append(a->in_proj_qkv,10240); append(a->in_proj_z,6144);
+    } else {
+      const auto* full=std::get_if<FullAttentionWeights>(&layer.attention);
+      check(full!=nullptr,"MTP startup FP8 layer type");
+      append(full->q_proj,12288); append(full->k_proj,1024); append(full->v_proj,1024);
+    }
+  }
+  check(count==144 && planned==bytes,"MTP startup FP8 complete extent");
+  fp8_input_owner_=allocate(bytes);
+  unsigned* mismatch=nullptr;
+  auto stream=static_cast<cudaStream_t>(target_.stream_);
+  try {
+    mismatch=static_cast<unsigned*>(allocate(sizeof(unsigned)));
+    cuda_check(cudaMemsetAsync(mismatch,0,sizeof(unsigned),stream));
+    std::size_t offset=0;
+    for (std::size_t i=0;i<count;++i) {
+      const auto& f=*fp8_input_sources_[i];
+      auto* dst=static_cast<std::uint8_t*>(fp8_input_owner_)+offset;
+      cuda_check(static_cast<cudaError_t>(launch_mtp_startup_fp8_pack(
+          f.weight,dst,f.output_size,f.input_size,stream)));
+      cuda_check(static_cast<cudaError_t>(launch_mtp_startup_fp8_check(
+          f.weight,dst,f.output_size,f.input_size,mismatch,stream)));
+      fp8_input_views_[i]=dst;
+      offset += f.output_size*f.input_size;
+    }
+    unsigned bad=0;
+    cuda_check(cudaMemcpyAsync(&bad,mismatch,sizeof(bad),cudaMemcpyDeviceToHost,stream));
+    cuda_check(cudaStreamSynchronize(stream));
+    check(!bad,"MTP startup FP8 full byte authentication");
+    cuda_check(cudaFree(mismatch)); mismatch=nullptr;
+  } catch (...) {
+    (void)cudaStreamSynchronize(stream);
+    if(mismatch) (void)cudaFree(mismatch);
+    throw;
+  }
+#endif
+}
+
 int prepare_mtp_verify_projection_device() noexcept;
 TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft,
                                      bool multirow)
@@ -551,11 +612,25 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
     owns_snapshots_ = true;
   }
   try {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    check(!state_.mtp_gdn_offset_, "MTP constructor requires physical GDN owner");
+    if (multirow_ && whole_core) {
+      cuda_check(cudaMalloc(reinterpret_cast<void**>(&gdn_inputs_), 48 * sizeof(void*)));
+      cuda_check(cudaMallocHost(reinterpret_cast<void**>(&gdn_inputs_host_), 48 * sizeof(void*)));
+      check(publish_gdn_inputs(), "MTP GDN input publication");
+    }
+#endif
+    if (multirow_ && whole_core) prepare_startup_inputs();
     check(!multirow_ || prepare_gdn_graphs(), "MTP fixed GDN graph preparation");
     check(!multirow_ || !whole_core || prepare_full_graphs(), "MTP full verifier graph preparation");
   } catch (...) {
     release_full_graphs();
     release_gdn_graphs();
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    release_gdn_owner();
+#endif
+    if (fp8_input_owner_) cudaFree(fp8_input_owner_);
+    fp8_input_owner_=nullptr;
     if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
     snapshots_ = nullptr;
     throw;
@@ -565,12 +640,73 @@ TargetTransaction::~TargetTransaction() {
   if (active_) (void)abort();
   release_full_graphs();
   release_gdn_graphs();
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  release_gdn_owner();
+#endif
+  if (fp8_input_owner_) cudaFree(fp8_input_owner_);
   if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
 }
+
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+bool TargetTransaction::select_gdn_owner(const void* base) noexcept {
+  const auto address = reinterpret_cast<std::uintptr_t>(base);
+  const auto arena = reinterpret_cast<std::uintptr_t>(state_.arena_data());
+  const auto& plan = state_.plan();
+  if (!gdn_inputs_ || !base || address < arena || address % 256 ||
+      address - arena > state_.arena_bytes() - plan.gdn_state.byte_size) return false;
+  const auto offset = address - arena;
+  bool valid = offset == plan.gdn_state.arena_offset;
+  for (unsigned slot = 1; slot <= 4; ++slot)
+    valid |= base == static_cast<char*>(snapshots_) + slot * slot_bytes_ + plan.conv_state.byte_size;
+  if (!valid) return false;
+  state_.mtp_gdn_offset_ = offset == plan.gdn_state.arena_offset ? 0 : offset;
+  for (unsigned layer = 0; layer < 64; ++layer) {
+    if (layer % 4 == 3) continue;
+    const auto view = state_.gdn_state(layer);
+    if (!view) return false;
+    target_.views_.gdn_state[layer] = static_cast<std::uint16_t*>(view.value->device_data);
+  }
+  return true;
+}
+bool TargetTransaction::publish_gdn_inputs() noexcept {
+  if (!gdn_inputs_) return true;
+  if (!gdn_inputs_host_) return false;
+  for (unsigned layer = 0; layer < 64; ++layer) {
+    if (layer % 4 == 3) continue;
+    const auto view = state_.gdn_state(layer);
+    if (!view || view.value->byte_size != 48ULL * 128 * 128 * 2 ||
+        view.value->device_data != target_.views_.gdn_state[layer]) return false;
+    gdn_inputs_host_[layer - layer / 4] = static_cast<const std::uint16_t*>(view.value->device_data);
+  }
+  return cudaMemcpyAsync(gdn_inputs_, gdn_inputs_host_, 48 * sizeof(void*),
+      cudaMemcpyHostToDevice, static_cast<cudaStream_t>(target_.stream_)) == cudaSuccess;
+}
+void TargetTransaction::release_gdn_owner() noexcept {
+  const auto stream = static_cast<cudaStream_t>(target_.stream_);
+  auto status = cudaStreamSynchronize(stream);
+  if (state_.mtp_gdn_offset_) {
+    auto* physical = static_cast<char*>(state_.arena_data()) + state_.plan().gdn_state.arena_offset;
+    if (status == cudaSuccess && !target_.poisoned_)
+      status = cudaMemcpyAsync(physical, static_cast<char*>(state_.arena_data()) + state_.mtp_gdn_offset_,
+          state_.plan().gdn_state.byte_size, cudaMemcpyDeviceToDevice, stream);
+    if (status == cudaSuccess) status = cudaStreamSynchronize(stream);
+    if (!select_gdn_owner(physical)) target_.poisoned_ = true;
+  }
+  if (status != cudaSuccess) target_.poisoned_ = true;
+  if (gdn_inputs_) (void)cudaFree(gdn_inputs_);
+  if (gdn_inputs_host_) (void)cudaFreeHost(gdn_inputs_host_);
+  gdn_inputs_ = gdn_inputs_host_ = nullptr;
+}
+#endif
+
 bool TargetTransaction::initialize_whole_core_prefill(
     const std::uint32_t* prompt, std::uint32_t count,
     bool (*cancel)(void*) noexcept, void* cancel_context,
     bool committed_service_handoff) noexcept {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (state_.mtp_gdn_offset_) return false;
+  gdn_owner_commits_ = 0;
+#endif
   const auto& route = target_.prefill_route_evidence_;
   // Service control calls here only after the runner commits the entire prompt;
   // request-level evidence is finalized after generation. Never allow this
@@ -641,8 +777,20 @@ bool TargetTransaction::snapshot(std::uint32_t slot) noexcept {
     ++entry_snapshots_;
     return true;
   }
+  auto copied_bytes = recurrent_bytes_;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (gdn_inputs_) {
+    copied_bytes = state_.plan().conv_state.byte_size;
+    const auto view = state_.gdn_state(0);
+    if (!view) return false;
+    const auto* source = view.value->device_data;
+    auto* output = dst + copied_bytes;
+    if (source != output && cudaMemcpyAsync(output, source, state_.plan().gdn_state.byte_size,
+        cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return false;
+  }
+#endif
   return cudaMemcpyAsync(dst, static_cast<char*>(state_.arena_data()) + recurrent_offset_,
-                         recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
+                         copied_bytes, cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
          cudaMemcpyAsync(dst + recurrent_bytes_, hidden(target_), 2 * H,
                          cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
          cudaMemcpyAsync(dst + recurrent_bytes_ + 2 * H, logits(target_), 2 * V,
@@ -762,8 +910,12 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
   }
   auto* src = static_cast<const char*>(snapshots_) + rows * slot_bytes_;
   auto stream = static_cast<cudaStream_t>(target_.stream_);
+  auto copied_bytes = recurrent_bytes_;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (gdn_inputs_) copied_bytes = state_.plan().conv_state.byte_size;
+#endif
   if (cudaMemcpyAsync(static_cast<char*>(state_.arena_data()) + recurrent_offset_, src,
-                       recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
+                       copied_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaMemcpyAsync(target_.views_.hidden[1], src + recurrent_bytes_, 2 * H,
                        cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaMemcpyAsync(target_.views_.fp32_scratch, src + recurrent_bytes_ + 2 * H,
@@ -778,9 +930,15 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
   } else if (prepared_tail_rows_) {
     if (!draft_.commit_prepared_kv(rows - 1)) return false;
   } else if (!draft_.append_kv(inputs_[rows - 1], previous_hidden)) return false;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (gdn_inputs_ && !select_gdn_owner(src + state_.plan().conv_state.byte_size)) return false;
+#endif
   if (!state_.set_sequence_length(entry_position_ + rows)) return false;
   target_.trace_valid_ = false;
   target_.retained_prefill_hidden_valid_ = false;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (gdn_inputs_) ++gdn_owner_commits_;
+#endif
   committed_ = rows;
   return true;
 }

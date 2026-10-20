@@ -5508,7 +5508,12 @@ struct ReferenceEngine::Impl {
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           if (!options.prepare_sm87_target_aot_projection_device_assets &&
-              !prepare_fp8_supermatrix) {
+              !prepare_fp8_supermatrix
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+              && options.prefill_projection_tactic !=
+                  LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore
+#endif
+              ) {
             const Clock::time_point fp8_marlin_begin = Clock::now();
             const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
                 prepare_sm87_fp8_marlin_prefill_sidecars(

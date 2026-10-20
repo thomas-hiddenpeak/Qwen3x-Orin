@@ -98,6 +98,16 @@ class TargetTransaction final : public RoundBackend {
   std::uint64_t seed_kv_reuses() const noexcept { return seed_kv_reuses_; }
   std::uint64_t tail_kv_batches() const noexcept { return tail_kv_batches_; }
   std::uint64_t tail_kv_rows() const noexcept { return tail_kv_rows_; }
+  std::uint64_t startup_fp8_input_bytes() const noexcept {
+    return fp8_input_owner_ ? 5'200'936'960ULL : 0;
+  }
+  std::uint64_t gdn_owner_commits() const noexcept {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    return gdn_owner_commits_;
+#else
+    return 0;
+#endif
+  }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,
                std::uint32_t* draft) noexcept override;
@@ -127,8 +137,21 @@ class TargetTransaction final : public RoundBackend {
   bool prepare_gdn_graphs() noexcept;
   void release_gdn_graphs() noexcept;
   std::array<void*, 48> gdn_graphs_{};
+  void prepare_startup_inputs();
+  const std::uint8_t* fp8_input_layout(const Fp8LinearWeight&) const noexcept;
+  void* fp8_input_owner_ = nullptr;
+  std::array<const Fp8LinearWeight*, 144> fp8_input_sources_{};
+  std::array<const std::uint8_t*, 144> fp8_input_views_{};
   bool multirow_ = false;
   bool snapshot(std::uint32_t slot) noexcept;
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  std::uint64_t gdn_owner_commits_ = 0;
+  bool select_gdn_owner(const void* base) noexcept;
+  bool publish_gdn_inputs() noexcept;
+  void release_gdn_owner() noexcept;
+  const std::uint16_t** gdn_inputs_ = nullptr;
+  const std::uint16_t** gdn_inputs_host_ = nullptr;
+#endif
   ReferenceRunner& target_;
   RequestState& state_;
   Draft& draft_;

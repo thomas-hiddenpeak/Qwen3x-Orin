@@ -330,6 +330,14 @@ success is not numerical, capability, performance or release qualification;
 the active [Roadmap](ROADMAP.md) controls its real-API composition gates.
 
 
+The isolated v127 architecture may publish a complete GDN prefix by selecting
+request-owned storage rather than copying it into the original physical region.
+All typed-state consumers, scalar tails and observers must share that selection;
+request reset and owner destruction restore physical ownership under the
+[Request State contract](REQUEST_STATE.md#isolated-v127-selected-gdn-ownership).
+This changes storage ownership only, preserving every numerical boundary and
+complete observer state. It remains default-off and has no production authority.
+
 ## 4. System decomposition from the API inward
 
 ```text

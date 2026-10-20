@@ -337,3 +337,31 @@ The GDN producer writes directly into those prefixes. Canonical state may be
 unpublished while the private transaction is active, but complete selected
 state and position must be restored before every observer. Abort grants no
 entry rollback or successful reuse authority.
+
+
+### Isolated v127 selected GDN ownership
+
+The bounded [v127 composition](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json)
+adds a default-off, non-installable whole-core MTP exception. Its typed
+`gdn_state(layer)` view denotes the selected complete prefix and reports its
+actual arena offset. `arena_data()` and the immutable memory plan still denote
+physical backing; adding the original GDN plan offset is not a logical-state
+read in this candidate. Ordinary builds keep their existing object ABI and
+borrowed-view lifetime. Candidate GDN views must be reacquired after prefix
+commit or reset; concurrent access remains prohibited.
+
+The transaction selects only the physical GDN region or one of four complete
+GDN prefixes in its bounded post-Prefill workspace. Conv, hidden, logits and
+KV contracts are unchanged. Every observer sees a fully synchronized selected
+state and matching position. The next transaction may reuse prefix storage
+only after retirement; each layer consumes its selected entry before later
+rows overwrite it. Exact input/output alias preserves the existing recurrence.
+
+Reset zeroes physical persistent storage, clears the selection and refreshes
+runner views before reuse. Prefill entry requires physical ownership. A normal
+transaction-owner destructor drains work and materializes any selected GDN
+back into physical storage once before relinquishing ownership. Abort poisons;
+its destructor restores physical bindings without claiming valid contents.
+Failed cleanup retains poison; only successful full reset permits execution.
+Pointer capsules are allocated before graph capture and freed after all
+consumers drain. No request-time allocation or graph-node update is added.

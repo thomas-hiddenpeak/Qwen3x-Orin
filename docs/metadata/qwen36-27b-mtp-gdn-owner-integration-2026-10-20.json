@@ -1,0 +1,55 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-20261020",
+  "architecture_candidate_id": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "source_parent": "8d243fa239332fc88a26e60e956deefc5ed1d629",
+  "milestone": 2,
+  "status": "native_admission_passed_api_pending",
+  "implementation": "Typed selected GDN state and true arena offsets, all48 scalar consumers, first-row graph pointer capsules, complete prefix publication, reset and destruction handback; coupled authenticated startup FP8 input owner. Ordinary production ABI/route unchanged.",
+  "evidence_scope": "P65 native complete state/logit/draftKV and lifecycle correctness, not API speed or production qualification",
+  "counts": {
+    "all_prefix_state_and_logits": 4,
+    "full_state_logits_draft_kv": 26,
+    "failure_recovery": 13,
+    "target_state_and_full_logits": 17,
+    "injected_verify_failure": 5,
+    "draft_prefill_cancel_poll": 8
+  },
+  "prefix_cases": 10,
+  "cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 71.0
+  },
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-p65/q3x_mtp_whole_core_test",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-p65/prompt.u32",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-p65"
+    ],
+    "binary_sha256": "d7dfdb4c859f4bb17ed79ba6bfacf9cc99db31e468fe382fd501724951a8fc99",
+    "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "git": "8d243fa239332fc88a26e60e956deefc5ed1d629",
+    "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+  },
+  "files": {
+    ".q3x-work/mtp-gdn-owner-20261020/native-owner-p65/run.log": "fcf3a9e1f4c2f685960838d520d0400a85c6035207223c21f252cc37657cd68b",
+    ".q3x-work/mtp-gdn-owner-20261020/native-owner-p65/preflight.json": "17939ebe42229a52ead084cb58ca376ddd0698525f93b813303fa10a46c27ab3",
+    ".q3x-work/mtp-gdn-owner-20261020/native-owner-p65/cache-preparation.json": "4560513cfc62e46dc2bde67af8bed2f0f1ae932811e27c281a4857dbf8419d85",
+    ".q3x-work/mtp-gdn-owner-20261020/native-owner-p65/cleanup.json": "782015175676149e286235b811801f3bc34230c982eaaec8784392a7ff5f8c3f",
+    ".q3x-work/mtp-gdn-owner-20261020/integration-source/candidate.patch": "3e8e244f2d2fe20d181ce948e375418c7e3df64418325dc6cff8e2c8c23646aa",
+    ".q3x-work/mtp-gdn-owner-20261020/integration-source/oracle": "d7dfdb4c859f4bb17ed79ba6bfacf9cc99db31e468fe382fd501724951a8fc99",
+    ".q3x-work/mtp-gdn-owner-20261020/build-owner.log": "9f7f8fb36bde311f03d4e80feb4a80d9fe4bd27a82500f965ccd9d679f256487",
+    ".q3x-work/mtp-gdn-owner-20261020/build-owner-r1.log": "b7d258db610aedc94a0e0e6b69c40fea7632985e4817ce9cde3cb2c2466ce563"
+  },
+  "build_repair": "Initial integrated compilation lacked the source-private header search path; corrected relative include. No numerical repair was needed.",
+  "validation_limits": [
+    "No API performance result yet.",
+    "Destructor ownership handback and constructor failure have source-level review, not yet independent targeted fault qualification.",
+    "Long contexts and sealed caps remain pending."
+  ],
+  "next_action": "Immediate sealed cap2 P65/O16 gate as declared in original design; no additional isolated timing.",
+  "production_changed": false,
+  "goal_achieved": false
+}

@@ -437,13 +437,65 @@ int launch_mtp_verify_projection(const std::uint8_t* weights,
     return cudaErrorInvalidValue;
   const bool shape=scales ? (((n==17408 || n==248320) && k==5120)||(n==5120 && k==17408)) :
     ((k==5120 && (n==1024 || n==6144 || n==10240 || n==12288)) || (k==6144 && n==5120));
-  if(!shape || (n==248320 && (sidecar || scale6)) || (sidecar && !scales && !(n==5120 && k==6144)) ||
+  if(!shape || (n==248320 && (sidecar || scale6)) || (sidecar && !scales && !((n==5120 && k==6144)
+#if defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+       || (k==5120 && (n==1024 || n==6144 || n==10240 || n==12288))
+#endif
+       )) ||
      (sidecar && scales && k==17408 && (!scale6 || scale_base>192))) return cudaErrorInvalidValue;
   (void)cudaGetLastError();
   auto s=static_cast<cudaStream_t>(stream);
   if(count==2) launch<2>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
   else if(count==3) launch<3>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
   else launch<4>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
+  return cudaGetLastError();
+}
+} // namespace q3x::runtime::mtp_detail
+
+namespace q3x::runtime::mtp_detail {
+namespace {
+__global__ void startup_fp8_pack(const std::uint8_t* src, std::uint8_t* dst,
+                                unsigned n, unsigned k) {
+  const std::size_t group=std::size_t(blockIdx.x)*blockDim.x+threadIdx.x;
+  if(group>=std::size_t(n)*k/16) return;
+  const unsigned row=unsigned(group/(k/4))*4, base=unsigned(group%(k/4))*4;
+  uint4 out;
+  unsigned* words=&out.x;
+#pragma unroll
+  for(unsigned r=0;r<4;++r) {
+    const unsigned x=*reinterpret_cast<const unsigned*>(src+(row+r)*k+base);
+    words[r]=x^((x>>5)&0x07070707U);
+  }
+  reinterpret_cast<uint4*>(dst)[group]=out;
+}
+// Independent inverse mapping: visit canonical bytes and undo the swizzle.
+__global__ void startup_fp8_check(const std::uint8_t* src,const std::uint8_t* dst,
+                                 unsigned n,unsigned k,unsigned* bad) {
+  const std::size_t i=std::size_t(blockIdx.x)*blockDim.x+threadIdx.x;
+  if(i>=std::size_t(n)*k) return;
+  const std::size_t row=i/k,col=i%k;
+  const std::size_t j=((row/4)*(k/4)+col/4)*16+(row%4)*4+col%4;
+  const unsigned x=dst[j];
+  if((x^((x>>5)&7U))!=src[i]) atomicOr(bad,1U);
+}
+bool startup_fp8_shape(unsigned n,unsigned k) {
+  return k==5120 && (n==10240 || n==6144 || n==12288 || n==1024);
+}
+}
+int launch_mtp_startup_fp8_pack(const std::uint8_t* src,std::uint8_t* dst,
+                               unsigned n,unsigned k,void* stream) noexcept {
+  if(!src||!dst||!startup_fp8_shape(n,k)||
+      reinterpret_cast<std::uintptr_t>(src)%16 || reinterpret_cast<std::uintptr_t>(dst)%16)
+    return cudaErrorInvalidValue;
+  const std::size_t count=std::size_t(n)*k/16;
+  startup_fp8_pack<<<(count+255)/256,256,0,static_cast<cudaStream_t>(stream)>>>(src,dst,n,k);
+  return cudaGetLastError();
+}
+int launch_mtp_startup_fp8_check(const std::uint8_t* src,const std::uint8_t* dst,
+    unsigned n,unsigned k,unsigned* bad,void* stream) noexcept {
+  if(!src||!dst||!bad||!startup_fp8_shape(n,k)) return cudaErrorInvalidValue;
+  const std::size_t count=std::size_t(n)*k;
+  startup_fp8_check<<<(count+255)/256,256,0,static_cast<cudaStream_t>(stream)>>>(src,dst,n,k,bad);
   return cudaGetLastError();
 }
 } // namespace q3x::runtime::mtp_detail

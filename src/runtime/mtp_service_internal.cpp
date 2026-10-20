@@ -161,6 +161,8 @@ std::string Service::report_json() const {
   const auto& r = report_;
   std::ostringstream out; out << std::setprecision(17) << std::boolalpha;
   out << "{\"enabled\":true,\"verifier\":\"multirow-full-graph-v112\",\"draft_length\":" << r.draft_length
+      << ",\"startup_fp8_input_bytes\":" << transaction_.startup_fp8_input_bytes()
+      << ",\"gdn_owner_commits\":" << transaction_.gdn_owner_commits()
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds

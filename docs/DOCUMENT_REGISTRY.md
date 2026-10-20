@@ -630,3 +630,9 @@ and Roadmap documents. No Markdown paths or classifications change.
 The [indirect GDN prerequisite](metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json)
 closes bounded T0/T1 admission and advances the same two-milestone composition
 deadline. Existing document paths/classes and production status are unchanged.
+
+
+The v127 integration updates existing SDD, MTP, Engine, Runner and Request State
+contracts for default-off selected GDN ownership and its coupled startup input
+owner. The [bounded native admission](metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json)
+passes; API admission remains pending. No Markdown paths or classifications change.

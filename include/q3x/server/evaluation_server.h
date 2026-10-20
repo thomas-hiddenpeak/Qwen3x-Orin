@@ -231,14 +231,26 @@ inline constexpr EvaluationProductionDeploymentPlan
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
 #if defined(Q3X_ENABLE_MTP_SERVICE)
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+      plan.id = "q3x.sm87.admission.mtp-gdn-owner-input-api.v127";
+#elif defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+      plan.id = "q3x.sm87.admission.mtp-startup-input-api.v126";
+#else
       plan.id = "q3x.sm87.admission.mtp-eos-frontier-api.v122";
+#endif
       plan.target_prompt_tokens = 40000U;
       plan.maximum_output_tokens = 4096U;
 #endif
       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
       plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
 #if defined(Q3X_ENABLE_MTP_SERVICE)
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+      plan.decode_route_id = "mtp-multirow-gdn-owner-input.v127";
+#elif defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+      plan.decode_route_id = "mtp-multirow-startup-input.v126";
+#else
       plan.decode_route_id = "mtp-multirow-eos-frontier.v122";
+#endif
 #endif
       plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
       plan.decode_gate_up_layers = runtime::kQwen36DenseLayerCount;
@@ -264,9 +276,21 @@ inline constexpr EvaluationProductionDeploymentPlan kWholeCoreServiceProductionP
 inline constexpr EvaluationProductionDeploymentPlan kMtpServiceCandidatePlan = [] {
   auto plan = kWholeCoreExactDecodeAdmissionPlan;
 #if Q3X_MTP_COMPILED_DRAFT_LENGTH == 2
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  plan.id = "q3x.sm87.candidate.mtp-gdn-owner-input-cap2.v127";
+#elif defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+  plan.id = "q3x.sm87.candidate.mtp-startup-input-cap2.v126";
+#else
   plan.id = "q3x.sm87.candidate.mtp-eos-frontier-cap2.v122";
+#endif
+#else
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  plan.id = "q3x.sm87.candidate.mtp-gdn-owner-input-cap3.v127";
+#elif defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)
+  plan.id = "q3x.sm87.candidate.mtp-startup-input-cap3.v126";
 #else
   plan.id = "q3x.sm87.candidate.mtp-eos-frontier-cap3.v122";
+#endif
 #endif
   return plan;
 }();

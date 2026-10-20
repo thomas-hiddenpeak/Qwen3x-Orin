@@ -305,3 +305,14 @@ request-owned C512 scratch and stages each Conv/GDN prefix at its unchanged
 per-token publication boundary. Dedicated quantized projections preserve the
 scalar four-chain reduction; generic small-M Prefill arithmetic is excluded.
 Full logits and every prefix remain required scalar-oracle observables.
+
+
+The default-off v127 whole-core MTP composition additionally binds scalar
+steps to the selected complete GDN view described in
+[Request State](REQUEST_STATE.md#isolated-v127-selected-gdn-ownership).
+Transaction commit refreshes all 48 scalar GDN inputs before observation.
+Both explicit reset and ordinary request entry refresh physical bindings after
+successful state reset. Prefill retains its original physical state views and
+may begin only after that reset. The complete native state oracle reads typed
+GDN views, including their actual offsets, rather than stale physical backing.
+This exception is absent from ordinary production and conveys no qualification.

@@ -1401,11 +1401,18 @@ RequestState::RequestState(RequestState&& other) noexcept
     : arena_(std::exchange(other.arena_, nullptr)),
       plan_(std::exchange(other.plan_, {})),
       sequence_length_(std::exchange(other.sequence_length_, 0U)),
-      layer_major_plan_(std::exchange(other.layer_major_plan_, std::nullopt)) {}
+      layer_major_plan_(std::exchange(other.layer_major_plan_, std::nullopt)) {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    mtp_gdn_offset_ = std::exchange(other.mtp_gdn_offset_, 0);
+#endif
+}
 
 RequestState& RequestState::operator=(RequestState&& other) noexcept {
     if (this != &other) {
         release();
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+        mtp_gdn_offset_ = std::exchange(other.mtp_gdn_offset_, 0);
+#endif
         arena_ = std::exchange(other.arena_, nullptr);
         plan_ = std::exchange(other.plan_, {});
         sequence_length_ = std::exchange(other.sequence_length_, 0U);
@@ -1421,6 +1428,9 @@ void RequestState::release() noexcept {
         arena_ = nullptr;
         (void)cudaGetLastError();
     }
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    mtp_gdn_offset_ = 0;
+#endif
     plan_ = {};
     layer_major_plan_.reset();
     sequence_length_ = 0U;
@@ -1542,11 +1552,14 @@ RequestViewResult RequestState::gdn_state(const std::size_t layer_index) noexcep
     constexpr std::uint64_t elements_per_layer =
         kGdnValueHeads * kRequestGdnHeadDimension *
         kRequestGdnHeadDimension;
-    const RequestRegion region = subregion(
+    RequestRegion region = subregion(
         common_plan().gdn_state,
         mapped.value->slot * elements_per_layer * kBf16Bytes,
         elements_per_layer,
         kBf16Bytes);
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    if (mtp_gdn_offset_) region.arena_offset += mtp_gdn_offset_ - common_plan().gdn_state.arena_offset;
+#endif
     RequestViewResult result;
     result.value.emplace(mutable_view(region));
     return result;
@@ -2057,6 +2070,9 @@ RequestOperationStatus RequestState::reset_for_request_async(
             }
         }
     }
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    mtp_gdn_offset_ = 0;
+#endif
     sequence_length_ = 0U;
     receipt.mode = reset_plan.mode;
     receipt.cleared_positions = reset_plan.cleared_positions;

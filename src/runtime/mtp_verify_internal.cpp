@@ -1,3 +1,4 @@
+#include "mtp_gdn_state_internal.h"
 #include "mtp_device_internal.h"
 #include "mtp_verify_graph_internal.h"
 #include <memory>
@@ -28,7 +29,7 @@ bool TargetTransaction::enqueue_gdn_block(unsigned first, unsigned count) noexce
     if (count > 1) {
       if (const auto* f = std::get_if<Fp8LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(f->weight, nullptr, f->weight_scale,
-            x, count, f->output_size, f->input_size, y, stream, f->m1_aosoa4_preswizzled_weight, nullptr, 0));
+            x, count, f->output_size, f->input_size, y, stream, fp8_input_layout(*f), nullptr, 0));
       if (const auto* q = std::get_if<NvFp4LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(q->packed_weight, q->block_scale, q->weight_scale_2,
             x, count, q->output_size, q->input_size, y, stream,
@@ -67,13 +68,21 @@ bool TargetTransaction::enqueue_gdn_block(unsigned first, unsigned count) noexce
     for (unsigned row = 0; row < count; ++row) {
       constexpr std::size_t state_bytes = 48ULL * 128 * 128 * 2;
       auto* state_output = static_cast<std::uint16_t*>(
-          prefix_region(row, v.gdn_state[layer], state_bytes));
+          prefix_region(row, static_cast<char*>(state_.arena_data()) + state_.plan().gdn_state.arena_offset + (layer - layer / 4) * state_bytes, state_bytes));
       const auto* state_input = row ? static_cast<const std::uint16_t*>(
-          prefix_region(row - 1, v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
+          prefix_region(row - 1, static_cast<char*>(state_.arena_data()) + state_.plan().gdn_state.arena_offset + (layer - layer / 4) * state_bytes, state_bytes)) : v.gdn_state[layer];
       if (!state_input || !state_output) return false;
       if (!ok(launch_causal_conv1d_silu_update_reference_cuda(v.projection[0] + row * 10240,
             a->conv1d.data, v.conv_state[layer], v.projection[0] + row * 10240, {}, stream)) ||
-          !ok(launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+          !ok(
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+            gdn_inputs_ && row == 0 ? launch_mtp_gdn_selected_state(
+              v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
+              a->a_log.data, a->dt_bias.data, gdn_inputs_ + layer - layer / 4,
+              state_output, a->norm.data, v.projection[1] + row * 6144,
+              v.projection[2] + row * 6144, stream) :
+#endif
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
             v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
             a->a_log.data, a->dt_bias.data, state_input, state_output,
             1.e-6F, a->norm.data, v.projection[1] + row * 6144, 48, 128, 1.e-6F,
@@ -163,7 +172,7 @@ bool TargetTransaction::enqueue_multirow(bool full_graph, bool short_graph) noex
     if (rows_ > 1) {
       if (const auto* f = std::get_if<Fp8LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(f->weight, nullptr, f->weight_scale,
-            x, rows_, f->output_size, f->input_size, y, stream, f->m1_aosoa4_preswizzled_weight, nullptr, 0));
+            x, rows_, f->output_size, f->input_size, y, stream, fp8_input_layout(*f), nullptr, 0));
       if (const auto* q = std::get_if<NvFp4LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(q->packed_weight, q->block_scale, q->weight_scale_2,
             x, rows_, q->output_size, q->input_size, y, stream,
@@ -228,13 +237,21 @@ bool TargetTransaction::enqueue_multirow(bool full_graph, bool short_graph) noex
       for (unsigned row = 0; row < rows_; ++row) {
         constexpr std::size_t state_bytes = 48ULL * 128 * 128 * 2;
         auto* state_output = static_cast<std::uint16_t*>(
-            prefix_region(row, v.gdn_state[layer], state_bytes));
+            prefix_region(row, static_cast<char*>(state_.arena_data()) + state_.plan().gdn_state.arena_offset + (layer - layer / 4) * state_bytes, state_bytes));
         const auto* state_input = row ? static_cast<const std::uint16_t*>(
-            prefix_region(row - 1, v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
+            prefix_region(row - 1, static_cast<char*>(state_.arena_data()) + state_.plan().gdn_state.arena_offset + (layer - layer / 4) * state_bytes, state_bytes)) : v.gdn_state[layer];
         if (!state_input || !state_output) return false;
         if (!ok(launch_causal_conv1d_silu_update_reference_cuda(v.projection[0] + row * 10240,
               a->conv1d.data, v.conv_state[layer], v.projection[0] + row * 10240, {}, stream)) ||
-            !ok(launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+            !ok(
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+            gdn_inputs_ && row == 0 ? launch_mtp_gdn_selected_state(
+              v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
+              a->a_log.data, a->dt_bias.data, gdn_inputs_ + layer - layer / 4,
+              state_output, a->norm.data, v.projection[1] + row * 6144,
+              v.projection[2] + row * 6144, stream) :
+#endif
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
               v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
               a->a_log.data, a->dt_bias.data, state_input, state_output,
               1.e-6F, a->norm.data, v.projection[1] + row * 6144, 48, 128, 1.e-6F,
@@ -457,6 +474,9 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     bool& drained;
     ~DrainOnFailure() { if (!drained) (void)cudaStreamSynchronize(stream); }
   } drain{stream, drained};
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (!publish_gdn_inputs()) return false;
+#endif
   const bool short_graph = entry_position_ + 1 >= 65 && entry_position_ + rows_ <= 511;
   const bool use_graph = full_graphs_ && rows_ >= 2 &&
       (short_graph || entry_position_ + 1 >= 512);

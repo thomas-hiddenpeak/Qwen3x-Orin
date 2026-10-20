@@ -390,3 +390,20 @@ initialization, full committed Decode time and a distinct MTP physical receipt.
 The installed ABI and ordinary production route remain unchanged. The service
 handoff, cancellation and memory contract is governed by
 [MTP Admission](MTP_ADMISSION.md#isolated-service-composition).
+
+
+### Isolated v127 startup input dependency
+
+Only the default-off, non-installable v127 MTP composition reuses the bounded
+startup FP8 input owner previously admitted in v126. Whole-core Prefill reads
+authenticated canonical FP8 checkpoint weights/scales into bounded request
+scratch, retaining the existing dequantization and CUTLASS arithmetic. Its typed
+canonical-only receipt rejects partial Marlin inventory; the 208 unused FP8
+Prefill Marlin layouts are omitted. Decode O/Gate/Down assets remain required.
+
+The transaction owns 144 authenticated input layouts (5,200,936,960 bytes),
+prepared and byte-checked before Graph capture. No request-time repacking or
+allocation is allowed. Graph consumers drain before this owner is freed,
+including constructor failure. This dependency is eligible only inside the
+[bounded complete composition](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json);
+its earlier standalone API result remains rejected and grants no speed claim.

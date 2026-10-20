@@ -32,11 +32,20 @@ void write(const std::filesystem::path& path, const std::vector<char>& data) {
   out.write(data.data(), data.size());
   require(bool(out), "capture write");
 }
-std::vector<char> live_state(const rt::RequestState& state, const rt::ReferenceRunner& runner) {
+std::vector<char> live_state(rt::RequestState& state, const rt::ReferenceRunner& runner) {
   const auto& plan = state.plan();
   const auto* arena = static_cast<const char*>(state.arena_data());
-  auto bytes = read_device(arena + plan.conv_state.arena_offset,
-                          plan.conv_state.byte_size + plan.gdn_state.byte_size);
+  auto bytes = read_device(arena + plan.conv_state.arena_offset, plan.conv_state.byte_size);
+  for (unsigned layer = 0; layer < 64; ++layer) {
+    if (layer % 4 == 3) continue;
+    const auto view = state.gdn_state(layer);
+    require(bool(view), "complete typed GDN view");
+    require(view.value->device_data == arena + view.value->arena_offset,
+            "selected GDN physical arena offset");
+    require(view.value->byte_size == 48ULL * 128 * 128 * 2, "complete GDN extent");
+    auto row = read_device(view.value->device_data, view.value->byte_size);
+    bytes.insert(bytes.end(), row.begin(), row.end());
+  }
   for (std::size_t i = 0; i < 16; ++i) {
     for (const auto* region : {&plan.key_cache[i], &plan.value_cache[i]}) {
       auto row = read_device(arena + region->arena_offset, state.current_position() * 2048ULL);
@@ -370,6 +379,12 @@ int main(int argc, char** argv) try {
               transaction.commit_prefix(i + 1, predictions[i]), "multi-row prefix selection");
       require(draft.position() == prompt.size() + i,
               "prepared future KV became logically visible");
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+      const auto selected = request->gdn_state(0);
+      require(selected && selected.value->arena_offset != request->plan().gdn_state.arena_offset,
+              "GDN prefix must be selected without physical publication");
+      require(transaction.gdn_owner_commits() == i + 1, "GDN owner commit coverage");
+#endif
       require(transaction.tail_kv_batches() == ((count >= 3 && i >= 1) ? 1U : 0U) &&
               transaction.tail_kv_rows() == ((count >= 3 && i >= 1) ? count - 1U : 0U),
               "tail batch must be lazy and exclude the seed");
@@ -384,6 +399,11 @@ int main(int argc, char** argv) try {
             transaction.seed_kv_reuses() == (count == 4 ? 1U : 0U),
             "seed reuse must require a matching completed proposal");
     require(bool(target->reset()) && draft.reset(), "scalar prefix reset");
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+    const auto reset_gdn = request->gdn_state(0);
+    require(reset_gdn && reset_gdn.value->arena_offset == request->plan().gdn_state.arena_offset,
+            "reset restores physical GDN ownership");
+#endif
     require(initialize() == expected[0], "scalar prefix seed");
     for (unsigned i = 0; i < count; ++i) {
       std::uint32_t ignored = 0;

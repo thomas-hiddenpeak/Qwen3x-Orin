@@ -71,6 +71,7 @@ enum class NativePrefillTactic : std::uint8_t {
   // kResidualOperatorPanel role and may not be reported as fused here.
   kNvfp4GateUpP40VllmMarlinParity,
   kNvfp4DownBranchP40VllmMarlinParity,
+  kFp8CanonicalOwnedFillDrain,
 };
 
 // Compile-inventory fact only; device resources are still queried by bind().

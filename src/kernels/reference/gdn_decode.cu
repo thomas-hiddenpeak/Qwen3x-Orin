@@ -3,7 +3,7 @@
 
 #include "gdn_m16_register_state.h"
 #if defined(Q3X_ENABLE_MTP_GDN_OWNER)
-#include "runtime/mtp_gdn_state_internal.h"
+#include "../../runtime/mtp_gdn_state_internal.h"
 #endif
 
 #include <cuda_runtime.h>

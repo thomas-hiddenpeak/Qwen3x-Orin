@@ -37,9 +37,12 @@ and bounded memcheck with zero errors. This closes milestone 1 only. The next
 work is complete ownership integration plus native admission, followed by the
 already-declared immediate composed API gate; no further isolated measurement.
 
-Current runtime remains v122 until integration. Existing physical canonical
-state contracts remain in force: the new selected-storage exception must be
-implemented and documented atomically before native/API execution. The complete
+The v127 integration is now in progress behind a default-off build option;
+retained candidate selection remains v122. The complete selected-storage
+exception is specified in [Request State](REQUEST_STATE.md#isolated-v127-selected-gdn-ownership)
+and the runner/system contracts. The [native admission](metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json)
+now passes complete P65 state/logit/draft-KV and EOS/cancel/failure checks.
+Milestone 2 is complete; the immediate sealed cap 2 API gate remains pending. The complete
 API gate remains 14.389333336846462 Decode token/s with exact state/output and
 paired Prefill, TTFT and total; no additive gain is inferred from old timings.
 

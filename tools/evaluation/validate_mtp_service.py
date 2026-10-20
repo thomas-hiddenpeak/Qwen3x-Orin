@@ -86,7 +86,12 @@ def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True)
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
                   m['verifier'] == 'multirow-full-graph-v112', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
-        frontier = 'mtp-eos-frontier-' in expected_profile
+        frontier = ('mtp-eos-frontier-' in expected_profile or
+                    'mtp-startup-input-' in expected_profile or 'mtp-gdn-owner-input-' in expected_profile)
+        if 'mtp-startup-input-' in expected_profile or 'mtp-gdn-owner-input-' in expected_profile:
+            q.require(m.get('startup_fp8_input_bytes') == 5200936960, 'startup input inventory')
+        if 'mtp-gdn-owner-input-' in expected_profile:
+            q.require(m.get('gdn_owner_commits') == m['committed_decode_tokens'], 'complete GDN owner coverage')
         stops = m.get('eos_frontier_stops', 0)
         q.require((not frontier and stops == 0) or
                   (frontier and m.get('proposal_policy') == 'eos-frontier-v122' and
@@ -287,6 +292,8 @@ def main():
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--capability-cases', type=Path, help='Run capability-only panel instead of integration panel')
     parser.add_argument('--reference-results', type=Path)
+    parser.add_argument('--gdn-owner', action='store_true', help='Expect isolated v127 GDN owner composition')
+    parser.add_argument('--startup-input', action='store_true', help='Expect isolated v126 startup input composition')
     parser.add_argument('--sealed-candidate', action='store_true',
                         help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
     parser.add_argument('--restart-from', type=Path,
@@ -298,6 +305,7 @@ def main():
     q.require(out.is_relative_to(q.ROOT / '.q3x-work'), 'output must be under .q3x-work')
     q.require(bool(args.baseline) == bool(args.draft_length), 'MTP run requires a baseline')
     q.require(not args.sealed_candidate or args.draft_length is not None, 'sealed candidate requires expected draft cap')
+    q.require(not args.startup_input or args.sealed_candidate, 'startup input requires sealed candidate')
     q.require(bool(args.capability_cases) == bool(args.reference_results), 'capability cases and reference must be paired')
     q.require(not args.capability_cases or args.sealed_candidate, 'capability panel requires sealed candidate')
     q.require(args.soak_seconds == 0 or (args.soak_seconds >= 7200 and args.sealed_candidate
@@ -314,6 +322,10 @@ def main():
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
     q.PROFILE = (f'q3x.sm87.candidate.mtp-eos-frontier-cap{args.draft_length}.v122' if args.sealed_candidate
                  else 'q3x.sm87.admission.mtp-eos-frontier-api.v122' if args.draft_length else q.PROFILE)
+    if args.startup_input:
+        q.PROFILE = f'q3x.sm87.candidate.mtp-startup-input-cap{args.draft_length}.v126'
+    if args.gdn_owner:
+        q.PROFILE = f'q3x.sm87.candidate.mtp-gdn-owner-input-cap{args.draft_length}.v127'
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length and not args.sealed_candidate: cmd += ['--candidate-profile', 'whole-core-exact-decode']
