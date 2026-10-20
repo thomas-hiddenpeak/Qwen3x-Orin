@@ -1,9 +1,10 @@
 """Host-only negative checks for sustained MTP validation."""
 import copy
+import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools/evaluation'))
@@ -57,6 +58,46 @@ class SoakTest(unittest.TestCase):
         for key, amount, message in [('rss_kib', 262145, 'RSS'), ('fds', 5, 'FD'), ('threads', 2, 'thread')]:
             with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, message):
                 self.run_panel(growth=(key, amount))
+
+
+class RestartTest(unittest.TestCase):
+    def prior(self, change=None):
+        values = {'cleanup.json': dict(success=True, returncode=0, errors=[]),
+                  'soak-summary.json': dict(complete=True, elapsed_s=7200,
+                      requests=200, generated_token_ids=[1]*16),
+                  'audited-metrics.json': [{}]*209,
+                  'identity.json': dict(panel='sustained', draft_length=2, binary_sha256='hash')}
+        if change: values[change[0]][change[1]] = change[2]
+        prior = MagicMock()
+        prior.__truediv__.side_effect = lambda name: MagicMock(read_text=lambda: json.dumps(values[name]))
+        with patch.object(mtp.q, 'digest', return_value='hash'):
+            return mtp.completed_soak(prior, ROOT / 'unused', 2)
+
+    def test_completed_prior(self):
+        self.assertEqual(self.prior()['requests'], 200)
+
+    def test_incomplete_or_wrong_prior(self):
+        for change in [('cleanup.json', 'success', False),
+                       ('soak-summary.json', 'elapsed_s', 7199),
+                       ('soak-summary.json', 'requests', 199),
+                       ('identity.json', 'draft_length', 3),
+                       ('identity.json', 'binary_sha256', 'wrong')]:
+            with self.subTest(change=change), self.assertRaises(RuntimeError): self.prior(change)
+
+    def test_restart_output(self):
+        baseline = dict(body={}, endpoint='completions', request_sha256='same',
+                        text='answer', usage={}, finish='length', done=True)
+        client = MagicMock(); client.request.return_value = copy.deepcopy(baseline)
+        with patch.object(mtp.q, 'save'):
+            mtp.restart_panel(client, baseline, dict(generated_token_ids=[1]*16), ROOT,
+                              lambda r: [], lambda r: [1]*16)
+            with self.assertRaisesRegex(RuntimeError, 'token drift'):
+                mtp.restart_panel(client, baseline, dict(generated_token_ids=[1]*16), ROOT,
+                                  lambda r: [], lambda r: [2]*16)
+            client.request.return_value['text'] = 'wrong'
+            with self.assertRaisesRegex(RuntimeError, 'native mismatch text'):
+                mtp.restart_panel(client, baseline, dict(generated_token_ids=[1]*16), ROOT,
+                                  lambda r: [], lambda r: [1]*16)
 
 
 if __name__ == '__main__': unittest.main()

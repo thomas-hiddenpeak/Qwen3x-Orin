@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-SUSTAINED-20261020",
+  "parent_protocol": "docs/metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json",
+  "scope": "Implement the already-required fresh-process recovery gate; no runtime or performance mutation.",
+  "interface": "validate_mtp_service.py --restart-from <completed-soak-directory>, with same sealed binary/cap and historical native baseline. Incompatible panel combinations rejected before model startup.",
+  "gates": [
+    "Require normal successful prior cleanup, >=7200 seconds and >=200 measured requests. Require final complete receipt audit covering baseline, eight warmups and every measured request.",
+    "Require same binary SHA256 and draft cap as sustained run.",
+    "Fresh preflight/cache preparation, startup and fixed-cap profile checks.",
+    "P513/O16 complete native response contract, full target token IDs equal sustained reference, complete MTP receipt and normal owned shutdown."
+  ],
+  "tests": "14 sustained/restart/capability tests pass, including rejection of unfinished prior, failed cleanup, wrong binary/cap, native response drift and output-ID drift.",
+  "frozen_running_process": {
+    "cap": 2,
+    "session": 84143,
+    "driver_commit": "be9fa54",
+    "driver_sha256": "9a88f26e20ce0aae95bb402b55599bb17142664af842f02daf0957de58a44456",
+    "copy": ".q3x-work/mtp-sustained-20261020/frozen_validator.py",
+    "cap3_launcher": ".q3x-work/mtp-sustained-20261020/run-frozen.py",
+    "boundary": "Cap2 imported original module before extension. Cap3 will import byte-identical frozen original driver; do not use original run.py after current driver changes."
+  },
+  "real_model_restart_result": "pending completion of each sustained process",
+  "goal_complete": false,
+  "restart_driver_sha256": "8dbf2ae6d7f33d2f01953b1413f65ad32163ec3a940f0c1f5662b0afc0f48607"
+}

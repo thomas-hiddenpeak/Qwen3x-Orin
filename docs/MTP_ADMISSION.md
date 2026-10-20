@@ -29,10 +29,14 @@ development API route; the default production service remains non-MTP.
 
 The [bounded sustained-service protocol](metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json)
 selects one two-hour P513/O16 reuse process per frozen v122 cap, followed by
-fresh-process recovery. Extend the existing MTP driver with exact native
-response checks, repeated full output-ID equality and resource plateau gates;
-validate its failure handling before running the real model. Capacity and
-capability panels are already complete and are not repeated here.
+fresh-process recovery. The MTP driver now checks exact native responses,
+repeated full output-ID equality and resource plateau gates.
+The [restart driver](metadata/qwen36-27b-mtp-sustained-restart-driver-2026-10-20.json)
+now rejects incomplete prior runs, binary/cap mismatches and output drift in
+host checks. Cap 2 sustained execution is in progress on the original frozen
+driver; cap 3 must use its byte-identical frozen copy. Real restart checks wait
+for successful sustained completion. Capacity and capability panels are already
+complete and are not repeated here.
 
 This closes a delivery obligation, not the cap 2 short-performance gap. That
 gap and final independent performance selection remain required. No runtime

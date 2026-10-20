@@ -249,6 +249,34 @@ def wait_mtp_tokens(out, result):
         time.sleep(.05)
 
 
+def completed_soak(prior, server, draft):
+    """A live or failed run cannot be a restart qualification baseline."""
+    cleanup = json.loads((prior / 'cleanup.json').read_text())
+    summary = json.loads((prior / 'soak-summary.json').read_text())
+    identity = json.loads((prior / 'identity.json').read_text())
+    q.require(cleanup['success'] and cleanup['returncode'] == 0 and not cleanup['errors'],
+              'restart requires successful soak cleanup')
+    q.require(summary['complete'] and summary['elapsed_s'] >= 7200 and
+              summary['requests'] >= 200, 'restart requires complete sustained panel')
+    q.require(identity['panel'] == 'sustained' and identity['draft_length'] == draft and
+              identity['binary_sha256'] == q.digest(server), 'restart artifact/cap mismatch')
+    metrics = json.loads((prior / 'audited-metrics.json').read_text())
+    q.require(len(metrics) == summary['requests'] + 9, 'restart requires final complete receipt audit')
+    q.require(len(summary['generated_token_ids']) == 16, 'restart baseline token coverage')
+    return summary
+
+
+def restart_panel(client, baseline, prior_summary, out, receipt_validator, token_reader):
+    result = client.request(baseline['body'], baseline['endpoint'], 'soak-baseline')
+    for key in ('request_sha256', 'text', 'usage', 'finish', 'done'):
+        q.require(result[key] == baseline[key], 'restart native mismatch ' + key)
+    metrics = receipt_validator(result)
+    ids = token_reader(result)
+    q.require(ids == prior_summary['generated_token_ids'], 'restart token drift')
+    q.save(out / 'restart-summary.json', dict(output_ids_equal=True, metrics=metrics,
+           generated_token_ids=ids, scope='Fresh-process output recovery only; requires normal cleanup'))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', type=Path, required=True)
@@ -261,6 +289,8 @@ def main():
     parser.add_argument('--reference-results', type=Path)
     parser.add_argument('--sealed-candidate', action='store_true',
                         help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
+    parser.add_argument('--restart-from', type=Path,
+                        help='Fresh-process recovery after a completed same-artifact sustained run')
     parser.add_argument('--soak-seconds', type=int, default=0,
                         help='Sustained-only P513/O16 panel; minimum 7200 seconds')
     parser.add_argument('--control-pid', type=int, action='append', default=[])
@@ -272,9 +302,12 @@ def main():
     q.require(not args.capability_cases or args.sealed_candidate, 'capability panel requires sealed candidate')
     q.require(args.soak_seconds == 0 or (args.soak_seconds >= 7200 and args.sealed_candidate
               and not args.capability_cases), 'invalid sustained-only configuration')
+    q.require(not args.restart_from or (args.sealed_candidate and not args.soak_seconds
+              and not args.capability_cases), 'invalid restart configuration')
+    prior_soak = completed_soak(args.restart_from, args.server, args.draft_length) if args.restart_from else None
     out.mkdir(parents=True, exist_ok=False)
     q.preflight(out, args.control_pid)
-    if args.soak_seconds:
+    if args.soak_seconds or args.restart_from:
         q.require(json.loads((out / "cache-preparation.json").read_text())["rc"] == 0,
                   "sustained cache preparation failed")
     prompt = json.loads(args.prompt_request.read_text())['prompt']
@@ -290,8 +323,10 @@ def main():
         p = out / name; p.mkdir(parents=True, exist_ok=True); env[k] = str(p)
     q.save(out / 'identity.json', {'command': cmd, 'binary_sha256': q.digest(args.server),
            'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate,
-           'panel': 'sustained' if args.soak_seconds else 'capability' if args.capability_cases else 'integration',
+           'panel': 'restart' if args.restart_from else 'sustained' if args.soak_seconds else 'capability' if args.capability_cases else 'integration',
            'soak_seconds': args.soak_seconds,
+           'restart_from': str(args.restart_from.resolve()) if args.restart_from else None,
+           'prior_soak_sha256': q.digest(args.restart_from / 'soak-summary.json') if args.restart_from else None,
            'capability_cases_sha256': q.digest(args.capability_cases) if args.capability_cases else None,
            'reference_results_sha256': q.digest(args.reference_results) if args.reference_results else None,
            'baseline_results_sha256': q.digest(args.baseline / 'results.json') if args.baseline else None,
@@ -331,7 +366,15 @@ def main():
         if args.sealed_candidate:
             q.require(health['q3x_production']['BUILD_TESTING'] is False, 'sealed candidate contains testing identity')
         q.save(out / 'health.json', health); print('ready', flush=True)
-        if args.soak_seconds:
+        if args.restart_from:
+            baseline = next(r for r in json.loads((args.baseline / 'results.json').read_text())
+                            if r['label'] == 'soak-baseline')
+            def validate_restart(result):
+                wait_mtp_tokens(out, result)
+                return audit(out, [result], args.draft_length, q.PROFILE, require_lifecycle=False)
+            restart_panel(client, baseline, prior_soak, out, validate_restart,
+                          lambda result: wait_mtp_tokens(out, result))
+        elif args.soak_seconds:
             baseline = next(r for r in json.loads((args.baseline / 'results.json').read_text())
                             if r['label'] == 'soak-baseline')
             def validate_soak(result):
@@ -407,7 +450,7 @@ def main():
                                     'errors': errors, 'max_temperature': max(temperatures) if temperatures else None})
     q.require(success and server.returncode == 0 and not errors, 'run/cleanup failure')
     if args.draft_length: audit(out, client.records, args.draft_length, q.PROFILE,
-                               require_lifecycle=not (args.capability_cases or args.soak_seconds))
+                               require_lifecycle=not (args.capability_cases or args.soak_seconds or args.restart_from))
     print('integration checks passed', flush=True)
 
 
