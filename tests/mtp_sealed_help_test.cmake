@@ -1,13 +1,16 @@
 if(NOT DEFINED Q3X_EVAL_SERVER OR NOT Q3X_MTP_CAP MATCHES "^[23]$")
   message(FATAL_ERROR "MTP sealed help test requires server and cap 2/3")
 endif()
+if(NOT DEFINED Q3X_MTP_PROFILE)
+  set(Q3X_MTP_PROFILE "q3x.sm87.candidate.mtp-eos-frontier-cap${Q3X_MTP_CAP}.v122")
+endif()
 execute_process(COMMAND "${Q3X_EVAL_SERVER}" --help
   RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 0)
   message(FATAL_ERROR "MTP help failed: ${result}: ${error}")
 endif()
 foreach(required IN ITEMS
-    "q3x.sm87.candidate.mtp-eos-frontier-cap${Q3X_MTP_CAP}.v122"
+    "${Q3X_MTP_PROFILE}"
     "MTP draft cap: ${Q3X_MTP_CAP} (compiled)"
     "candidate, not production qualified or installable"
     "Fixed concurrency: one GPU request, one queued request, three HTTP threads")

@@ -1,0 +1,91 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-DELIVERY-HELP-20261020",
+  "parent": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "decision_unit": "local_mutation",
+  "product_constraint": "Delivered fixed-cap MTP artifacts must attest their exact compiled profile without runtime selectors or test seams.",
+  "contract": "CMake black-box help test must bind the configured candidate profile and reject stale profile expectations.",
+  "architecture_return": "Host delivery prerequisite for v127 installation after positive independent API selection; no runtime or performance change.",
+  "source_parent": "0c7e038f2c4a2b01677966716aa57497734c6b45",
+  "changes": [
+    "Select exact v127/v126/v122 help expectation from compiled CMake options.",
+    "Preserve v122 default for direct legacy script invocation; no relaxed cap or forbidden-selector checks."
+  ],
+  "evidence": {
+    "path": ".q3x-work/mtp-gdn-owner-20261020/sealed-help-profile-checks.json",
+    "sha256": "631ec1d7756878b987696a93915d606cf9bda9f8cae667b9cac05e91d2c2c376",
+    "checks": [
+      {
+        "version": "v127",
+        "cap": 2,
+        "command": [
+          "cmake",
+          "-DQ3X_EVAL_SERVER=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/server-cap2",
+          "-DQ3X_MTP_CAP=2",
+          "-DQ3X_MTP_PROFILE=q3x.sm87.candidate.mtp-gdn-owner-input-cap2.v127",
+          "-P",
+          "/home/rm01/Qwen3x-Orin/tests/mtp_sealed_help_test.cmake"
+        ],
+        "returncode": 0,
+        "output": ""
+      },
+      {
+        "version": "v127",
+        "cap": 3,
+        "command": [
+          "cmake",
+          "-DQ3X_EVAL_SERVER=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/server-cap3",
+          "-DQ3X_MTP_CAP=3",
+          "-DQ3X_MTP_PROFILE=q3x.sm87.candidate.mtp-gdn-owner-input-cap3.v127",
+          "-P",
+          "/home/rm01/Qwen3x-Orin/tests/mtp_sealed_help_test.cmake"
+        ],
+        "returncode": 0,
+        "output": ""
+      },
+      {
+        "version": "v122",
+        "cap": 2,
+        "command": [
+          "cmake",
+          "-DQ3X_EVAL_SERVER=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+          "-DQ3X_MTP_CAP=2",
+          "-DQ3X_MTP_PROFILE=q3x.sm87.candidate.mtp-eos-frontier-cap2.v122",
+          "-P",
+          "/home/rm01/Qwen3x-Orin/tests/mtp_sealed_help_test.cmake"
+        ],
+        "returncode": 0,
+        "output": ""
+      },
+      {
+        "version": "v122",
+        "cap": 3,
+        "command": [
+          "cmake",
+          "-DQ3X_EVAL_SERVER=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+          "-DQ3X_MTP_CAP=3",
+          "-DQ3X_MTP_PROFILE=q3x.sm87.candidate.mtp-eos-frontier-cap3.v122",
+          "-P",
+          "/home/rm01/Qwen3x-Orin/tests/mtp_sealed_help_test.cmake"
+        ],
+        "returncode": 0,
+        "output": ""
+      },
+      {
+        "case": "v127 must reject stale v122 expectation",
+        "command": [
+          "cmake",
+          "-DQ3X_EVAL_SERVER=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/server-cap2",
+          "-DQ3X_MTP_CAP=2",
+          "-P",
+          "/home/rm01/Qwen3x-Orin/tests/mtp_sealed_help_test.cmake"
+        ],
+        "returncode": 1,
+        "output": "CMake Error at tests/mtp_sealed_help_test.cmake:19 (message):\n  Missing sealed MTP contract: q3x.sm87.candidate.mtp-eos-frontier-cap2.v122\n\n\n"
+      }
+    ]
+  },
+  "validation_scope": "Four frozen ELF help checks: v127/v122 caps 2 and 3; negative stale-v122 expectation on v127 rejects. Full generated CTest registration still pending after the active performance panel.",
+  "performance_claim": null,
+  "production_switch": false,
+  "goal_achieved": false
+}

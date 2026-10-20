@@ -3793,9 +3793,17 @@ endif()
 # Black-box checks do not enable engine/runner test hooks in the MTP candidate.
 if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   enable_testing()
+  if(Q3X_BUILD_MTP_GDN_OWNER)
+    set(_q3x_mtp_test_profile "q3x.sm87.candidate.mtp-gdn-owner-input-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v127")
+  elseif(Q3X_BUILD_MTP_STARTUP_FP8_INPUT)
+    set(_q3x_mtp_test_profile "q3x.sm87.candidate.mtp-startup-input-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v126")
+  else()
+    set(_q3x_mtp_test_profile "q3x.sm87.candidate.mtp-eos-frontier-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v122")
+  endif()
   add_test(NAME mtp_sealed_help
     COMMAND ${CMAKE_COMMAND} -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
       -DQ3X_MTP_CAP=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}
+      -DQ3X_MTP_PROFILE=${_q3x_mtp_test_profile}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/mtp_sealed_help_test.cmake)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME mtp_capability_contract COMMAND ${Python3_EXECUTABLE} -B
