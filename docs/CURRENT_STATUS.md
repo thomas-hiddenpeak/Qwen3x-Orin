@@ -86,6 +86,38 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+### Installed MTP performance gate complete; delivery qualification active
+
+The [exact installed six-process comparison](metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json)
+passes both fixed caps across all three pinned API buckets, with no retries.
+The conservative gain uses the slower MTP observation divided by the faster
+non-MTP observation. Joint metrics below are medians of two fresh processes;
+Prefill includes draft initialization, while TTFT and total are external.
+
+| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | Conservative Decode gain |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | nonmtp | 0.888 | 73.17 | 0.907 | 9.582 | 2.472 | — |
+| 65 / 16 | cap2 | 0.894 | 72.74 | 0.912 | 14.408 | 1.953 | +50.28% |
+| 65 / 16 | cap3 | 0.899 | 72.30 | 0.918 | 15.264 | 1.900 | +59.13% |
+| 8192 / 256 | nonmtp | 16.781 | 488.17 | 16.803 | 9.215 | 44.480 | — |
+| 8192 / 256 | cap2 | 17.325 | 472.84 | 17.347 | 15.946 | 33.339 | +73.02% |
+| 8192 / 256 | cap3 | 17.348 | 472.22 | 17.370 | 15.930 | 33.378 | +72.79% |
+| 40000 / 256 | nonmtp | 90.064 | 444.13 | 90.099 | 7.863 | 122.533 | — |
+| 40000 / 256 | cap2 | 92.667 | 431.65 | 92.702 | 12.018 | 113.921 | +52.57% |
+| 40000 / 256 | cap3 | 92.698 | 431.51 | 92.733 | 12.009 | 113.968 | +52.53% |
+
+Cap 2 short clears the floor by only 0.28 percentage points; this is bounded
+workload qualification, not a universal prompt guarantee. MTP adds about
+0.54–0.57 s of Prefill at 8K and 2.60–2.63 s at 40K versus non-MTP, while
+reducing total time. Complete MTP IDs and physical work match the frozen
+same-cap references; native historical IDs remain unavailable. All six
+processes pass cache, ownership, fixed-clock, reserve and normal-exit checks.
+
+Stop performance collection. The [remaining installed delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json)
+is active: both-cap capability, capacity, two-hour sustained reuse and fresh
+restart, followed by the final goal audit. The ordinary non-MTP production
+route is unchanged. Installed MTP delivery and the full goal are not yet complete.
+
 ### v127 independent-process architecture selection
 
 The [completed N-C2-C3-C3-C2-N selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json)
@@ -131,8 +163,8 @@ now passes all 16 responses, complete output IDs, physical verification work,
 auth/input checks, Prefill/Decode cancellation recovery and normal exit. Both
 packages bind clean source `65e13db`; the record pins their distinct hashes.
 The [final installed performance protocol](metadata/qwen36-27b-mtp-installed-repeat-design-2026-10-20.json)
-is active, followed only on success by the [bounded remaining delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json).
-No independent installed speedup or completed delivery claim follows yet.
+has [passed](metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json), activating the [bounded remaining delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json).
+Independent installed speedup is qualified above; complete delivery remains pending.
 
 These installed API observations are one process per cap. Prefill includes
 draft initialization; TTFT and total are external.

@@ -679,3 +679,7 @@ change; dirty-source test installations have no real-model qualification.
 The [installed MTP API completion](metadata/qwen36-27b-mtp-package-api-2026-10-20.json)
 updates existing Current Status/Roadmap to the independent installed performance
 gate and bounded remaining delivery protocol. No Markdown paths or classes change.
+
+The [installed MTP performance completion](metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json)
+closes the six-process gate and advances existing Current Status/Roadmap to
+the declared remaining delivery panel. No Markdown paths or classes change.
