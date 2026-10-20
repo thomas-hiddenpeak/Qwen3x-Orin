@@ -19,7 +19,7 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 complete GDN owner composition — bounded implementation
+## 2026-10-20 complete GDN owner composition — selected; installation next
 
 The [v127 design](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json)
 selects complete GDN prefix ownership coupled with the previously admitted
@@ -55,16 +55,17 @@ successful CUDA release. Fresh-process fault checks preserve the reserve and
 match the service restart boundary; same-process reconstruction is unqualified.
 The [completed lifecycle panel](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json)
 now passes seven native ownership cases and both-cap API cancellation/recovery,
-with normal exit throughout. Stop lifecycle collection. Next execute the
-[bounded independent selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-design-2026-10-20.json):
-N-C2-C3-C3-C2-N, at most six fresh processes, exact output/work and joint metrics,
-strict >=1.5x worst-observed floor per cap/bucket, with early rejection and no
-favorable-timing retries. Installation and final delivery attestation follow
-only a positive selection.
-The short margin is only 0.00883 token/s; this single process does not establish
-stable >=1.5x. No further isolated measurement or parameter scan is selected. The complete
-API gate remains 14.389333336846462 Decode token/s with exact state/output and
-paired Prefill, TTFT and total; no additive gain is inferred from old timings.
+with normal exit throughout. Stop lifecycle collection. The
+[bounded independent selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json)
+now passes all six N-C2-C3-C3-C2-N processes without retries. Every cap/bucket
+clears the worst-observed >=1.5x floor and the same-cap Prefill regression guard;
+Current Status owns the joint metrics and their bounded workload scope.
+Stop architecture measurement and select v127 for independent executable-only
+packaging. Its RequestState ABI must not enter the ordinary 0.8.2 exported
+libraries/headers. Next complete the exact installed artifact's route, API,
+capacity, capability, resource/restart and performance attestation, then audit
+the full goal. No new parameter scan, production switch or full-goal claim
+follows from this architecture selection.
 
 ## 2026-10-20 startup FP8 input composition — closed below API floor
 

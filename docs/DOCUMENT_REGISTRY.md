@@ -657,3 +657,9 @@ reconstruction limitation and failed attempts. The
 [independent selection design](metadata/qwen36-27b-mtp-gdn-owner-repeat-design-2026-10-20.json)
 sets a maximum of six fresh processes with early rejection. Existing document
 paths/classes and ordinary production remain unchanged.
+
+
+The [v127 independent architecture selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json)
+passes both caps across all three pinned buckets and advances existing MTP,
+Current Status and Roadmap to separate installation/qualification. No Markdown
+paths or classifications change; ordinary non-MTP production is unchanged.

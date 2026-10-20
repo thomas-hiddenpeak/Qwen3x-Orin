@@ -86,6 +86,43 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+### v127 independent-process architecture selection
+
+The [completed N-C2-C3-C3-C2-N selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json)
+passes all six fresh processes without retries. Both caps preserve exact full
+MTP output IDs, response semantics, physical verification work, startup reserve,
+fixed clocks, cold-cache preparation and normal exit. Every bucket clears the
+predeclared worst-observed 1.5x floor. This selects the v127 architecture for
+independent executable-only packaging; it does not switch ordinary non-MTP
+production or qualify an installed MTP artifact.
+
+Each row below is the median of two independent processes. Prefill includes
+draft initialization for MTP; TTFT and total are external. The gain is the
+slower MTP observation divided by the faster native observation, minus one.
+
+| P / O | Configuration | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s | Conservative Decode gain |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | nonmtp | 0.888 | 73.18 | 0.907 | 9.580 | 2.473 | — |
+| 65 / 16 | cap2 | 0.898 | 72.36 | 0.917 | 14.398 | 1.959 | +50.21% |
+| 65 / 16 | cap3 | 0.894 | 72.72 | 0.912 | 15.286 | 1.894 | +59.46% |
+| 8192 / 256 | nonmtp | 16.795 | 487.75 | 16.817 | 9.214 | 44.495 | — |
+| 8192 / 256 | cap2 | 17.306 | 473.37 | 17.328 | 15.937 | 33.329 | +72.81% |
+| 8192 / 256 | cap3 | 17.348 | 472.21 | 17.370 | 15.928 | 33.380 | +72.79% |
+| 40000 / 256 | nonmtp | 89.936 | 444.76 | 89.971 | 7.863 | 122.404 | — |
+| 40000 / 256 | cap2 | 92.599 | 431.97 | 92.634 | 12.009 | 113.870 | +52.49% |
+| 40000 / 256 | cap3 | 92.771 | 431.17 | 92.807 | 12.021 | 114.021 | +52.80% |
+
+Cap 2 short clears the floor by only 0.21 percentage points. These results
+cover the pinned workloads and declared environment, not every future prompt.
+MTP adds about 0.51–0.55 seconds of Prefill at 8K and 2.66–2.84 seconds at 40K
+versus non-MTP, while reducing total time. Native historical token IDs remain
+unavailable; direct native comparison covers full response/usage, with complete
+MTP IDs compared to frozen v122 and numerical authority supplied by independent
+native references plus full-state transaction checks. Installation, affected
+delivery qualification and the final goal audit remain open.
+
+### Preceding v127 direction and lifecycle evidence
+
 The default-off [v127 complete GDN owner composition](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
 passes native complete state/logit/draft-KV admission and the first sealed API
 return for both caps; the [cap 3 result](metadata/qwen36-27b-mtp-gdn-owner-cap3-direction-2026-10-20.json)
@@ -114,8 +151,8 @@ process exits normally. Earlier same-process reconstruction attempts remain
 failed: successful CUDA release did not immediately restore reported free
 memory, so the unchanged 8-GiB reserve rejected a new owner. Same-process owner
 reconstruction is unqualified; service restart and surviving-runner recovery
-are separately checked. Independent performance selection remains open. The retained default candidate is still
-v122; this opt-in composition changes neither ordinary non-MTP production nor
+are separately checked. The independent selection above is now complete. The retained default candidate is still
+v122 pending separate packaging; this opt-in composition changes neither ordinary non-MTP production nor
 installation, and does not complete the full goal.
 
 
