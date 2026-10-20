@@ -1,0 +1,162 @@
+{
+  "work_package_id": "WP-MTP-INSTALLED-QUALIFICATION-20261020",
+  "date": "2026-10-21",
+  "authority": "Exact installed sustained reuse and fresh-process recovery; no new performance selection",
+  "caps": {
+    "2": {
+      "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "summary": {
+        "requests": 1918,
+        "elapsed_s": 7203.806975484942,
+        "growth": {
+          "rss_kib": 1688,
+          "fds": 0,
+          "threads": 0
+        },
+        "generated_token_ids": [
+          321,
+          51790,
+          13,
+          1510,
+          11591,
+          80,
+          18,
+          87,
+          27686,
+          14,
+          63,
+          369,
+          15865,
+          56497,
+          321,
+          26554
+        ],
+        "inter_request_idle_seconds": 1,
+        "complete": true,
+        "fresh_restart_required": true
+      },
+      "phases": {
+        "sustained": {
+          "audited_responses": 1927,
+          "measured_requests": 1918,
+          "cleanup": {
+            "success": true,
+            "returncode": 0,
+            "errors": [],
+            "max_temperature": 75.625
+          },
+          "metrics_median": {
+            "prefill_s": 1.629576125,
+            "prefill_tps": 314.8057903707958,
+            "ttft_s": 1.6482470564660616,
+            "decode_tps": 14.707346837002937,
+            "elapsed_s": 2.6681233615381643
+          }
+        },
+        "restart": {
+          "audited_responses": 1,
+          "measured_requests": 1,
+          "cleanup": {
+            "success": true,
+            "returncode": 0,
+            "errors": [],
+            "max_temperature": 70.625
+          },
+          "metrics_median": {
+            "prefill_s": 1.6307975519999998,
+            "prefill_tps": 314.57000862606156,
+            "ttft_s": 1.6499776759883389,
+            "decode_tps": 14.67351056024822,
+            "elapsed_s": 2.6721278079785407
+          }
+        }
+      }
+    },
+    "3": {
+      "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "summary": {
+        "requests": 1917,
+        "elapsed_s": 7201.95337535697,
+        "growth": {
+          "rss_kib": 2052,
+          "fds": 0,
+          "threads": 0
+        },
+        "generated_token_ids": [
+          321,
+          51790,
+          13,
+          1510,
+          11591,
+          80,
+          18,
+          87,
+          27686,
+          14,
+          63,
+          369,
+          15865,
+          56497,
+          321,
+          26554
+        ],
+        "inter_request_idle_seconds": 1,
+        "complete": true,
+        "fresh_restart_required": true
+      },
+      "phases": {
+        "sustained": {
+          "audited_responses": 1926,
+          "measured_requests": 1917,
+          "cleanup": {
+            "success": true,
+            "returncode": 0,
+            "errors": [],
+            "max_temperature": 75.531
+          },
+          "metrics_median": {
+            "prefill_s": 1.629535971,
+            "prefill_tps": 314.813547616986,
+            "ttft_s": 1.6482356759952381,
+            "decode_tps": 14.703876960357269,
+            "elapsed_s": 2.6683603120036423
+          }
+        },
+        "restart": {
+          "audited_responses": 1,
+          "measured_requests": 1,
+          "cleanup": {
+            "success": true,
+            "returncode": 0,
+            "errors": [],
+            "max_temperature": 70.156
+          },
+          "metrics_median": {
+            "prefill_s": 1.6324915010000003,
+            "prefill_tps": 314.24359617538977,
+            "ttft_s": 1.6515787009848282,
+            "decode_tps": 14.677487702532977,
+            "elapsed_s": 2.6734853399684653
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "P513/O16, one second idle between requests; not continuous maximum-load saturation or indefinite uptime.",
+    "Native historical token IDs absent: complete native response contract and frozen same-cap/cross-cap MTP IDs are distinct oracles."
+  ],
+  "goal_achieved": false,
+  "remaining": "Final full-goal audit and documentation selection",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-installed-qualification-20261020/reliability-artifact-hashes.json",
+    "sha256": "481b4ddae0dc209c6fd985a2a7f1ed853c00419d0dddfed97bb066ae16ea5632",
+    "files": 3909
+  },
+  "checks": {
+    "all_native_response_contracts_equal": true,
+    "all_full_mtp_ids_equal": true,
+    "all_route_receipts_reaudited": true,
+    "both_caps_sustained_and_restart_pass": true
+  }
+}

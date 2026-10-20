@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-10-20
+  last_reviewed: 2026-10-21
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -81,8 +81,13 @@ restart. [Installed capability](metadata/qwen36-27b-mtp-installed-capability-202
 now passes both caps and exact cross-cap output IDs; stop capability collection
 and continue the existing delivery sequence. [Installed capacity](metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json)
 now also passes both caps and cross-cap output IDs; stop capacity collection.
-Complete the already-running two-hour reuse and fresh restart per cap, then
-the final goal audit. These are explicit completion gates, not a new optimization campaign.
+The [installed reliability panel](metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json)
+now completes both two-hour runs and both fresh restarts. All eight processes
+are terminal and successful; do not restart the GPU panel. The
+[integrity audit](metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json)
+records the retained artifact checks and historical static-archive limitation.
+Complete the final requirement reconciliation and documentation selection.
+These are explicit completion gates, not a new optimization campaign.
 Do not transfer the frozen candidate's timing or v122 sustained result to a new ELF.
 
 ## 2026-10-20 startup FP8 input composition — closed below API floor

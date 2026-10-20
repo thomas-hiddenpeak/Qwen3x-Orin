@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-10-20
+  last_reviewed: 2026-10-21
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -691,3 +691,10 @@ to capacity and reliability. No Markdown paths or classes change.
 The [installed MTP capacity completion](metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json)
 closes both fixed-cap capacity/recovery panels and updates existing Current
 Status/Roadmap to sustained reuse and restart. No Markdown paths/classes change.
+
+The [2026-10-21 installed reliability completion](metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json)
+and [integrity audit](metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json)
+close the remaining GPU delivery panel and document the historical mutable
+archive reproduction limit. Current Status and Roadmap advance to final
+requirement reconciliation and documentation selection. No Markdown paths,
+classifications or ordinary production defaults change.

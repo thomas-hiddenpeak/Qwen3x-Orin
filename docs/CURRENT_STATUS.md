@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-10-20
+  last_reviewed: 2026-10-21
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-10-20. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-21. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -119,9 +119,27 @@ now has [completed both-cap capability](metadata/qwen36-27b-mtp-installed-capabi
 correct answers and exact full MTP token sequences between caps. Both processes
 exit normally. [Installed capacity](metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json)
 also passes both caps: P40000/O4096, P44095/O1, over-capacity rejection and
-short recovery, with exact cross-cap full token IDs and normal exit. Two-hour
-sustained reuse, fresh restart and the final goal audit remain active. The ordinary non-MTP production
-route is unchanged. Installed MTP delivery and the full goal are not yet complete.
+short recovery, with exact cross-cap full token IDs and normal exit.
+[Installed reliability](metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json)
+now also passes: cap 2 completes 1,918 measured requests in 7,203.8 s and cap 3
+completes 1,917 in 7,202.0 s, followed by successful fresh-process recovery.
+Both have zero descriptor/thread growth; RSS growth is 1,688/2,052 KiB.
+Every audited response and full MTP token sequence matches its pinned oracle.
+This is P513/O16 with one-second gaps, not maximum-load saturation.
+
+| Cap | Reliability Prefill s / token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: |
+| 2 | 1.630 / 314.81 | 1.648 | 14.707 | 2.668 |
+| 3 | 1.630 / 314.81 | 1.648 | 14.704 | 2.668 |
+
+These are sustained-phase medians, not a new performance selection.
+The [integrity audit](metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json)
+verifies 4,419 retained raw-file hashes and both installed executables. Two
+historical mutable static archives were rebuilt; their original linked test
+executable and logs remain intact. The record states this reproduction limit
+without substituting current archives for historical inputs. All eight delivery
+processes are complete. Final requirement reconciliation and documentation
+selection remain open; ordinary non-MTP production is unchanged.
 
 ### v127 independent-process architecture selection
 

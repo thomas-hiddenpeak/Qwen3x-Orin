@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-21",
+  "scope": "Final evidence integrity, installed package and numerical-source bridge audit; document delivery still pending",
+  "installed": {
+    "2": {
+      "passed": true,
+      "cap": 2,
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1",
+      "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "source_dirty": false,
+      "scope": "Installed host identity/ABI/dependency audit; no numerical or performance claim"
+    },
+    "3": {
+      "passed": true,
+      "cap": 3,
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+      "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "source_dirty": false,
+      "scope": "Installed host identity/ABI/dependency audit; no numerical or performance claim"
+    }
+  },
+  "verified_raw_files": 4419,
+  "changed_historical_artifacts": [
+    {
+      "path": ".q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_kernels.a",
+      "recorded_sha256": "c403fd87b03441c4900db837a1204fcc926db4b2b36da9401f902e1f42864386",
+      "current_sha256": "45bc3c916ca9ed130a8eaf9143dfd1d6cab6fcc72accdfdbfa9f075c584c610b"
+    },
+    {
+      "path": ".q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_core.a",
+      "recorded_sha256": "f4de4a20d9f2adc23bf226327f43a9cfb8040ba21f812c7743d00c17585a7a79",
+      "current_sha256": "36b1381612a71a0c7195f247550fa2ca450a692d61f1af78c0c0f1732af5d53e"
+    }
+  ],
+  "evidence_records": {
+    "docs/metadata/qwen36-27b-mtp-package-host-2026-10-20.json": "11544fc2f81010e958f5ed9497ad82ae803da258b03b496e581e8070f3dffef1",
+    "docs/metadata/qwen36-27b-mtp-package-api-2026-10-20.json": "d2f4be6e10a8237d8a17247fae48e49b5a9e177be35defff78c4c8994b1d0622",
+    "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json": "9756deea0e7f4aec643653c825ed5b66c5542528fcf13ee3e9536d777d8a32c6",
+    "docs/metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json": "992782575a069f46d76fabaaad1452ddf5a01e8a270d7bb8df9afb2ef755eef8",
+    "docs/metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json": "8f74f6512abc95ed055afeaeef6f5fe18b1137b8490fd78caa02015dd63138c4",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json": "6a41e9c1f103a6fe7c7ea52d3eecc0b50e9b089533e64b5dfe5addc4e3170ce8",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json": "c291c6d962ed9f0c5b6b1224d9bb98f6b00e39a1e7de51310ffedc4ce2d3578d",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json": "b36da5c73eef5aefc760572427d0ee8dce14ff0f0b9048d3c1a9265f82fd37f5",
+    "docs/metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json": "edb6ac84604eb80308cd0fc06a5466893206614504eb97286f529dbabb3835af"
+  },
+  "performance_selection": [
+    {
+      "cap": 2,
+      "label": "p65",
+      "candidate_decode_tps": [
+        14.414008225065514,
+        14.401183717392644
+      ],
+      "nonmtp_decode_tps": [
+        9.582696887605916,
+        9.581769085309574
+      ],
+      "conservative_speedup": 1.5028320196602347,
+      "median_speedup": 1.5035739573010654,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 0.8936484004999998,
+          "prefill_tps": 72.73554114493955,
+          "ttft_s": 0.9122382485074922,
+          "decode_tps": 14.407595971229078,
+          "elapsed_s": 1.9532606700086035
+        },
+        "nonmtp": {
+          "prefill_s": 0.8883899800000001,
+          "prefill_tps": 73.16607729146725,
+          "ttft_s": 0.906920341483783,
+          "decode_tps": 9.582232986457745,
+          "elapsed_s": 2.4723695695283823
+        }
+      }
+    },
+    {
+      "cap": 2,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        15.94740694582075,
+        15.943937362717206
+      ],
+      "nonmtp_decode_tps": [
+        9.214901570217064,
+        9.214317802311204
+      ],
+      "conservative_speedup": 1.730234147508277,
+      "median_speedup": 1.7304772201082574,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 17.325139088500002,
+          "prefill_tps": 472.83895073372275,
+          "ttft_s": 17.34726835746551,
+          "decode_tps": 15.945672154268978,
+          "elapsed_s": 33.33937005593907
+        },
+        "nonmtp": {
+          "prefill_s": 16.7811284335,
+          "prefill_tps": 488.1674182728275,
+          "ttft_s": 16.80304117448395,
+          "decode_tps": 9.214609686264133,
+          "elapsed_s": 44.47960453550331
+        }
+      }
+    },
+    {
+      "cap": 2,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        12.038565583938077,
+        11.998099731366068
+      ],
+      "nonmtp_decode_tps": [
+        7.8617999788373485,
+        7.8639892620104535
+      ],
+      "conservative_speedup": 1.5257014387502756,
+      "median_speedup": 1.5284870569719202,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 92.6666256735,
+          "prefill_tps": 431.65491399747816,
+          "ttft_s": 92.70171717752237,
+          "decode_tps": 12.018332657652072,
+          "elapsed_s": 113.92097407655092
+        },
+        "nonmtp": {
+          "prefill_s": 90.064293031,
+          "prefill_tps": 444.1271947769491,
+          "ttft_s": 90.0992809360614,
+          "decode_tps": 7.862894620423901,
+          "elapsed_s": 122.53305198904127
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p65",
+      "candidate_decode_tps": [
+        15.248495877946795,
+        15.279514421921116
+      ],
+      "nonmtp_decode_tps": [
+        9.582696887605916,
+        9.581769085309574
+      ],
+      "conservative_speedup": 1.5912530738261081,
+      "median_speedup": 1.5929486552357963,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 0.8990879850000002,
+          "prefill_tps": 72.2969289165832,
+          "ttft_s": 0.9178652230184525,
+          "decode_tps": 15.264005149933954,
+          "elapsed_s": 1.900488308048807
+        },
+        "nonmtp": {
+          "prefill_s": 0.8883899800000001,
+          "prefill_tps": 73.16607729146725,
+          "ttft_s": 0.906920341483783,
+          "decode_tps": 9.582232986457745,
+          "elapsed_s": 2.4723695695283823
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        15.938062244033397,
+        15.922496460471185
+      ],
+      "nonmtp_decode_tps": [
+        9.214901570217064,
+        9.214317802311204
+      ],
+      "conservative_speedup": 1.727907383398792,
+      "median_speedup": 1.728806742188869,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 17.347863038,
+          "prefill_tps": 472.2198869156477,
+          "ttft_s": 17.370258673967328,
+          "decode_tps": 15.930279352252292,
+          "elapsed_s": 33.37777309847297
+        },
+        "nonmtp": {
+          "prefill_s": 16.7811284335,
+          "prefill_tps": 488.1674182728275,
+          "ttft_s": 16.80304117448395,
+          "decode_tps": 9.214609686264133,
+          "elapsed_s": 44.47960453550331
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        12.023522344397625,
+        11.99495201786279
+      ],
+      "nonmtp_decode_tps": [
+        7.8617999788373485,
+        7.8639892620104535
+      ],
+      "conservative_speedup": 1.5253011694469485,
+      "median_speedup": 1.5273302976662262,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 92.69785968049999,
+          "prefill_tps": 431.50948676135965,
+          "ttft_s": 92.73302691749996,
+          "decode_tps": 12.009237181130207,
+          "elapsed_s": 113.96831718349131
+        },
+        "nonmtp": {
+          "prefill_s": 90.064293031,
+          "prefill_tps": 444.1271947769491,
+          "ttft_s": 90.0992809360614,
+          "decode_tps": 7.862894620423901,
+          "elapsed_s": 122.53305198904127
+        }
+      }
+    }
+  ],
+  "numerical_source_bridge_equal": true,
+  "ordinary_nonmtp_binary_unchanged": true,
+  "all_eight_qualification_processes_complete": true,
+  "goal_achieved": false,
+  "remaining": "Requirement narrative, current documentation, validation and commit/push",
+  "authority": "Host-only integrity audit of retained installed qualification and numerical bridge; not a new GPU measurement or final delivery declaration",
+  "historical_archive_disposition": {
+    "source_record": "docs/metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json",
+    "classification": "Two mutable build-directory static archives no longer match historical link inputs.",
+    "preserved_evidence": "The original linked consumer-test executable, gdn-owner.o, normal-run and root memcheck logs remain byte-identical to the prerequisite record. Both exact installed package executables separately pass their manifest audits.",
+    "limitation": "Re-linking with the current archives does not reproduce the historical prerequisite binary. Historical archive bytes are not asserted to remain available.",
+    "decision": "Preserve the original record unchanged. Use its retained executable/logs only for its original T0/T1 scope; installed API, capacity, capability and sustained evidence bind their own exact executables. The archive mismatch is not a mismatch of either delivered MTP executable."
+  },
+  "audit_inputs": {
+    ".q3x-work/mtp-package-20261020/final-evidence-audit.py": "ba440e2c9792c4b6b5555d85a5a0f2a15a5ec4541b87e2c4ca18d4207ba8630a",
+    ".q3x-work/mtp-package-20261020/package-numerical-source-audit.json": "c909682bef9b31e5301c6e3f2202216222478300653ed5e58de4dff343517877"
+  }
+}
