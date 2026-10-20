@@ -86,23 +86,28 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [cap3 capacity panel](metadata/qwen36-27b-mtp-capacity-cap3-2026-10-20.json)
+The [completed two-cap capacity panel](metadata/qwen36-27b-mtp-capacity-complete-2026-10-20.json)
 passes P40000/O4096, P44095/O1, P44095/O2 rejection and short recovery with normal
-exit. Complete native-reference text/usage match; direct native output-ID
-comparison is unavailable in that historical reference. Cap2 remains pending.
+exit in both frozen v122 configurations. Complete native-reference text/usage
+match; direct native output-ID comparison is unavailable in that historical
+reference. All 4,113 output token IDs match between caps, and each short recovery
+matches its previous same-cap MTP output IDs.
 
 | Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 40000 / 4096 | 92.674 | 431.62 | 92.710 | 12.745 | 414.003 |
 | 3 | 40000 / 4096 | 92.461 | 432.61 | 92.496 | 12.745 | 413.812 |
+| 2 | 44095 / 1 | 105.261 | 418.91 | 105.296 | N/A | 105.298 |
 | 3 | 44095 / 1 | 104.015 | 423.93 | 104.050 | N/A | 104.052 |
+| 2 | 65 / 16 recovery | 0.888 | 73.18 | 0.907 | 14.122 | 1.969 |
 | 3 | 65 / 16 recovery | 0.888 | 73.19 | 0.907 | 14.976 | 1.908 |
 
-These are one-process capacity observations. Prefill includes draft
-initialization; TTFT/total are external. The long-output Decode rate is63.82%
-above the frozen same-request nonMTP7.779token/s observation, not a repeated
-selection result. O1 has no Decode rate; its original derived0 was corrected
-to null without changing raw receipts or positive-token rates. No production
-switch or full-goal completion follows.
+These are one-process capacity observations per cap. Prefill includes draft
+initialization; TTFT/total are external. Long-output Decode is 63.82%–63.84%
+above the frozen same-request non-MTP 7.779 token/s observation, not a repeated
+selection result. O1 has no Decode rate; cap 3's original derived 0 was corrected
+to null without changing raw receipts or positive-token rates. Maximum observed
+temperature was 79.968 C. No production switch or full-goal completion follows.
 
 The [EOS-frontier v122 composition](metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json)
 is retained in the non-installable MTP candidate after its
@@ -136,7 +141,7 @@ buckets retain physical work and pass3% Prefill/Decode regression guards.
 | 3 | 40000 / 256 | 92.718 | 431.41 | 92.753 | 11.831 | 114.308 |
 
 Cap2 short remains below1.5x and has no EOS event. Final independent selection,
-capacity, sustained delivery and production qualification remain open. Historical
+sustained delivery and production qualification remain open; capacity is closed above. Historical
 v119 and original sealed evidence below retains its exact artifact scope.
 
 The [sealed capability panel](metadata/qwen36-27b-mtp-sealed-capability-2026-10-20.json)

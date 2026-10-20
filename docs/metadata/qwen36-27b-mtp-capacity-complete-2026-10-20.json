@@ -1,0 +1,535 @@
+{
+  "work_package_id": "WP-MTP-CAPACITY-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-capacity-design-2026-10-20.json",
+  "cap3_record": "docs/metadata/qwen36-27b-mtp-capacity-cap3-2026-10-20.json",
+  "decision": "Close bounded two-cap capacity validation; preserve full objective and remaining cap2 short performance gap. No installation or production switch.",
+  "caps": {
+    "2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-capacity-20261020/cap2/api-key"
+        ],
+        "binary_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "7ba63d7ccaaed215f9bba1c01443079c3820b6d6850b44496fe411af3f9dbb3a",
+        "driver_sha256": "a39485386bb6a2b3d5a49e1a8e9a0b160aad661c422508978e269875e0ed6f75",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "21861af867ebe04e0d7c84263abfba0ef66a4457",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.968
+      },
+      "metrics": [
+        {
+          "label": "capacity-40000-4096",
+          "prompt": 40000,
+          "output": 4096,
+          "prefill_s": 92.67426435599998,
+          "prefill_tps": 431.6192880295606,
+          "ttft_s": 92.70952478097752,
+          "elapsed_s": 414.0027054710081,
+          "decode_tps": 12.745459978782366,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10152890368,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 1532,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 1,
+            "proposed": 2980,
+            "accepted": 2563,
+            "verified_rows": 4512,
+            "committed_decode_tokens": 4095,
+            "accepted_by_position": [
+              1383,
+              1180,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              1532,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              84,
+              1448,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 2981,
+            "draft_ordered_attention_steps": 2981,
+            "entry_hidden_snapshots": 1532,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 216576,
+            "full_graph_rounds": 1532,
+            "full_graph_rows": 4512,
+            "graph_qk_updates": 24512,
+            "seed_kv_reuses": 1532,
+            "tail_kv_batches": 1180,
+            "tail_kv_rows": 2360,
+            "state_copy_bytes_elided": 461585625088,
+            "draft_initialization_ms": 2771.051673,
+            "draft_ms": 25859.67726400001,
+            "verify_ms": 290595.3662209997,
+            "reconcile_ms": 4759.994884000022,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "maximum-prompt",
+          "prompt": 44095,
+          "output": 1,
+          "prefill_s": 105.26142722000002,
+          "prefill_tps": 418.90938746099204,
+          "ttft_s": 105.29597510397434,
+          "elapsed_s": 105.29768001195043,
+          "decode_tps": null,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10152890368,
+            "prompt_rows": 44095,
+            "draft_prefill_rows": 44094,
+            "initialized": true,
+            "rounds": 0,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 0,
+            "accepted": 0,
+            "verified_rows": 0,
+            "committed_decode_tokens": 0,
+            "accepted_by_position": [
+              0,
+              0,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 0,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 0,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 0,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 0,
+            "tail_kv_batches": 0,
+            "tail_kv_rows": 0,
+            "state_copy_bytes_elided": 0,
+            "draft_initialization_ms": 3059.622635,
+            "draft_ms": 0,
+            "verify_ms": 0,
+            "reconcile_ms": 0,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888163514,
+          "prefill_tps": 73.18472215466396,
+          "ttft_s": 0.906746783060953,
+          "elapsed_s": 1.9688595820916817,
+          "decode_tps": 14.122290813623811,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10152890368,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.483912,
+            "draft_ms": 86.45752,
+            "verify_ms": 957.368237,
+            "reconcile_ms": 17.904576000000002,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "historical_nonMTP_long_decode_ratio": 1.6383542420838386,
+      "scope": {
+        "panel": "P40000/O4096 then60s idle, P44095/O1 and P44095/O2 rejection then60s idle, P65/O16 recovery; no capability or cancellation replay",
+        "wrapper_sha256": "f043621b24aa6c9dc9f70618e6b5f6254f697dcee9a242e5221e4b5f1844af22",
+        "token_oracle_scope": "Historical installed native reference retains text/usage, not output token IDs. Compare complete IDs between the two candidate caps separately; do not claim native token-ID equality from text alone."
+      }
+    },
+    "3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-capacity-20261020/cap3/api-key"
+        ],
+        "binary_sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "34101a47b2025d3e02ce88fd451ddd897b8fd0b9b668faa98e2ecdd500a07b66",
+        "driver_sha256": "c481147979e5761147ee16eebbe8dd03e3a0a7690a746a8a9eff78d2188a6cb8",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "8ddfa7427f31c38aac1cc4a87c5ae93a81e3f06f",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.593
+      },
+      "metrics": [
+        {
+          "label": "capacity-40000-4096",
+          "prompt": 40000,
+          "output": 4096,
+          "prefill_s": 92.460973761,
+          "prefill_tps": 432.61495496894696,
+          "ttft_s": 92.49645171000157,
+          "elapsed_s": 413.8120913869934,
+          "decode_tps": 12.744566979099178,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_free_bytes": 10138787840,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 1532,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 1,
+            "proposed": 2980,
+            "accepted": 2563,
+            "verified_rows": 4512,
+            "committed_decode_tokens": 4095,
+            "accepted_by_position": [
+              1383,
+              1180,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              1532,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              84,
+              1448,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 2981,
+            "draft_ordered_attention_steps": 2981,
+            "entry_hidden_snapshots": 1532,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 216576,
+            "full_graph_rounds": 1532,
+            "full_graph_rows": 4512,
+            "graph_qk_updates": 24512,
+            "seed_kv_reuses": 1532,
+            "tail_kv_batches": 1180,
+            "tail_kv_rows": 2360,
+            "state_copy_bytes_elided": 461585625088,
+            "draft_initialization_ms": 2654.556651,
+            "draft_ms": 26021.18085800003,
+            "verify_ms": 290390.51376400015,
+            "reconcile_ms": 4820.135112,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "maximum-prompt",
+          "prompt": 44095,
+          "output": 1,
+          "prefill_s": 104.01498746,
+          "prefill_tps": 423.9292920835776,
+          "ttft_s": 104.04997740208637,
+          "elapsed_s": 104.0516809260007,
+          "decode_tps": null,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_free_bytes": 10138787840,
+            "prompt_rows": 44095,
+            "draft_prefill_rows": 44094,
+            "initialized": true,
+            "rounds": 0,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 0,
+            "accepted": 0,
+            "verified_rows": 0,
+            "committed_decode_tokens": 0,
+            "accepted_by_position": [
+              0,
+              0,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 0,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 0,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 0,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 0,
+            "tail_kv_batches": 0,
+            "tail_kv_rows": 0,
+            "state_copy_bytes_elided": 0,
+            "draft_initialization_ms": 2881.390335,
+            "draft_ms": 0,
+            "verify_ms": 0,
+            "reconcile_ms": 0,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8880534849999999,
+          "prefill_tps": 73.19378967360284,
+          "ttft_s": 0.9066761280409992,
+          "elapsed_s": 1.90816359303426,
+          "decode_tps": 14.97636165521972,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_free_bytes": 10138787840,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 13,
+            "accepted": 9,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              1
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 13,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 912,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 19,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 9,
+            "state_copy_bytes_elided": 1908111360,
+            "draft_initialization_ms": 5.292878,
+            "draft_ms": 93.95558,
+            "verify_ms": 890.397693,
+            "reconcile_ms": 16.873967,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "historical_nonMTP_long_decode_ratio": 1.6382394522040253,
+      "scope": {
+        "panel": "P40000/O4096 then60s idle, P44095/O1 and P44095/O2 rejection then60s idle, P65/O16 recovery; no capability or cancellation replay",
+        "wrapper_sha256": "f043621b24aa6c9dc9f70618e6b5f6254f697dcee9a242e5221e4b5f1844af22",
+        "token_oracle_scope": "Historical installed native reference retains text/usage, not output token IDs. Compare complete IDs between the two candidate caps separately; do not claim native token-ID equality from text alone."
+      }
+    }
+  },
+  "artifact_root": ".q3x-work/mtp-capacity-20261020",
+  "artifact_sha256": {
+    "cap2/identity.json": "1f2597873bf14f92f0d7ce73a84fdbdd951be96ecb00d89157c6f48e153e930f",
+    "cap2/health.json": "136152dd8533dbcd438c18800c08389e65491fefb52fd2e656bf093bdf763361",
+    "cap2/cleanup.json": "7142a7103d4beab57ae2e8a284fc67baadbd0e37aa439f4b4e725e59cb7dd51d",
+    "cap2/preflight.json": "68f381e8b5ff2e3eab0733f5d20b2ca8f2fe3611c7a01b405bf3e98f19681a08",
+    "cap2/cache-preparation.json": "4128e4d8aaa4fea6f7488cc39c75146647f87335bbc669aa78f16664f62930db",
+    "cap2/results.json": "64ba76b6a8ec228bbbc97c7348b3a1a248d7607ef7eb753965d35a511f8342e9",
+    "cap2/server.log": "f74f37229c66f1347b9409244bff557450fcd7955fcbfad5eb44a79e66e8974f",
+    "cap2/audited-metrics.json": "b1a17dfbcaa447f6534940bc30d8b6252972f62b877496096cd84c732b947bbb",
+    "cap2/capacity-scope.json": "01acb36f57c5b6b338d3536222bb390e65e0443bc54ea364bb92609cedaceb9e",
+    "cap3/identity.json": "70471b2271ef86af2896cf4ea8ac5dc233963ec9c2654226e077cb1421234527",
+    "cap3/health.json": "19d7acd65faf949047fd0900a4035471512b232d7815da942dd7a09af35432a7",
+    "cap3/cleanup.json": "cfdfb947ec0778e0ece1fa8fcbeded4cb37cfb8f9c9040ae48d61bd2ee9e28fd",
+    "cap3/preflight.json": "181d816ee5a1af1fc89d1792b220b4d9db2825a3f9cf96269409d6fa7a885277",
+    "cap3/cache-preparation.json": "013025e24b71cefb0b09f56b0402980af415ba5d5b3769430d3ed272f7e934e4",
+    "cap3/results.json": "d6a1cea978bd798cff00adcc00e785ee05570c2ccae1af762dc5e0c8b51070b4",
+    "cap3/server.log": "e8704fd2ac1d1b60929c69abc0681a4bdc0b73cf88464c1ce7acdd50231e71ed",
+    "cap3/audited-metrics.json": "d41798bb8cda4e0633b2eeb1c18a75d63de9a8b5d7310c4b27d39525567ec549",
+    "cap3/capacity-scope.json": "01acb36f57c5b6b338d3536222bb390e65e0443bc54ea364bb92609cedaceb9e",
+    "run.py": "f043621b24aa6c9dc9f70618e6b5f6254f697dcee9a242e5221e4b5f1844af22",
+    "record-complete.py": "14382daa19140c7413b7e43b3d33d0408da3eb87fa312738b9b219442de3fc41",
+    "o1-audit-replay.json": "9a8f9643ec5dd2c1ae19a653b957f5c69cdbfab03fa0f5b90632e6a47f9f5395"
+  },
+  "cross_cap_output_ids": {
+    "capacity-40000-4096": {
+      "count": 4096,
+      "equal": true,
+      "u32le_sha256": "8faca82eeb2269f74f27db63c052a4cd01a2691b9627272dd179e0c4a4498e47"
+    },
+    "maximum-prompt": {
+      "count": 1,
+      "equal": true,
+      "u32le_sha256": "51525844d3da2a4a742a91b5c0bf89d3e6026487a83a3bfe8abd1e677a3938f9"
+    },
+    "p65": {
+      "count": 16,
+      "equal": true,
+      "u32le_sha256": "e71611acabc1fcaf3d0a66514bd2fcdeb8b84cc39c453c73ad34c639d430b8a2"
+    }
+  },
+  "historical_baseline": {
+    "path": ".q3x-work/softmax-package-20261014/patch/service-audit.json",
+    "sha256": "79fa03b362c6c1bc97bc618dede69deaaa3fed69650393f0655251dd16882d63",
+    "metrics": {
+      "request_id": "cmpl-q3x-67",
+      "prompt_tokens": 40000,
+      "output_tokens": 4096,
+      "prefill_seconds": 90.17548013199999,
+      "prefill_tok_s": 443.57956222076666,
+      "external_ttft_seconds": 90.20873089400266,
+      "decode_tok_s": 7.779428679948539,
+      "request_sha256": "986af6402ad2efc387dc603ecb40e086a3a5397fab4576edae8cfafecabc283d",
+      "text_sha256": "1bb9d1082243fe5c34d8750cf1ee97cb790b8706a8a8fbd487a5171f7c2245d4"
+    },
+    "authority": "Installed independently qualified corrected0.8.2 same request; complete text/usage/finish/DONE compare. Output IDs absent, so cross-cap equality is a distinct check, not claimed native-ID equality."
+  },
+  "checks": [
+    "Both frozen artifacts complete P40000/O4096 and P44095/O1, reject P44095/O2, then recover P65/O16.",
+    "Full outputs match historical native response contracts and all4113 output IDs compare between caps; recovery IDs also match each cap incumbent.",
+    "Complete Prefill/MTP work, requested capacity, startup8GiB reserve, preflight/cache drop, key cleanup and normal process exit checked.",
+    "O1 no Decode represented as null; cap3 raw0 derived value preserved separately with audited correction."
+  ],
+  "limits": [
+    "One fresh capacity process per cap with60-second capacity spacing; not independent repeated performance selection or sustained-service qualification.",
+    "The short cap2>=1.5x constraint is still unmet. Full objective remains active.",
+    "Ordinary installed nonMTP0.8.2 and all numerical contracts remain unchanged."
+  ],
+  "next": "Stop capacity collection. Continue cap2 phase-budgeted implementation and remaining final selection/sustained delivery/installation; do not use this pass to lower the speed target."
+}

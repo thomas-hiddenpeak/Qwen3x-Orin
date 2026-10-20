@@ -19,28 +19,24 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 MTP capacity — bounded delivery check active
+## 2026-10-20 MTP capacity — complete for both caps
 
 The [capacity protocol](metadata/qwen36-27b-mtp-capacity-design-2026-10-20.json)
-closes a remaining service-range question on the frozen retained v122 binaries:
-P40000/O4096, P44095/O1, over-capacity rejection and following short recovery,
-once per cap with60-second capacity spacing. Complete responses compare to the
-independently qualified installed0.8.2 reference; historical native output IDs
-are absent, so cross-cap ID equality is reported separately.
+and [completed two-cap record](metadata/qwen36-27b-mtp-capacity-complete-2026-10-20.json)
+close this bounded service-range check on the frozen retained v122 binaries.
+Each cap completes P40000/O4096 and P44095/O1, rejects P44095/O2, then recovers
+P65/O16, with normal process exit and the startup reserve intact. Complete
+native-reference text/usage/finish contracts match. All 4,113 output token IDs
+match between caps; historical native output IDs are absent, so this is not
+claimed as direct native-ID equality. O1 correctly reports no Decode rate.
 
-The [cap3 process](metadata/qwen36-27b-mtp-capacity-cap3-2026-10-20.json)
-passes both capacity boundaries, rejection, short recovery and normal exit.
-Complete responses equal installed0.8.2; the256-token prefix and recovery IDs
-also match the earlier cap3 artifact. O1 audit reporting now correctly emits
-null for no Decode, with raw receipts preserved. Run cap2 next, then compare
-full IDs across caps; do not repeat the completed cap3 process.
-
-This is delivery validation, not a replacement performance target or a new
-optimization. Cap2 short remains below1.5x. The source review finds no reason
-to reopen rejected combined decoder tables, input layouts or accumulation-chain
-splits. Preserve those closures while the capacity check advances the existing
-candidate toward the real service contract. No production switch is authorized
-by this bounded check alone.
+Stop capacity collection. This pass does not close sustained delivery, final
+independent selection, installation or the cap 2 short-context performance gap.
+The next implementation must address that phase budget under a materially
+different architecture with an immediate real API return. Preserve rejected
+combined decoder tables, input layouts, accumulation-chain splits and other
+closed lineages; no parameter scan is selected. The full 50%–200% objective
+remains active and ordinary production stays non-MTP.
 
 ## 2026-10-20 EOS frontier — composed and retained
 
@@ -58,7 +54,7 @@ or production promotion. Joint metrics and their limits belong to
 [Current Status](CURRENT_STATUS.md). P65 never triggers EOS truncation, so cap2
 still misses1.5x. The next implementation must address that phase budget with
 a materially different architecture, preserving the closed lineages below.
-Capacity, sustained delivery, final selection and installation remain open;
+Capacity is closed above; sustained delivery, final selection and installation remain open;
 the full50%–200% goal is not complete and ordinary production stays nonMTP.
 
 ## 2026-10-20 sealed MTP capability — complete; EOS work audit next
