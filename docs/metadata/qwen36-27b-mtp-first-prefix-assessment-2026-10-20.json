@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-FIRST-PREFIX-ASSESSMENT-20261020",
+  "source_parent": "38f33ab2c6db096c3a4a4a23e38c3b437339b825",
+  "authority": "Offline source/lifetime assessment and attribution of an existing real-API diagnostic. No new GPU execution or measured candidate.",
+  "product_constraint": "Exact MTP at configured caps 2/3, matched Decode gain 50%-200%, with joint Prefill/TTFT/Decode/total reporting.",
+  "question": "Does direct canonical publication of the first multirow prefix justify a standalone implementation or reopening v126?",
+  "current_v122_metrics": {
+    "label": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.887871368,
+    "prefill_tps": 73.20880292200165,
+    "ttft_s": 0.9062576320720837,
+    "elapsed_s": 1.9670174421044067,
+    "decode_tps": 14.13973742754571
+  },
+  "current_v122_budget": {
+    "native_faster_p65_tps": 9.592888891230976,
+    "required_decode_tps": 14.389333336846462,
+    "decode_ms": 1060.840067,
+    "required_decode_ms": 1042.4388433333334,
+    "gap_ms": 18.401223666666738,
+    "unclassified_ms": 0.35760700000014367,
+    "reconcile_plus_unclassified_ms": 17.734673000000143,
+    "gap_even_if_both_intervals_zero_ms": 0.6665506666665806
+  },
+  "mechanism": {
+    "first_prefix_is_mandatory": "After successful verification run_round commits prefix1 before its first observer, including mismatch/EOS/cancellation. Failure before publication aborts and poisons.",
+    "selection_is_monotonic": "commit_prefix requires rows == committed_ + 1. No earlier prefix can be reselected by this controller.",
+    "gdn_route": "Both enqueue_gdn_block and the non-graph path currently read canonical state for row0 and write immutable slot1; later rows consume prior slots.",
+    "conv_obligation": "Conv is updated in canonical storage for every speculative row. Direct GDN row0 alone does not leave the complete first-prefix canonical state; Conv restoration remains necessary.",
+    "hidden_logits_obligation": "Verifier scratch is reused across layers and vocabulary finalization. Full prefix hidden/logits remain in separate immutable slots and must be published.",
+    "lifetime_obligation": "Aliasing slot1 GDN with canonical storage makes commit2 overwrite it. Current MTP contract promises immutable slots until retirement. A future owner-based design must explicitly replace that lifetime contract, prove all consumers and preserve complete state before every observer.",
+    "unchanged_work": "No projection, draft, verified row, acceptance or later-prefix publication is removed. Singleton copying is a separate closed lineage.",
+    "maximum_multirow_first_prefix_payload_bytes": 470679552,
+    "gdn_only_payload_bytes": 452984832
+  },
+  "historical_profile_attribution": {
+    "version": "v113; same relevant source and six-M3/one-M1 work topology, not a new v122 or v126 profile",
+    "copies": [
+      {
+        "graph_correlation": 8140,
+        "graph_end_ns": 1113940736,
+        "copy_start_ns": 1114007104,
+        "copy_end_ns": 1114836608,
+        "copy_bytes": 78446592,
+        "copy_correlation": 8143
+      },
+      {
+        "graph_correlation": 8382,
+        "graph_end_ns": 1274796160,
+        "copy_start_ns": 1274850624,
+        "copy_end_ns": 1275679584,
+        "copy_bytes": 78446592,
+        "copy_correlation": 8385
+      },
+      {
+        "graph_correlation": 8624,
+        "graph_end_ns": 1435452768,
+        "copy_start_ns": 1435506080,
+        "copy_end_ns": 1436336096,
+        "copy_bytes": 78446592,
+        "copy_correlation": 8627
+      },
+      {
+        "graph_correlation": 8927,
+        "graph_end_ns": 1598703936,
+        "copy_start_ns": 1598771648,
+        "copy_end_ns": 1599601856,
+        "copy_bytes": 78446592,
+        "copy_correlation": 8930
+      },
+      {
+        "graph_correlation": 9230,
+        "graph_end_ns": 1762151936,
+        "copy_start_ns": 1762229888,
+        "copy_end_ns": 1763058784,
+        "copy_bytes": 78446592,
+        "copy_correlation": 9233
+      },
+      {
+        "graph_correlation": 9533,
+        "graph_end_ns": 1925322784,
+        "copy_start_ns": 1925399200,
+        "copy_end_ns": 1926229280,
+        "copy_bytes": 78446592,
+        "copy_correlation": 9536
+      }
+    ],
+    "sum_copy_ms": 4.977664,
+    "interpretation": "First complete recurrent copy after each complete verifier Graph. This includes Conv, so is broader than GDN-only elision. Excludes CPU synchronization and other commit work; no hardware or unprofiled latency bound."
+  },
+  "v126_context": {
+    "remaining_gap_ms": 11.045868666666593,
+    "status": "Already closed below its API floor and removed. Historical copy attribution does not prove additive speedup or justify reopening this composition."
+  },
+  "decision": "Do not implement first-prefix-only relocation or revive startup-input plus first-prefix-only as the next full-budget candidate. The identified copy opportunity is too small to support that planning hypothesis, and it requires a state-lifetime redesign. This is a scoped engineering-priority decision, not an impossibility claim.",
+  "next_action": "Assess complete recurrent-state ownership/publication, including every committed prefix and all scalar/observer/reset consumers, before selecting any owner-based composition. If a physical canonical arena is unavoidable, return to dominant projection/draft computation. No new runtime package is selected by this assessment.",
+  "validation": "Read-only SQLite attribution, exact source hashes against retained budget, six unique Graph/first-copy correlations, current API budget arithmetic. No synthetic timing or new performance result.",
+  "source_sha256": {
+    ".q3x-work/mtp-v113-short-budget-20261020/profile/capture.sqlite": "11ddc204a8f6faeb91ec8c29428d12813dd862f179af15bdf3981869e533924e",
+    ".q3x-work/mtp-v113-short-budget-20261020/analysis-corrected.json": "047fe7bcc3a56ebd074756d3b2d74e4fe7f54172f904743564c03422c0ed9c1f",
+    "docs/metadata/qwen36-27b-mtp-v122-state-budget-2026-10-20.json": "e9d9213e93d2aeba826ccc1ae552036c1db03b0d69f89c581dc61646d08d933c",
+    "docs/metadata/qwen36-27b-mtp-startup-input-rejection-2026-10-20.json": "741e48981c041f902df0afa4f2dd358ef78b9e3ec15822fff81851a549cd36c2",
+    "src/runtime/mtp_device_internal.cpp": "ec05f2690f716da9dc0e22042f812107d18879e3d032db5a9528932c0efacfaa",
+    "src/runtime/mtp_verify_internal.cpp": "69af74862d7ec602f73088499dc37bd275503f59a81d3200ce5b0173c01d6659",
+    "src/runtime/mtp_control.cpp": "2c92c7bf5f1b3880a3267d5e0e44a05753cea140b19d39b362787151642170a1",
+    "docs/MTP_ADMISSION.md": "4b2ae6d93927ebf5d1c1bfd29cd051562d04208debe19a9ff9044595a6d1c853",
+    ".q3x-work/mtp-first-prefix-assessment-20261020/assess.py": "61df5115955fb08f74b70cf49df3f2a080699d509e1e356d875962de50a2c9db"
+  },
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_achieved": false
+}
