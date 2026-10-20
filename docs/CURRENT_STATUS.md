@@ -126,7 +126,26 @@ Independent executable-only package implementation and [host admission](metadata
 does not inherit the frozen candidate ELF's qualification; both installed
 artifacts still require the [package delivery checks](metadata/qwen36-27b-mtp-package-design-2026-10-20.json).
 The ordinary non-MTP release and default non-installable candidate remain
-unchanged. No installed MTP performance result is claimed yet.
+unchanged. The [clean installed API composition](metadata/qwen36-27b-mtp-package-api-2026-10-20.json)
+now passes all 16 responses, complete output IDs, physical verification work,
+auth/input checks, Prefill/Decode cancellation recovery and normal exit. Both
+packages bind clean source `65e13db`; the record pins their distinct hashes.
+The [final installed performance protocol](metadata/qwen36-27b-mtp-installed-repeat-design-2026-10-20.json)
+is active, followed only on success by the [bounded remaining delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json).
+No independent installed speedup or completed delivery claim follows yet.
+
+These installed API observations are one process per cap. Prefill includes
+draft initialization; TTFT and total are external.
+
+| Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 65 / 16 | 0.894 | 72.68 | 0.913 | 14.385 | 1.956 |
+| 2 | 8192 / 256 | 17.299 | 473.56 | 17.321 | 15.922 | 33.337 |
+| 2 | 40000 / 256 | 92.601 | 431.96 | 92.636 | 12.003 | 113.882 |
+| 3 | 65 / 16 | 0.895 | 72.61 | 0.914 | 15.289 | 1.895 |
+| 3 | 8192 / 256 | 17.329 | 472.73 | 17.351 | 15.943 | 33.346 |
+| 3 | 40000 / 256 | 92.562 | 432.14 | 92.597 | 12.015 | 113.822 |
+
 
 ### Preceding v127 direction and lifecycle evidence
 

@@ -71,9 +71,13 @@ The [package design](metadata/qwen36-27b-mtp-package-design-2026-10-20.json)
 activates fixed-cap executable-only build/install implementation. The
 [host admission](metadata/qwen36-27b-mtp-package-host-2026-10-20.json) now passes
 both builds, four CTests per cap and negative configuration/manifest checks.
-Next freeze clean-source installed artifacts and run the exact installed API, affected capacity,
-capability, resource/restart and final matched performance gates. Do not
-transfer the frozen candidate's timing or v122 sustained result to a new ELF.
+Clean source `65e13db` installed artifacts now pass the
+[two-cap API/lifecycle panel](metadata/qwen36-27b-mtp-package-api-2026-10-20.json).
+Stop integration collection. Execute the [six-process installed performance gate](metadata/qwen36-27b-mtp-installed-repeat-design-2026-10-20.json),
+then only on success the [eight-process remaining delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json):
+both-cap public capability, full capacity, two-hour sustained reuse and fresh
+restart. These are explicit completion gates, not a new optimization campaign.
+Do not transfer the frozen candidate's timing or v122 sustained result to a new ELF.
 
 ## 2026-10-20 startup FP8 input composition — closed below API floor
 

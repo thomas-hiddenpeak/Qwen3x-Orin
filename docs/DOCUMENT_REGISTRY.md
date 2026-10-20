@@ -675,3 +675,7 @@ The [MTP package host admission](metadata/qwen36-27b-mtp-package-host-2026-10-20
 closes both-cap executable-only build/install checks and advances the existing
 Roadmap to clean-source installed API qualification. No Markdown paths/classes
 change; dirty-source test installations have no real-model qualification.
+
+The [installed MTP API completion](metadata/qwen36-27b-mtp-package-api-2026-10-20.json)
+updates existing Current Status/Roadmap to the independent installed performance
+gate and bounded remaining delivery protocol. No Markdown paths or classes change.
