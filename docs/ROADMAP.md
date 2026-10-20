@@ -19,6 +19,20 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 MTP sustained service — active delivery validation
+
+The [bounded sustained-service protocol](metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json)
+selects one two-hour P513/O16 reuse process per frozen v122 cap, followed by
+fresh-process recovery. Extend the existing MTP driver with exact native
+response checks, repeated full output-ID equality and resource plateau gates;
+validate its failure handling before running the real model. Capacity and
+capability panels are already complete and are not repeated here.
+
+This closes a delivery obligation, not the cap 2 short-performance gap. That
+gap and final independent performance selection remain required. No runtime
+optimization or concurrent heavy workload runs during sustained measurement;
+ordinary production and all numerical contracts remain unchanged.
+
 ## 2026-10-20 MTP capacity — complete for both caps
 
 The [capacity protocol](metadata/qwen36-27b-mtp-capacity-design-2026-10-20.json)

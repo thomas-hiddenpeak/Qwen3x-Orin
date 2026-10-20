@@ -1,0 +1,42 @@
+{
+  "work_package_id": "WP-MTP-SUSTAINED-20261020",
+  "source_parent": "ab7535c",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "Finish bounded sustained-service validation for both sealed v122 draft caps while preserving exact output, capacity, reserve and the outstanding cap2 short >=1.5x performance requirement.",
+  "scope": "One fresh process per cap, serialized cap2 then cap3; exact frozen capacity-qualified binaries. No repeated capacity/capability panel. This is reliability evidence, not final performance selection or production promotion.",
+  "protocol": {
+    "body_source": ".q3x-work/softmax-package-20261014/patch/results.json:soak-baseline",
+    "prompt": 513,
+    "output": 16,
+    "warmup_requests": 8,
+    "measured_seconds_minimum": 7200,
+    "measured_requests_minimum": 200,
+    "inter_request_idle_seconds": 1,
+    "resource_sample_every_requests": 10,
+    "rss_growth_kib_max": 262144,
+    "fd_growth_max": 4,
+    "thread_growth_max": 1
+  },
+  "gates": [
+    "Fresh existing Jetson preflight and successful cache preparation; no foreign GPU ownership, >90C operational stop; sanitize incidental fan fields.",
+    "Complete historical native request/text/usage/finish/DONE match every request; full output token IDs equal first MTP request on every reuse. Native historical IDs absent.",
+    "Audit complete route/resource/physical-work receipt for every request; report paired Prefill/TTFT/Decode/total, not a speed selection.",
+    "Record GPU clocks during sustained requests, bounded resource plateau after warmup, health, normal shutdown and key removal.",
+    "Fresh restart after each completed soak checks same response and token IDs; no reliability pass before restart."
+  ],
+  "implementation": "Extend existing MTP validation driver with explicit sustained-only mode; host negative tests for response drift, token drift, insufficient reuse and resource growth. Reuse process cleanup and telemetry.",
+  "stop": "Actual failure retains partial evidence and selects one explicit repair; no blind reruns or runtime optimization during GPU measurement.",
+  "remaining": "Cap2 short speed implementation and final repeated selection/installation remain open; ordinary nonMTP unchanged.",
+  "servers": {
+    "2": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap2",
+      "sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f"
+    },
+    "3": {
+      "path": ".q3x-work/mtp-eos-frontier-20261020/server-cap3",
+      "sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e"
+    }
+  },
+  "driver_sha256": "9a88f26e20ce0aae95bb402b55599bb17142664af842f02daf0957de58a44456",
+  "host_validation": "18 unit tests pass (sustained negative controls, capability and document control); no real-model sustained pass claimed."
+}

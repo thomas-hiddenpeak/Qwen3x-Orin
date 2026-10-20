@@ -184,6 +184,71 @@ def capability_panel(client, cases, reference, baseline, out, receipt_validator)
     return summary
 
 
+def soak_panel(client, baseline, out, pid, seconds, receipt_validator, token_reader):
+    """Sustained reuse only; native response oracle and same-process ID stability."""
+    q.require(seconds >= 7200, 'sustained panel requires at least 7200 seconds')
+    q.require(baseline['usage'] == dict(prompt_tokens=513, completion_tokens=16,
+                                      total_tokens=529), 'sustained baseline shape')
+    expected_ids = None
+    metrics = []
+
+    def request(index):
+        nonlocal expected_ids
+        result = client.request(baseline['body'], baseline['endpoint'], f'soak-{index}')
+        for key in ('request_sha256', 'text', 'usage', 'finish', 'done'):
+            q.require(result[key] == baseline[key], 'sustained native mismatch ' + key)
+        rows = receipt_validator(result)
+        ids = token_reader(result)
+        q.require(len(ids) == 16, 'sustained token coverage')
+        if expected_ids is None: expected_ids = ids
+        q.require(ids == expected_ids, 'sustained token drift')
+        metrics.extend(rows)
+        return result
+
+    request('baseline')
+    for index in range(8): request(f'warmup-{index}')
+    snapshots = [q.resource_snapshot(pid)]
+    started = time.monotonic(); iterations = 0
+    while time.monotonic() - started < seconds:
+        request(iterations); iterations += 1
+        time.sleep(1)
+        if iterations % 10 == 0:
+            snapshots.append(q.resource_snapshot(pid)); client.health()
+            q.save(out / 'resources.json', snapshots)
+            q.save(out / 'soak-progress.json', dict(requests=iterations,
+                   elapsed_s=time.monotonic()-started, complete=False))
+            print(f'sustained {iterations} requests; {int(time.monotonic()-started)}s', flush=True)
+    elapsed = time.monotonic() - started
+    snapshots.append(q.resource_snapshot(pid)); client.health()
+    q.save(out / 'resources.json', snapshots)
+    q.save(out / 'soak-metrics.json', metrics)
+    growth = {key: snapshots[-1][key]-snapshots[0][key]
+              for key in ('rss_kib', 'fds', 'threads')}
+    q.require(iterations >= 200, 'insufficient sustained request reuse')
+    q.require(growth['rss_kib'] <= 256*1024, 'sustained RSS growth')
+    q.require(growth['fds'] <= 4, 'sustained FD growth')
+    q.require(growth['threads'] <= 1, 'sustained thread growth')
+    summary = dict(requests=iterations, elapsed_s=elapsed, growth=growth,
+                   generated_token_ids=expected_ids, inter_request_idle_seconds=1,
+                   complete=True, fresh_restart_required=True)
+    q.save(out / 'soak-summary.json', summary)
+    return summary
+
+
+def wait_mtp_tokens(out, result):
+    deadline = time.monotonic() + 5
+    while True:
+        for line in (out / 'server.log').read_text().splitlines():
+            if not line.startswith('{'): continue
+            try: witness = json.loads(line)
+            except json.JSONDecodeError: continue
+            if (witness.get('schema') == 'mtp-multirow-api-witness-v1' and
+                    witness.get('request_id') == result['request_id']):
+                return witness['generated_token_ids']
+        q.require(time.monotonic() < deadline, 'missing sustained receipt')
+        time.sleep(.05)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', type=Path, required=True)
@@ -196,6 +261,8 @@ def main():
     parser.add_argument('--reference-results', type=Path)
     parser.add_argument('--sealed-candidate', action='store_true',
                         help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
+    parser.add_argument('--soak-seconds', type=int, default=0,
+                        help='Sustained-only P513/O16 panel; minimum 7200 seconds')
     parser.add_argument('--control-pid', type=int, action='append', default=[])
     args = parser.parse_args(); out = args.output.resolve()
     q.require(out.is_relative_to(q.ROOT / '.q3x-work'), 'output must be under .q3x-work')
@@ -203,8 +270,13 @@ def main():
     q.require(not args.sealed_candidate or args.draft_length is not None, 'sealed candidate requires expected draft cap')
     q.require(bool(args.capability_cases) == bool(args.reference_results), 'capability cases and reference must be paired')
     q.require(not args.capability_cases or args.sealed_candidate, 'capability panel requires sealed candidate')
+    q.require(args.soak_seconds == 0 or (args.soak_seconds >= 7200 and args.sealed_candidate
+              and not args.capability_cases), 'invalid sustained-only configuration')
     out.mkdir(parents=True, exist_ok=False)
     q.preflight(out, args.control_pid)
+    if args.soak_seconds:
+        q.require(json.loads((out / "cache-preparation.json").read_text())["rc"] == 0,
+                  "sustained cache preparation failed")
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
     q.PROFILE = (f'q3x.sm87.candidate.mtp-eos-frontier-cap{args.draft_length}.v122' if args.sealed_candidate
@@ -218,7 +290,8 @@ def main():
         p = out / name; p.mkdir(parents=True, exist_ok=True); env[k] = str(p)
     q.save(out / 'identity.json', {'command': cmd, 'binary_sha256': q.digest(args.server),
            'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate,
-           'panel': 'capability' if args.capability_cases else 'integration',
+           'panel': 'sustained' if args.soak_seconds else 'capability' if args.capability_cases else 'integration',
+           'soak_seconds': args.soak_seconds,
            'capability_cases_sha256': q.digest(args.capability_cases) if args.capability_cases else None,
            'reference_results_sha256': q.digest(args.reference_results) if args.reference_results else None,
            'baseline_results_sha256': q.digest(args.baseline / 'results.json') if args.baseline else None,
@@ -232,10 +305,15 @@ def main():
     temperatures = []; errors = []
     def telemetry():
         try:
-            with (out / 'telemetry.log').open('w') as stream:
+            with (out / 'telemetry.log').open('w') as stream, (out / 'clocks.jsonl').open('w') as clocks:
                 for line in monitor.stdout:
                     line = re.sub(r'\b\S*fan\S*\s+\S+', '', line, flags=re.I)
                     stream.write(line); stream.flush()
+                    if args.soak_seconds:
+                        sample = {'time': time.monotonic()}
+                        for name in ('min_freq', 'max_freq', 'cur_freq'):
+                            sample['gpu_' + name] = int(Path('/sys/class/devfreq/17000000.gpu', name).read_text())
+                        clocks.write(json.dumps(sample) + '\n'); clocks.flush()
                     values = [float(x) for x in re.findall(r'@([\d.]+)C', line)]; temperatures.extend(values)
                     if values and max(values) > 90: raise RuntimeError('thermal stop >90C')
         except Exception as error:
@@ -253,7 +331,15 @@ def main():
         if args.sealed_candidate:
             q.require(health['q3x_production']['BUILD_TESTING'] is False, 'sealed candidate contains testing identity')
         q.save(out / 'health.json', health); print('ready', flush=True)
-        if args.capability_cases:
+        if args.soak_seconds:
+            baseline = next(r for r in json.loads((args.baseline / 'results.json').read_text())
+                            if r['label'] == 'soak-baseline')
+            def validate_soak(result):
+                wait_mtp_tokens(out, result)
+                return audit(out, [result], args.draft_length, q.PROFILE, require_lifecycle=False)
+            soak_panel(client, baseline, out, server.pid, args.soak_seconds, validate_soak,
+                       lambda result: wait_mtp_tokens(out, result))
+        elif args.capability_cases:
             capability_panel(client, json.loads(args.capability_cases.read_text()),
                              json.loads(args.reference_results.read_text()),
                              json.loads((args.baseline / 'results.json').read_text()), out,
@@ -304,7 +390,7 @@ def main():
             for r in client.records:
                 if r['label'] in ('p65-nonstream', 'after-prefill-cancel', 'after-decode-cancel'):
                     for k in ('text', 'usage', 'finish'): q.require(r[k] == base[k], 'stream/recovery mismatch ' + k)
-        if args.baseline:
+        if args.baseline and not args.soak_seconds:
             before = {r['label']: r for r in json.loads((args.baseline / 'results.json').read_text())}
             for result in client.records:
                 for k in ('request_sha256', 'text', 'usage', 'finish', 'done'):
@@ -321,7 +407,7 @@ def main():
                                     'errors': errors, 'max_temperature': max(temperatures) if temperatures else None})
     q.require(success and server.returncode == 0 and not errors, 'run/cleanup failure')
     if args.draft_length: audit(out, client.records, args.draft_length, q.PROFILE,
-                               require_lifecycle=not args.capability_cases)
+                               require_lifecycle=not (args.capability_cases or args.soak_seconds))
     print('integration checks passed', flush=True)
 
 
