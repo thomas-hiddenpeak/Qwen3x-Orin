@@ -86,16 +86,26 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-The [cap 2 sustained and fresh-restart panel](metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json)
-passes 7,201 seconds and 1,907 measured P513/O16 requests. All 1,916 responses
-including baseline/warmups preserve the native response contract and full MTP
-output IDs; fresh-process recovery is exact and both processes exit normally.
-RSS grows 1,604 KiB, with no FD/thread growth; maximum temperature is 77.343 C.
-Measured medians: Prefill 1.631s (314.52 token/s), TTFT 1.650s, Decode
-14.431 token/s and complete request 2.689s. Decode ranges 14.271–14.439 token/s.
-These are sustained-reuse observations, not independent speed selection. Cap 3
-sustained/restart remains in progress, and cap 2 short still misses 1.5x.
+The [completed two-cap sustained and fresh-restart panel](metadata/qwen36-27b-mtp-sustained-complete-2026-10-20.json)
+passes two hours per frozen v122 cap, followed by independent fresh-process
+recovery. Cap 2 completes 1,907 measured requests in 7,201 seconds; cap 3
+completes 1,911 in 7,204 seconds. All 3,838 responses including baselines,
+warmups and restarts match the full native response contract. Full MTP output
+IDs match throughout and between caps; native historical IDs are unavailable.
+All four processes exit normally. RSS grows 1,604/2,784 KiB for caps 2/3,
+with no FD/thread growth; maximum temperatures are 77.343/76.062 C.
 
+Measured P513/O16 medians follow; these are sustained-reuse observations,
+not independent speed selection. Prefill includes draft initialization.
+
+| Cap | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 1.631 | 314.52 | 1.650 | 14.431 | 2.689 |
+| 3 | 1.628 | 315.10 | 1.647 | 14.441 | 2.685 |
+
+Decode ranges are 14.271–14.439 and 14.321–14.446 token/s respectively.
+This closes bounded sustained/restart validation. Cap 2 short still misses
+1.5x; final independent selection and delivery qualification remain open.
 
 The [completed two-cap capacity panel](metadata/qwen36-27b-mtp-capacity-complete-2026-10-20.json)
 passes P40000/O4096, P44095/O1, P44095/O2 rejection and short recovery with normal

@@ -25,24 +25,23 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
-## 2026-10-20 MTP sustained service — active delivery validation
+## 2026-10-20 MTP sustained service — complete; short-cap2 performance next
 
-The [bounded sustained-service protocol](metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json)
-selects one two-hour P513/O16 reuse process per frozen v122 cap, followed by
-fresh-process recovery. The MTP driver now checks exact native responses,
-repeated full output-ID equality and resource plateau gates.
-The [restart driver](metadata/qwen36-27b-mtp-sustained-restart-driver-2026-10-20.json)
-now rejects incomplete prior runs, binary/cap mismatches and output drift in
-host checks. The [cap 2 sustained and restart result](metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json)
-passes 7,201 seconds and 1,907 measured requests, complete output-ID equality,
-resource plateau and normal shutdown, followed by exact fresh-process recovery.
-Cap 3 is now running the byte-identical frozen driver; its restart remains pending.
-Capacity and capability panels are already complete and are not repeated here.
+The [completed two-cap sustained and restart record](metadata/qwen36-27b-mtp-sustained-complete-2026-10-20.json)
+closes the [bounded protocol](metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json)
+on both frozen v122 binaries. Cap 2 completes 7,201 seconds/1,907 measured
+requests; cap 3 completes 7,204 seconds/1,911. Every response preserves the
+native response contract and full MTP token sequence, including cross-cap and
+fresh-process recovery. All four processes exit normally with bounded resource
+growth. Current Status owns paired metrics and reference limitations.
 
-This closes a delivery obligation, not the cap 2 short-performance gap. That
-gap and final independent performance selection remain required. No runtime
-optimization or concurrent heavy workload runs during sustained measurement;
-ordinary production and all numerical contracts remain unchanged.
+Stop sustained collection: capability, capacity and this reliability panel are
+complete. The next implementation must close cap 2's short-context >=1.5x
+phase budget using a materially different architecture and an immediate real
+API return. Preserve the closed negative lineages; no parameter scan is
+selected. Final independent performance selection and delivery/installation
+qualification remain open. Neither this reliability pass nor cap 3's retained
+performance closes the cap 2 gap or changes ordinary non-MTP production.
 
 ## 2026-10-20 MTP capacity — complete for both caps
 

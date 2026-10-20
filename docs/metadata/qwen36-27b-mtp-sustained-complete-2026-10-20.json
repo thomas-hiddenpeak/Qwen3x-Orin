@@ -1,0 +1,266 @@
+{
+  "work_package_id": "WP-MTP-SUSTAINED-20261020",
+  "parent_protocol": "docs/metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json",
+  "source_parent": "f7346f0",
+  "scope": "Both frozen v122 caps pass two-hour reuse and independent fresh-process recovery; bounded reliability only. No new independent speed selection or production promotion.",
+  "cap2_record": "docs/metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json",
+  "cap3_sustained": {
+    "cap": 3,
+    "scope": "Two-hour sustained request reuse only. Fresh restart remains required; no performance selection or production promotion.",
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "--port",
+        "18872",
+        "--api-key-file",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/cap3/api-key"
+      ],
+      "binary_sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+      "draft_length": 3,
+      "sealed_candidate": true,
+      "panel": "sustained",
+      "soak_seconds": 7200,
+      "capability_cases_sha256": null,
+      "reference_results_sha256": null,
+      "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+      "driver_sha256": "9a88f26e20ce0aae95bb402b55599bb17142664af842f02daf0957de58a44456",
+      "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "a0ade6f1e3a5cf61305e56320b83fc16906f30e0",
+      "scope": "whole-service multi-row MTP direction; no release authority"
+    },
+    "summary": {
+      "requests": 1911,
+      "elapsed_s": 7203.5396755289985,
+      "growth": {
+        "rss_kib": 2784,
+        "fds": 0,
+        "threads": 0
+      },
+      "generated_token_ids": [
+        321,
+        51790,
+        13,
+        1510,
+        11591,
+        80,
+        18,
+        87,
+        27686,
+        14,
+        63,
+        369,
+        15865,
+        56497,
+        321,
+        26554
+      ],
+      "inter_request_idle_seconds": 1,
+      "complete": true,
+      "fresh_restart_required": true
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 76.062
+    },
+    "measured_metrics": {
+      "prefill_s": {
+        "min": 1.6272050809999998,
+        "median": 1.628038419,
+        "max": 1.7056617890000003
+      },
+      "prefill_tps": {
+        "min": 300.7630254182823,
+        "median": 315.10312902511424,
+        "max": 315.26450229908056
+      },
+      "ttft_s": {
+        "min": 1.645632973057218,
+        "median": 1.6466284830821678,
+        "max": 1.7248352160677314
+      },
+      "decode_tps": {
+        "min": 14.32114791539194,
+        "median": 14.440549557602163,
+        "max": 14.445828686551645
+      },
+      "elapsed_s": {
+        "min": 2.684019381995313,
+        "median": 2.6853369509335607,
+        "max": 2.7722649690695107
+      }
+    },
+    "resource_first": {
+      "time": 578932.072689118,
+      "rss_kib": 51664460,
+      "threads": 8,
+      "fds": 46
+    },
+    "resource_last": {
+      "time": 586135.613271541,
+      "rss_kib": 51667244,
+      "threads": 8,
+      "fds": 46
+    },
+    "hashes": {
+      "identity.json": "c31b0149cc4791f7f41e3ddc3fb21c1e5231f3c783a419f6363fe08b479739ad",
+      "results.json": "c5ef6e2ff21c01e09019fab4cac549057c3e6b137a39bedf7cad86b62ce5b213",
+      "audited-metrics.json": "f53c025b6a477a215841a6b100748f85b6d572679033916277c1427d63f8c1e2",
+      "soak-summary.json": "1efc19b3b237b1168f4da8150f779b3111267cc4951b22a2cfbae808d4421a5b",
+      "resources.json": "153e3c4c7011028772921635e40c3a0ff919204b556951ae8d5316b7b63ef7b6",
+      "server.log": "bf60a578a981ac755f719b37104cda83fc8094e50c9da5f0cdd48eeec11c4b16",
+      "clocks.jsonl": "9f25c2468c67db1e6e0348e9183943b5164e1b770c70b4d41489dbafaf31bf65",
+      "cleanup.json": "2d66ef41bf9da4815c865c89318138087292be7ece1e9653fd2b99fe7088681e",
+      "cache-preparation.json": "cd7eacc5524ec55efe559b7c5f8cfbac12f6cf57fa8600f07775765b2d88f7a6",
+      "preflight.json": "3fae3dd70274dcc31de66fe283ec92c32172049adeea4fb80644693b0bed1c35"
+    }
+  },
+  "cap3_restart": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap3",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "--port",
+        "18872",
+        "--api-key-file",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/restart-cap3/api-key"
+      ],
+      "binary_sha256": "ed8620388699a50f9824d495703ac8df8a5d042ba5db2bc95cd7844ee9df239e",
+      "draft_length": 3,
+      "sealed_candidate": true,
+      "panel": "restart",
+      "soak_seconds": 0,
+      "restart_from": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/cap3",
+      "prior_soak_sha256": "1efc19b3b237b1168f4da8150f779b3111267cc4951b22a2cfbae808d4421a5b",
+      "capability_cases_sha256": null,
+      "reference_results_sha256": null,
+      "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+      "driver_sha256": "8dbf2ae6d7f33d2f01953b1413f65ad32163ec3a940f0c1f5662b0afc0f48607",
+      "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "f7346f061d00ac97505c8afeca156174b16a925c",
+      "scope": "whole-service multi-row MTP direction; no release authority"
+    },
+    "summary": {
+      "output_ids_equal": true,
+      "metrics": [
+        {
+          "label": "soak-baseline",
+          "prompt": 513,
+          "output": 16,
+          "prefill_s": 1.630726701,
+          "prefill_tps": 314.58367590683116,
+          "ttft_s": 1.6498302849940956,
+          "elapsed_s": 2.6903991739964113,
+          "decode_tps": 14.414392445668305,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_free_bytes": 9965281280,
+            "prompt_rows": 513,
+            "draft_prefill_rows": 512,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 11,
+            "accepted": 8,
+            "verified_rows": 18,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              5,
+              3,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              1,
+              5,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 11,
+            "draft_ordered_attention_steps": 11,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 816,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 17,
+            "graph_qk_updates": 96,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 3,
+            "tail_kv_rows": 6,
+            "state_copy_bytes_elided": 1836059648,
+            "draft_initialization_ms": 36.127619,
+            "draft_ms": 80.123695,
+            "verify_ms": 942.01698,
+            "reconcile_ms": 18.131090999999998,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "generated_token_ids": [
+        321,
+        51790,
+        13,
+        1510,
+        11591,
+        80,
+        18,
+        87,
+        27686,
+        14,
+        63,
+        369,
+        15865,
+        56497,
+        321,
+        26554
+      ],
+      "scope": "Fresh-process output recovery only; requires normal cleanup"
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.843
+    },
+    "hashes": {
+      "identity.json": "d7830d06d75dccb28224f15abc3e1bd1431382e89f3f4be2c4f10b56ce27ccc6",
+      "results.json": "cb96e61c5305a50e794d0556d72a4300eba002f2eb8f911f429ef312dcaab9e0",
+      "audited-metrics.json": "293d5bdd9171dd17c3946844b8659abe80abbd7177718cfbfb8133ab4ebb1b6a",
+      "restart-summary.json": "e1f9157e6fcdc90f4f0e0dad8d12e3d93ec6b8be52db2c330628576e5451e8ad",
+      "cleanup.json": "af6d2f03fd8f4750812d53fc45b80439ac12c695d89637c999b2d71a64759305",
+      "cache-preparation.json": "2cf4e8f55595c76ca2503e366971030f66880a4ce4570cf365877e27c7673183",
+      "preflight.json": "09936125e96c9df06f9368388ee23810bec48d3e61645362bd071a513bead803",
+      "server.log": "12f021e90c08ce067f3f22e13bf9224961b8d7069a7b6f6eb44d358287fa8497"
+    }
+  },
+  "independent_completion_audit": {
+    "cap2_responses": 1916,
+    "cap3_responses": 1920,
+    "fresh_restart_responses": 2,
+    "native_response_contract": "All 3838 responses match request SHA, full text, usage, finish and DONE. Native historical token IDs unavailable.",
+    "mtp_token_contract": "Every sustained response full token sequence equals its baseline and cross-cap sequence; both fresh restarts exact.",
+    "process_cleanup": "All four server return codes zero, success true, no monitor errors, keys removed; orchestration completed.",
+    "note": "soak-progress.json is an interim every-ten-requests snapshot and remains complete=false; final soak-summary.json and final audited-metrics.json govern completion."
+  },
+  "remaining": [
+    "Cap2 short-context >=1.5x implementation",
+    "Final independent repeated API performance selection",
+    "Delivery/installation qualification"
+  ],
+  "goal_complete": false,
+  "production_eligible": false
+}
