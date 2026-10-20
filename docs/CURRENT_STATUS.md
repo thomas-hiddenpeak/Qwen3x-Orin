@@ -87,22 +87,27 @@ are external. Each row is one observation, with 60-second capacity spacing.
 ## MTP development status
 
 The default-off [v127 complete GDN owner composition](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
-passes native complete state/logit/draft-KV admission and its first sealed cap 2
-API return. It combines startup FP8 input ownership with selected GDN prefix
+passes native complete state/logit/draft-KV admission and the first sealed API
+return for both caps; the [cap 3 result](metadata/qwen36-27b-mtp-gdn-owner-cap3-direction-2026-10-20.json)
+completes the same three-bucket direction panel. It combines startup FP8 input ownership with selected GDN prefix
 storage; every committed token receipts that ownership. All three requests
 preserve full output IDs, response semantics and physical verification work.
-Startup free memory is 12,186,071,040 bytes; normal exit and thermal checks pass.
+Cap 2 startup free memory is 12,186,071,040 bytes; normal exit and thermal
+checks pass for both artifacts.
 
 | Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 2 | 65 / 16 | 0.89337 | 72.76 | 0.91202 | 14.398 | 1.95380 |
 | 2 | 8192 / 256 | 17.37361 | 471.52 | 17.39530 | 15.936 | 33.39714 |
 | 2 | 40000 / 256 | 92.52087 | 432.33 | 92.55642 | 12.030 | 113.75438 |
+| 3 | 65 / 16 | 0.89404 | 72.70 | 0.91279 | 15.281 | 1.89430 |
+| 3 | 8192 / 256 | 17.28945 | 473.81 | 17.31121 | 15.922 | 33.32732 |
+| 3 | 40000 / 256 | 92.56806 | 432.11 | 92.60288 | 12.000 | 113.85471 |
 
 Prefill includes draft initialization; TTFT and total are external. These are
 single-process direction observations. Short Decode is 1.50092x the frozen
 same-request non-MTP comparator, only 0.00883 token/s above the gate; stable
-1.5x remains unproven. Cap 3, affected ownership lifecycle/resource checks and
+1.5x remains unproven. Affected ownership lifecycle/resource checks and
 independent selection remain open. The retained default candidate is still
 v122; this opt-in composition changes neither ordinary non-MTP production nor
 installation, and does not complete the full goal.

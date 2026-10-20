@@ -1,0 +1,23 @@
+{
+  "parent": "qwen36-27b-mtp-gdn-owner-lifecycle-design-2026-10-20.json",
+  "status": "protocol_repair_before_remaining_checks",
+  "reason": "Same-process owner reconstruction was an additional harness assumption. Three retained native attempts passed normal destruction/scalar continuation but stopped at unchanged8GiB preallocation gate. Instrumentation confirmed cudaFree success; freed pointer is unregistered and a no-model same-size allocation/free calibration reproduces delayed free-memory recovery. This does not prove a model allocation leak or justify weakening the reserve.",
+  "source_reference": "https://forums.developer.nvidia.com/t/cudamalloc-killed-on-tx2-and-the-memory-can-not-be-cudafree-real/63274",
+  "inference_limit": "NVIDIA describes retained freed CUDA memory on Tegra; this supports, but does not alone prove, the current-host cause. Local calibration and API return are retained separately.",
+  "repair": "One fresh process per normal/active destruction or constructor failure stage1..5, preserving8GiB reserve and all full-state/physical-view/poison/reset checks. Each constructor failure additionally verifies scalar recovery within its surviving runner. Independent service restart is the product recovery boundary; same-process MTP-owner reconstruction remains unqualified and may fail closed at the reserve guard.",
+  "remaining_runs": [
+    "normal",
+    "active",
+    "failure1",
+    "failure2",
+    "failure3",
+    "failure4",
+    "failure5",
+    "API lifecycle cap2",
+    "API lifecycle cap3"
+  ],
+  "architecture_changed": false,
+  "accuracy_or_reserve_relaxed": false,
+  "artifact_root": ".q3x-work/mtp-gdn-owner-20261020",
+  "goal_achieved": false
+}

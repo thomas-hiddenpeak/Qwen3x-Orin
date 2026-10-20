@@ -1,0 +1,17 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-20261020",
+  "architecture_candidate_id": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "decision_unit": "architecture_candidate",
+  "scope": "Affected ownership lifecycle after positive cap2 API; no architecture variant or parameter scan.",
+  "native_panel": [
+    "Normal owner destruction from a selected complete prefix: all state/logits preserved, physical views restored, scalar continuation exact.",
+    "Active transaction destruction: drain and poison, physical bindings restored, complete GDN zero after full reset, exact Prefill recovery.",
+    "Five constructor fault checkpoints: device capsule, pinned capsule, startup input owner, GDN Graphs, complete verifier Graphs; complete state unchanged, no CUDA failure, physical bindings restored.",
+    "Successful reconstruction and normal destruction after all injected failures."
+  ],
+  "fault_hooks": "Only Q3X_MTP_WHOLE_CORE_TEST plus Q3X_ENABLE_MTP_GDN_OWNER; absent from sealed service.",
+  "resource_evidence": "Record cudaMemGetInfo before/after as context on shared-memory Jetson, not exact byte leak proof; successful reconstruction must retain8GiB reserve.",
+  "api_panel": "Same v127 sealed caps; exact full baseline responses/work for short/8K/40K, then bounded auth/input, Prefill and Decode cancellation/recovery on both caps. Independent selection follows.",
+  "artifact_root": ".q3x-work/mtp-gdn-owner-20261020",
+  "goal_achieved": false
+}

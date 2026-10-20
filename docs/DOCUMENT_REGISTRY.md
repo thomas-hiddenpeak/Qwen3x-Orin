@@ -642,3 +642,10 @@ The [v127 cap 2 API direction](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-
 passes its immediate short and long-context gates. Existing Current Status,
 MTP and Roadmap record bounded opt-in retention with cap 3, ownership lifecycle
 and independent selection pending. No Markdown paths or classifications change.
+
+
+The [v127 cap 3 direction](metadata/qwen36-27b-mtp-gdn-owner-cap3-direction-2026-10-20.json)
+completes both-cap initial API returns. The bounded lifecycle design and its
+explicit process-boundary repair preserve failed attempts and the unchanged
+8-GiB reserve. Existing paths/classes remain unchanged; lifecycle and independent
+performance selection are still pending.

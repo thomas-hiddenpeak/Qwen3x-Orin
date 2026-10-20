@@ -39,11 +39,11 @@ follows from the prerequisite. The design bounds it to two further milestones.
 The [indirect-input prerequisite](metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json)
 now passes twelve complete state/output comparisons, nine changing-pointer
 Graph replays, four exact-alias cases, invalid zero-enqueue and guard checks,
-and bounded memcheck with zero errors. This closes milestone 1 only. The next
-work is complete ownership integration plus native admission, followed by the
-already-declared immediate composed API gate; no further isolated measurement.
+and bounded memcheck with zero errors. This closed milestone 1; the complete
+integration and API returns below close its original composition deadline.
+No further isolated measurement is selected.
 
-The v127 integration is now in progress behind a default-off build option;
+The v127 integration is implemented behind a default-off build option;
 retained candidate selection remains v122. The complete selected-storage
 exception is specified in [Request State](REQUEST_STATE.md#isolated-v127-selected-gdn-ownership)
 and the runner/system contracts. The [native admission](metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json)
@@ -51,8 +51,14 @@ now passes complete P65 state/logit/draft-KV and EOS/cancel/failure checks.
 Milestones 2 and 3 are complete: the
 [cap 2 API return](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)
 passes P65/O16 at 14.398 Decode token/s and both 8K/40K regression gates with
-exact output/work. Retain the default-off composition for cap 3, affected
+exact output/work. The [cap 3 API return](metadata/qwen36-27b-mtp-gdn-owner-cap3-direction-2026-10-20.json)
+also passes all three buckets. Retain the default-off composition for affected
 ownership lifecycle/resource checks and independent performance selection.
+The [lifecycle protocol](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-design-2026-10-20.json)
+has a [recorded process-boundary repair](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-process-repair-2026-10-20.json):
+same-process reconstruction attempts hit the unchanged reserve guard after
+successful CUDA release. Fresh-process fault checks preserve the reserve and
+match the service restart boundary; same-process reconstruction is unqualified.
 The short margin is only 0.00883 token/s; this single process does not establish
 stable >=1.5x. No further isolated measurement or parameter scan is selected. The complete
 API gate remains 14.389333336846462 Decode token/s with exact state/output and
