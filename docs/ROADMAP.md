@@ -19,6 +19,51 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-21 additional MTP Decode gain — active
+
+The owner-authorized [new Decode work package](metadata/qwen36-27b-mtp-decode-next-design-2026-10-21.json)
+freezes the delivered installed v127 packages as the same-cap denominator.
+Stage 1 requires an additional **25%** Decode throughput; stage 2 requires
+an additional **50%**, for both caps 2/3 at P65/O16, P8192/O256 and
+P40000/O256. These targets are relative to current MTP, not the non-MTP
+comparator of the completed milestone below. Stage 1 does not close stage 2.
+Numerical/output/state, capacity and the 8-GiB reserve remain fixed; matched
+same-cap independent repetitions must keep Prefill latency within **2%**.
+Report Prefill, external TTFT, committed Decode and total time together.
+
+The historical median-based planning rates are below. Final selection uses
+prospectively declared mirrored independent processes and the same frozen
+v127 binaries; these rates are neither new observations nor profiler targets.
+
+| Cap | P / O | v127 Decode token/s | Stage 1 +25% | Stage 2 +50% |
+| --- | --- | ---: | ---: | ---: |
+| 2 | 65 / 16 | 14.408 | 18.009 | 21.611 |
+| 3 | 65 / 16 | 15.264 | 19.080 | 22.896 |
+| 2 | 8192 / 256 | 15.946 | 19.932 | 23.919 |
+| 3 | 8192 / 256 | 15.930 | 19.913 | 23.895 |
+| 2 | 40000 / 256 | 12.018 | 15.023 | 18.027 |
+| 3 | 40000 / 256 | 12.009 | 15.012 | 18.014 |
+
+At unchanged work and non-verifier costs, the installed intervals imply about
+22% and 37% less verifier time for these stages. This is budget arithmetic,
+not a feasibility proof. Begin with one fresh installed cap 3 process and two
+bounded Nsight Systems node captures: P65/O16, then P40000/O256 through the
+ordinary API. Compare full outputs, routes and physical work with the installed
+reference. Apply diagnostic host/device policy, including the above-90C stop;
+85C is not an independent veto. Instrumented timings cannot replace the
+unprofiled baseline or select a performance gain.
+
+Close that diagnostic after the two captures and analysis. The next action is
+one named executor composition with an equivalence ledger, actual phase budget,
+resource contract and bounded implementation/API return, or rejection of a
+materially unsupported mechanism. No new mechanism is active yet. Existing
+multi-row weight reuse, K512 input staging, FP8 preswizzle and rejected
+Gate/Up or PV variants are not new designs. No parameter scan or indefinite
+profile campaign is selected. After minimum affected correctness admission,
+return the composition promptly to the real API; reserve broad qualification
+for a positive complete runner. Ordinary non-MTP and the delivered MTP
+artifacts retain their existing status.
+
 ## 2026-10-21 MTP delivery — complete
 
 The [final requirement audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)

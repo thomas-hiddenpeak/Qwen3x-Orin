@@ -1,0 +1,320 @@
+{
+  "date": "2026-10-21",
+  "work_package_id": "WP-MTP-DECODE-NEXT-20261021",
+  "decision_unit": "goal_work_package_with_bounded_T4_diagnostic",
+  "authority": "Owner-authorized new Decode delivery goal and first diagnostic protocol; no new runtime mechanism, numerical identity, performance result or production selection.",
+  "status": "active_goal_profile_first",
+  "source_parent": "39213f1",
+  "goal": {
+    "objective": "Improve real-API committed Decode throughput by an additional 25% in stage 1 and an additional 50% in stage 2 versus the frozen installed v127 MTP baseline, independently for caps 2 and 3 in short, 8K and 40K buckets; preserve numerical, state, output, capacity and resource contracts and jointly report Prefill, TTFT, Decode and total time.",
+    "authorization": "Explicit project-owner acceptance of the staged Decode plan on 2026-10-21; this is a new goal following completed bounded MTP delivery, not a reopening or reinterpretation of its evidence.",
+    "caps": [
+      2,
+      3
+    ],
+    "stages": [
+      {
+        "stage": 1,
+        "minimum_decode_ratio_vs_same_cap_v127": 1.25
+      },
+      {
+        "stage": 2,
+        "minimum_decode_ratio_vs_same_cap_v127": 1.5
+      }
+    ],
+    "coverage": "Every cap/bucket must pass; no averaging across caps or context buckets, and no substitution of another prompt/output workload.",
+    "completion": "Stage 1 is a delivery checkpoint, not completion of stage 2. Completion requires current-state numerical, output, API, resource and exact-installed-artifact evidence for the selected composition plus independent matched performance validation.",
+    "ordinary_nonmtp_default_changed": false
+  },
+  "baseline": {
+    "architecture": "v127 selected GDN ownership plus startup FP8 input ownership",
+    "artifacts": {
+      "2": {
+        "path": ".q3x-work/install/mtp-package-20261020-cap2/bin/qwen3x-mtp-server-cap2",
+        "sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1"
+      },
+      "3": {
+        "path": ".q3x-work/install/mtp-package-20261020-cap3/bin/qwen3x-mtp-server-cap3",
+        "sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1"
+      }
+    },
+    "model": {
+      "repository": "nvidia/Qwen3.6-27B-NVFP4",
+      "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "read_only_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+    },
+    "performance_evidence": "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json",
+    "delivery_evidence": "docs/metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json",
+    "denominator": "The same-cap frozen installed v127 artifact on the same requests. Later intermediate wins do not reset the 25%/50% goal denominator. Non-MTP may remain contextual reporting but is not this goal denominator.",
+    "request_contract": {
+      "concurrency": 1,
+      "temperature": 0,
+      "stream": true,
+      "prefix_or_KV_reuse": false,
+      "truncation": false,
+      "workloads": [
+        {
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "source_response": ".q3x-work/mtp-installed-repeat-20261020/cap3-a/p65.json",
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "prompt_token_ids_u32le_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+          "endpoint": "completions"
+        },
+        {
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "source_response": ".q3x-work/mtp-installed-repeat-20261020/cap3-a/p8192.json",
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "prompt_token_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "endpoint": "completions"
+        },
+        {
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "source_response": ".q3x-work/mtp-installed-repeat-20261020/cap3-a/p40000.json",
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "endpoint": "completions"
+        }
+      ]
+    },
+    "draft_policy": "Compiled caps 2 and 3 with retained output-tail-v119, confidence 0.4 and eos-frontier-v122. Cap 3 is an upper bound, not three proposals in every round; this diagnostic does not change policy."
+  },
+  "planning_budget": {
+    "source": ".q3x-work/decode-plan-20261021/assessment.json",
+    "source_sha256": "774d9fadd95b456f62fd0149dc2f9920a0e973106245cbf61ea2136c7179cd17",
+    "rows": [
+      {
+        "cap": 2,
+        "prompt_tokens": 65,
+        "output_tokens": 16,
+        "baseline_joint_medians": {
+          "prefill_s": 0.8936484004999998,
+          "prefill_tps": 72.73554114493955,
+          "ttft_s": 0.9122382485074922,
+          "decode_tps": 14.407595971229078,
+          "elapsed_s": 1.9532606700086035
+        },
+        "baseline_decode_ms_per_token": 69.4078457,
+        "baseline_verify_fraction": 0.9106458973892824,
+        "stage1_additional25pct_decode_tps": 18.00949496403635,
+        "stage2_additional50pct_decode_tps": 21.611393956843617,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.21962433540125428,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.3660405590020906
+      },
+      {
+        "cap": 2,
+        "prompt_tokens": 8192,
+        "output_tokens": 256,
+        "baseline_joint_medians": {
+          "prefill_s": 17.325139088500002,
+          "prefill_tps": 472.83895073372275,
+          "ttft_s": 17.34726835746551,
+          "decode_tps": 15.945672154268978,
+          "elapsed_s": 33.33937005593907
+        },
+        "baseline_decode_ms_per_token": 62.71294192941176,
+        "baseline_verify_fraction": 0.9069295420696563,
+        "stage1_additional25pct_decode_tps": 19.932090192836224,
+        "stage2_additional50pct_decode_tps": 23.918508231403468,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.22052429733801643,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.3675404955633608
+      },
+      {
+        "cap": 2,
+        "prompt_tokens": 40000,
+        "output_tokens": 256,
+        "baseline_joint_medians": {
+          "prefill_s": 92.6666256735,
+          "prefill_tps": 431.65491399747816,
+          "ttft_s": 92.70171717752237,
+          "decode_tps": 12.018332657652072,
+          "elapsed_s": 113.92097407655092
+        },
+        "baseline_decode_ms_per_token": 83.20645323137255,
+        "baseline_verify_fraction": 0.914197642068691,
+        "stage1_additional25pct_decode_tps": 15.022915822065091,
+        "stage2_additional50pct_decode_tps": 18.027498986478108,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.21877107399602366,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.36461845666003956
+      },
+      {
+        "cap": 3,
+        "prompt_tokens": 65,
+        "output_tokens": 16,
+        "baseline_joint_medians": {
+          "prefill_s": 0.8990879850000002,
+          "prefill_tps": 72.2969289165832,
+          "ttft_s": 0.9178652230184525,
+          "decode_tps": 15.264005149933954,
+          "elapsed_s": 1.900488308048807
+        },
+        "baseline_decode_ms_per_token": 65.51367236666667,
+        "baseline_verify_fraction": 0.8975655830164115,
+        "stage1_additional25pct_decode_tps": 19.080006437417442,
+        "stage2_additional50pct_decode_tps": 22.896007724900933,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.22282494313994106,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.37137490523323524
+      },
+      {
+        "cap": 3,
+        "prompt_tokens": 8192,
+        "output_tokens": 256,
+        "baseline_joint_medians": {
+          "prefill_s": 17.347863038,
+          "prefill_tps": 472.2198869156477,
+          "ttft_s": 17.370258673967328,
+          "decode_tps": 15.930279352252292,
+          "elapsed_s": 33.37777309847297
+        },
+        "baseline_decode_ms_per_token": 62.773553217647056,
+        "baseline_verify_fraction": 0.9066621921071489,
+        "stage1_additional25pct_decode_tps": 19.912849190315363,
+        "stage2_additional50pct_decode_tps": 23.895419028378438,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.22058932394124145,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.3676488732354025
+      },
+      {
+        "cap": 3,
+        "prompt_tokens": 40000,
+        "output_tokens": 256,
+        "baseline_joint_medians": {
+          "prefill_s": 92.69785968049999,
+          "prefill_tps": 431.50948676135965,
+          "ttft_s": 92.73302691749996,
+          "decode_tps": 12.009237181130207,
+          "elapsed_s": 113.96831718349131
+        },
+        "baseline_decode_ms_per_token": 83.26935340392157,
+        "baseline_verify_fraction": 0.9143594232044784,
+        "stage1_additional25pct_decode_tps": 15.011546476412757,
+        "stage2_additional50pct_decode_tps": 18.01385577169531,
+        "stage1_verify_reduction_if_other_costs_fixed": 0.2187323659869735,
+        "stage2_verify_reduction_if_other_costs_fixed": 0.3645539433116226
+      }
+    ],
+    "interpretation": "The current installed verifier interval is about 90%-91% of Decode. At unchanged proposal policy, round count and non-verification costs, 25%/50% total gains require approximately 22%/37% verifier-time reductions. These arithmetic requirements are neither measured candidate gains nor hardware feasibility bounds.",
+    "target_rate_authority": "TPS values multiply the frozen historical joint medians for planning. Final speedup is established by matched independent-process comparison against the same frozen artifact, not by profiler elapsed time or choosing a favorable historical sample."
+  },
+  "invariants": {
+    "numerical": "Preserve exact target finite-precision expressions, FP32 accumulation/reduction order, scale placement, BF16 publication, nonfinite handling, causal attention and all committed recurrent states; private draft approximations retain their existing independent reference qualification.",
+    "state": "Preserve complete prefix KV/Conv/GDN/hidden/full logits and matching position at every observer. v127 typed GDN views must follow selected storage and be reacquired after commit/reset. Abort poisons; successful full reset is required before reuse; fatal service recovery remains fresh-process restart.",
+    "capacity": {
+      "max_prompt_plus_output_minus1": 44095,
+      "min_output_tokens": 1,
+      "max_output_tokens": 4096,
+      "startup_min_free_bytes": 8589934592
+    },
+    "runtime": "No request-time allocations, hidden fallback, route ambiguity, checkpoint mutation, production cuBLASLt, new exported MTP C++ ABI or weakening of sealed fixed-cap package boundaries.",
+    "reporting": "Each measured request reports prompt/output counts, pure Prefill seconds and tokens/s including draft initialization, external TTFT, committed Decode tokens/s and external complete-request time; label diagnostic and ordinary timings separately.",
+    "prefill_guard": {
+      "maximum_latency_ratio": 1.02,
+      "comparison": "Candidate versus same-cap frozen v127 in each identical bucket using matched independent-process repetitions; no averaging away one failing bucket. This goal-specific 2% guard is stricter than the old completed package 3% guard and does not rewrite it.",
+      "scope": "Prefill remains measured regression guard; no Prefill optimization campaign is activated."
+    }
+  },
+  "numerical_reference_chain": [
+    "Corrected native numerical class: independently qualified FP32 GDN and same-input FP64 Attention; old Legacy BF16 is not model truth.",
+    "Same-input scalar full-state/full-logit prefix oracle qualifies exact target verification; complete draftKV is independently replayed.",
+    "v127 integration and ownership lifecycle records plus identity-only clean packaging source bridge.",
+    "Exact installedv127 full generated-token IDs and complete API text/usage/finish/DONE are the immediate new-candidate comparison. Historical native outputIDs are unavailable; do not claim direct native-ID equality."
+  ],
+  "reference_evidence": [
+    "docs/metadata/qwen36-27b-whole-core-service-production-2026-09-28.json",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json",
+    "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+  ],
+  "first_action": {
+    "decision_unit": "T4_diagnostic_only",
+    "question": "On the exact installed v127 cap 3 real API, which target projection, Attention, recurrence, copy or coordination budgets can support a material complete-Decode architecture? Reconcile historical family attribution to the actual current executor.",
+    "binary": {
+      "path": ".q3x-work/install/mtp-package-20261020-cap3/bin/qwen3x-mtp-server-cap3",
+      "sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1"
+    },
+    "process_limit": 1,
+    "request_sequence": [
+      {
+        "P": 65,
+        "O": 16
+      },
+      {
+        "P": 40000,
+        "O": 256
+      }
+    ],
+    "capture_limit": 2,
+    "capture": "One fresh ordinary installed cap 3 server under Nsight Systems node-level CUDA Graph tracing; two bounded request captures, short then 40K, through the ordinary completions API. No runtime source/kernel patch or build substitution. Retain startup and full request/response/witness records.",
+    "sampling": "No warmup and no duplicate performance requests or NCU replay. Record profiler version, exact command, trace windows, script hashes and source/ELF identity. Missing first-proposal/entry or other capture coverage is explicit and cannot become a whole-Decode bound.",
+    "oracle": "Both full responses and generated tokenIDs must match same-cap installed baseline, as must proposal/acceptance/round/verification/GDN-owner and other non-timing work counts and route receipts.",
+    "environment": "Before the fresh process record tegrastats, CPU/process and GPU-handle ownership; quiesce only identified interference, preserve control/recovery paths, run sync and attempt cache drop with before/after memory. Sanitize incidental fan fields and never inspect or control cooling. Through 85C is normal; 85-90C alone is not a veto; use actual clocks, throttle and over-current context. Above 90C, unknown GPU ownership, material contention or resource/device failure stops. No strict 85C selection gate is inherited from old evidence.",
+    "outputs": [
+      "Whole-request Prefill/TTFT/Decode/total observations labelled instrumented",
+      "Per-request target projection/GateUp/Down/Attention/GDN/Conv/copy/host intervals with precise coverage and call counts",
+      "Full output/work identity comparison and cleanup record",
+      "One architecture selection or explicit mechanism rejection tied to current whole-API budget"
+    ],
+    "stop": "After these two captures and their analysis, close profiling and implement a named mathematically specified composition or reject a materially unsupported mechanism. No repeated profile/parameter scan or evidence-only continuation. Harness failure remains failed evidence; any replacement requires a causal record rather than an automatic favorable retry.",
+    "preflight_material_contention": {
+      "noncontrol_single_process_cpu_percent_threshold": 50,
+      "noncontrol_aggregate_cpu_percent_threshold": 75,
+      "cpu_percent_basis": "100% is one CPU core; active collaboration/SSH/evidence/recovery control processes retain their explicit protected role and are not quiesced.",
+      "prelaunch_gr3d_percent_threshold": 10,
+      "prelaunch_gr3d_samples_at_or_above_threshold": 3,
+      "prelaunch_gr3d_sample_count": 5,
+      "foreign_gpu_handle": "Any unowned GPU device handle remains a hard stop, independent of utilization.",
+      "strict_collector_cpu_5pct": "Supporting observation only for this bounded diagnostic; do not inherit a blanket 5%-CPU rejection.",
+      "cache_drop_failure": "Retain failure and memory state; no cold-cache claim. This alone does not invalidate unchanged-output node attribution."
+    }
+  },
+  "architecture_activation": {
+    "active_mechanism": null,
+    "required_before_mutation": [
+      "Named candidate and exact changed expression/operand/state ownership",
+      "Numerical equivalence ledger and exact oracle",
+      "Current measured budget and conservative upward transfer to real API",
+      "Novelty audit against retained/rejected mechanisms",
+      "Bounded resource/constructor/failure contract",
+      "Finite implementation/correction budget and immediate composition/API return point"
+    ],
+    "proven_paths": "Study the relevant pinned vLLM/Marlin, FlashInfer, Triton, FLA and Mamba dataflows for the selected boundary; translate mathematical ownership separately from unavailable ISA, preserving license/provenance. Existing known implementations do not authorize numerical reassociation.",
+    "minimal_admission": "For a verifier-projection-only change, complete changed-role/shape output and applicable bounds/Graph checks, then existing P65 M1..4 complete prefix state/full logits/draftKV and rejection/EOS/cancel/failure transactions. Add P509 family crossing and P8192 same-history oracle only when Attention/Graph boundary changes; add affected owner/fault checks only for changed ownership. Return promptly to real API rather than running broad qualification before direction.",
+    "API_return": "One composed candidate first returns to the representative bucket selected by its measured budget, with short safety check as needed, then both caps across65/16,8192/256,40000/256 for positive direction. A local win cannot replace whole-runner progress.",
+    "negative_direction": "Archive/remove a negative complete composition and unused prerequisites; any successor requires a materially different recorded dataflow, not a tile/layout/threshold retry.",
+    "selection": "Before architecture or stage selection, freeze a prospective mirrored independent-process protocol using the frozen v127 artifacts and exact candidate(s). Require all six cap/bucket conservative min(candidate Decode)/max(matched baseline Decode) ratios to meet the stage floor and the matched 2% Prefill guard. Preserve failures and all observations; no favorable retry.",
+    "delivery": "After positive system selection, qualify affected numerical/API/capacity/capability/lifecycle/resource/installation surfaces on exact sealed deliverables. Reuse unaffected evidence only within its actual artifact/contract scope, then perform explicit requirement-by-requirement final audit."
+  },
+  "historical_boundaries": {
+    "priority_evidence": [
+      "docs/metadata/qwen36-27b-mtp-graph-node-budget-2026-10-14.json",
+      "docs/metadata/qwen36-27b-mtp-v113-short-budget-2026-10-20.json",
+      "docs/metadata/qwen36-27b-mtp-v113-short-budget-erratum-2026-10-20.json"
+    ],
+    "scope": "Older shortv113 and longv94-era node times are historical diagnosis only. GDN Graph spans include projections/copies/scheduling, not recurrence alone. Current verify_ms is a complete verifier interval, not pure Attention.",
+    "closed_lineages": {
+      "projection": "Current code already shares weight decoding across M2..4, uses K512 input staging and startup FP8 preswizzled ownership. Generic sharing or GateUp fusion is not a new architecture.",
+      "attention": "Prior shared-row/row-warp/partitioned producer-consumer PV variants have closed negative API results; stock online-softmax or split reductions are not automatically scalar-equivalent.",
+      "expanded_qkv": "docs/metadata/qwen36-27b-mtp-expanded-qkv-assessment-2026-10-10.json already assessed48QKV BF16 expansion. It fit capacity but failed an optimistic traffic/budget screen. New startup allocation alone does not remove doubled traffic or justify recycling this direction."
+    },
+    "additional_closed": [
+      "Private PV splitting, complete private-step Graph and A/B batching cannot be recycled as the primary material speedup hypothesis.",
+      "Simple GateUp fusion, shared-row/row-warp/partitioned-producer PV, existing M2..4 weight reuse/K512 ring/FP8 preswizzle are not new mechanisms.",
+      "Removing probability storage or adding BF16 weight storage does not prove a whole-path gain or finite-precision equivalence."
+    ]
+  },
+  "artifact_root": ".q3x-work/decode-plan-20261021",
+  "rollback": "Preserve both frozen installed v127 packages and ordinary non-MTP 0.8.2 unchanged; new runtime composition remains separately identified until its own selection and delivery.",
+  "evidence_sha256": {
+    "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json": "9756deea0e7f4aec643653c825ed5b66c5542528fcf13ee3e9536d777d8a32c6",
+    "docs/metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json": "f3dd0a1a6055de61948d863435886833f095f52cf68fafad427efcc38796910f"
+  },
+  "goal_achieved": false,
+  "production_changed": false
+}

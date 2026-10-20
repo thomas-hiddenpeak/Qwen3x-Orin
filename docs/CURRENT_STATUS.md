@@ -86,6 +86,16 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+### Additional Decode work opened
+
+The owner has authorized a [new staged Decode goal](metadata/qwen36-27b-mtp-decode-next-design-2026-10-21.json)
+against the exact installed v127 cap 2/3 artifacts below: additional 25%, then
+50%, in all three pinned buckets. [Roadmap](ROADMAP.md#2026-10-21-additional-mtp-decode-gain--active)
+owns the targets, 2% matched Prefill regression guard and bounded current-API
+attribution before implementation. No new executor or performance gain is
+qualified. The completed delivery metrics and ordinary non-MTP default below
+remain authoritative; this new work does not reopen the old qualification panel.
+
 ### Installed MTP delivery complete
 
 The [final delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
@@ -124,7 +134,7 @@ reducing total time. Complete MTP IDs and physical work match the frozen
 same-cap references; native historical IDs remain unavailable. All six
 processes pass cache, ownership, fixed-clock, reserve and normal-exit checks.
 
-Stop performance collection. The [remaining installed delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json)
+Performance collection for that completed milestone is closed. The [remaining installed delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json)
 now has [completed both-cap capability](metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json):
 98/98 native responses and pinned reference answers match per cap, with 79
 correct answers and exact full MTP token sequences between caps. Both processes
