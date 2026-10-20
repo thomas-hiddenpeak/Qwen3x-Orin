@@ -744,3 +744,9 @@ records an exhaustive finite-domain host proof and activates one bounded native
 prototype under the existing Decode goal. Existing Current Status and Roadmap
 distinguish that proof from pending exceptional/device/API qualification.
 No runtime, installed artifact, Markdown path or classification changes.
+
+The [NVFP4 factorization static closure](metadata/qwen36-27b-mtp-nv-factor-rejection-2026-10-21.json)
+records the fixed M4 Gate/Up spill-gate failure before GPU execution. Existing
+Current Status and Roadmap cancel that version's composition and preserve the
+finite host proof without inferring a performance loss. The broader Decode
+goal remains active; no runtime, Markdown path or classification changes.

@@ -111,10 +111,12 @@ version's planned NVFP4 composition before runtime integration. No new API
 speed, Prefill regression or production change follows from this component
 experiment; the additional Decode goal remains open.
 
-The selected [NVFP4 operand-factorization successor](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
-has a passing exhaustive host proof over finite operands. It has no CUDA,
-exceptional-route or performance qualification yet. Roadmap owns its fixed
-prototype and bounded return to the real API.
+The [NVFP4 operand-factorization prototype](metadata/qwen36-27b-mtp-nv-factor-rejection-2026-10-21.json)
+is closed at its predeclared static spill gate. Its exhaustive finite-domain
+host proof remains valid, but the fixed M4 Gate/Up consumer spills one
+accumulator inside the K512 loop. No GPU numerical or performance run took
+place. This local resource decision does not establish actual slowdown or
+rule out the product target; runtime and installed metrics remain unchanged.
 
 ### Installed MTP delivery complete
 

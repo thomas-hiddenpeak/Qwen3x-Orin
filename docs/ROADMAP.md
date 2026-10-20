@@ -81,29 +81,25 @@ The predeclared minimum 10% reduction gate fails. Cancel its Gate/Up and
 No runtime integration, layout scan or additional profiler is selected for
 this version. Its proposed full-model owner/resource plan remains unadmitted.
 
-The additional 25%/50% product goal remains active. The
-[exact NVFP4 activation-factorization successor](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
-now selects one bounded native prototype. It moves the E2M1 factor 3 to shared
-FP32 input lifts while preserving each original exact FMA product and reduction
-tree. The host finite-domain screen passes all 265,297,920 weight/scale/input
-combinations, including signed zeros; CUDA execution and exceptional routing
-remain unqualified. This changes operand preparation rather than continuing the
-closed output-lane layout. Existing weight formats and owners stay current.
+The [exact NVFP4 activation-factorization prototype](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
+has now [closed at T0](metadata/qwen36-27b-mtp-nv-factor-rejection-2026-10-21.json).
+Its finite-domain host screen passes all 265,297,920 products, but the one
+fixed M4 Gate/Up consumer has compiler spills in its finite K512 loop. No
+extra register cap was applied. The selected zero-spill gate stops this
+version before comparator linking, GPU correctness or real-weight timing;
+cancel its runtime/API composition without a resource or layout retune.
+The source and static evidence remain retained, with no performance authority.
+Do not generalize this local gate into a safety rule or an impossibility claim.
 
-Implement one fixed K512 lifted Gate/Up feed and direct lifted packed-Down
-feed, including producer/flag costs. The local comparison covers all 64 Gate/Up
-pairs and 53 packed Down roles, M2/M3/M4, in four mirrored traversals. Require
-at least 10% aggregate local reduction with every pair favorable, no output
-differences and safe resources. A failure closes this version; a pass must
-compose within the second milestone and return immediately to both-cap
-short/8K/40K API checks after minimum affected correctness admission. At most
-one correctness repair and no layout, grid or decoder scan are selected.
-
-This family occupies about 35% of the long diagnostic window; a modest local
-gain cannot be presented as the complete 25%/50% result. Keep the full product
-goals and require actual upward value. Reserve broad qualification for a
-positive complete runner. Ordinary non-MTP and the delivered MTP artifacts
-retain their existing status and metrics.
+The additional 25%/50% product goal remains active. The next bounded question
+is whether the historical FP8 expansion rejection tested actual execution or
+only projected traffic, and whether one authenticated BF16 owner can replace
+the current canonical-plus-private FP8 ownership within the unchanged reserve.
+Audit the complete Prefill, scalar and multi-row consumer/loader lifetimes
+before selecting an implementation. No new model scan or profiler is selected.
+Any successor must declare a fixed real-weight local gate and a bounded full
+API return; broad qualification remains reserved for a positive complete runner.
+Ordinary non-MTP and the delivered MTP artifacts retain their existing metrics.
 
 ## 2026-10-21 MTP delivery — complete
 

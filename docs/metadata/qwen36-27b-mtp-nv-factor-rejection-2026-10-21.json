@@ -1,0 +1,223 @@
+{
+  "schema": "q3x-nv-factor-static-closure-v1",
+  "date": "2026-10-21",
+  "status": "closed_at_predeclared_static_spill_gate_without_runtime_retention",
+  "decision_unit": "local_mutation",
+  "work_package_id": "WP-DECODE-NV-FACTOR-20261021",
+  "architecture_candidate_id": "AC-DECODE-NV-FACTOR-v1",
+  "source_git": "1de8a24abc6e807bdd1fdd7d469148485f90d78c",
+  "design": "docs/metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json",
+  "design_sha256": "a2c4bd37d4ec72557f4f6f9b9b56b21bda31d27cfa494f1d7cb93017002173b2",
+  "decision": "Close this fixed version at its selected T0 stop. Do not retune register/ownership/feed geometry or continue T1/T2/runtime composition. Keep finite-domain proof and incomplete prototype as evidence. The staged additional 25%/50% API Decode goal remains active.",
+  "authority": "Static compiled-resource gate only. This is not a numerical rejection, observed latency loss, resource-safety failure or hardware/architecture impossibility claim.",
+  "static_receipt": {
+    "path": ".q3x-work/decode-plan-20261021/nv-factor-prototype/static-admission.json",
+    "sha256": "486e188d0914ece6f87f933026a804e96dbafd3ff292b90ac1c2ee55214bb149",
+    "record": {
+      "schema": "q3x-nv-factor-static-admission-v1",
+      "status": "rejected_static_spill_gate",
+      "complete_static_decision": true,
+      "work_package_id": "WP-DECODE-NV-FACTOR-20261021",
+      "architecture_candidate_id": "AC-DECODE-NV-FACTOR-v1",
+      "selected_design": "docs/metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json",
+      "selected_design_sha256": "a2c4bd37d4ec72557f4f6f9b9b56b21bda31d27cfa494f1d7cb93017002173b2",
+      "reason": "The one fixed M4 Gate/Up kernel has nonzero ptxas spill bytes. Selected T0 explicitly rejects spills before any GPU launch; no retuning or resource-cap change is performed.",
+      "compile_attempts": 1,
+      "compiler_exitcode": 0,
+      "compile_command": [
+        "/usr/local/cuda/bin/nvcc",
+        "-std=c++17",
+        "-O3",
+        "-arch=sm_87",
+        "--ftz=false",
+        "--prec-div=true",
+        "--prec-sqrt=true",
+        "--fmad=true",
+        "-Xptxas=-v",
+        "-c",
+        ".q3x-work/decode-plan-20261021/nv-factor-prototype/prototype_kernel.cu",
+        "-o",
+        ".q3x-work/decode-plan-20261021/nv-factor-prototype/kernel.o"
+      ],
+      "cwd": "/home/rm01/Qwen3x-Orin",
+      "environment_overrides": {
+        "TMPDIR": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-plan-20261021/nv-factor-prototype/compiler-tmp"
+      },
+      "flag_environment_observed": {
+        "NVCC_PREPEND_FLAGS": null,
+        "NVCC_APPEND_FLAGS": null,
+        "NVCC_CCBIN": null,
+        "CUDAFLAGS": null,
+        "CXXFLAGS": null,
+        "CUDACXX": null
+      },
+      "launch_bounds": "factor_rows has only __launch_bounds__(128), no minBlocks argument. No maxrregcount, maxnreg, register-limit option or extra occupancy flag is present.",
+      "compiler_identity": {
+        "/usr/local/cuda/bin/nvcc": {
+          "sha256": "f2f587c33005ae68e8d0dd90d41ea1ff8fd365dbc3055ac9f1ade7e806c8c680",
+          "version": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2026 NVIDIA Corporation\nBuilt on Tue_Jun_09_02:45:27_PM_PDT_2026\nCuda compilation tools, release 13.3, V13.3.73\nBuild cuda_13.3.r13.3/compiler.38244171_0\n"
+        },
+        "/usr/local/cuda/bin/ptxas": {
+          "sha256": "54c52f1db6da31a0143cd32bfe56dafd46e49559e8afd25f0725073b88df416b",
+          "version": "ptxas: NVIDIA (R) Ptx optimizing assembler\nCopyright (c) 2005-2026 NVIDIA Corporation\nBuilt on Tue_Jun_09_02:45:27_PM_PDT_2026\nCuda compilation tools, release 13.3, V13.3.73\nBuild cuda_13.3.r13.3/compiler.38244171_0\n"
+        }
+      },
+      "resources": [
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj4ELj2EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 138,
+          "barriers": 1,
+          "shared_bytes": 2048,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj3ELj2EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 121,
+          "barriers": 1,
+          "shared_bytes": 2048,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj2ELj2EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 80,
+          "barriers": 1,
+          "shared_bytes": 2048,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj4ELj1EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 128,
+          "barriers": 1,
+          "shared_bytes": 34816,
+          "stack_bytes": 8,
+          "spill_store_bytes": 8,
+          "spill_load_bytes": 4
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj3ELj1EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 105,
+          "barriers": 1,
+          "shared_bytes": 26624,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj2ELj1EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "registers": 72,
+          "barriers": 1,
+          "shared_bytes": 18432,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511cache_scrubEPjm",
+          "registers": 8,
+          "barriers": 0,
+          "shared_bytes": 0,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        },
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5513produce_liftsEPKtjP6float2Pj",
+          "registers": 10,
+          "barriers": 0,
+          "shared_bytes": 0,
+          "stack_bytes": 0,
+          "spill_store_bytes": 0,
+          "spill_load_bytes": 0
+        }
+      ],
+      "sass_spill_instructions": [
+        {
+          "symbol": "_ZN9nv_factor52_GLOBAL__N__cf0fcc0d_19_prototype_kernel_cu_47de4b5511factor_rowsILj4ELj1EEEvPKhS3_jfPKtPKfPKjbjjPt",
+          "local_memory_instructions": [
+            "/*5e80*/                   STL [R1], R9 ;                                           /* 0x0000000901007387 */",
+            "/*5f80*/                   STL [R1], R9 ;                                           /* 0x0000000901007387 */",
+            "/*7e10*/                   LDL R72, [R1] ;                                          /* 0x0000000001487983 */"
+          ]
+        }
+      ],
+      "artifact_sha256": {
+        "prototype_api.h": "7c22ac5c21dd25173f806953029fd18b3b88c70e632fced96e928c0f6060e814",
+        "prototype_kernel.cu": "fc8493cf9bca1c285ad2173a086801f36e75a2e4f5b4ff3482224b7a729abd13",
+        "kernel.o": "cbf8d43f95beafd39b362f3d29f0f19507d2b3b7d822a83184a2b11588eb0fbe",
+        "kernel-build.log": "a3bfd6b536ddb5b9b6d353aefe8eec77e14b8c936e6c4449f6cee9122dbb1404",
+        "kernel.sass": "4b24f520d66d024e444b54bb18f748aa1167264c7c3a7a8f95644d34fc26cbf0",
+        "build.py": "b5bd3fe8d86508d62fbb5ff8a5e0cc8cdf2aebc1c128b9bc8c8981182e66e533",
+        "prepare_payload.py": "50a8d69ec5fbbf2c523923b9fc3ab00a78274feacdf2ea91452e51904427e7ec"
+      },
+      "incomplete_work": [
+        "Original comparator not yet linked into same ELF; no complete executable exists.",
+        "Device owner, host packing and T2 main were not implemented after the early T0 gate failed.",
+        "T1 plan was communicated but synthetic.cu was not written or executed.",
+        "Payload helper was drafted and syntax-checked; full weight/scale authentication and payload preparation were not run.",
+        "No T1, T2, sanitizer, real-model/API, numerical-state or performance result exists for this candidate."
+      ],
+      "gpu_processes_started": 0,
+      "runtime_mutations": 0,
+      "performance_authority": false,
+      "prototype_source_retained_only": true,
+      "reproduction_script": "build.py is retained but was not executed after the original compile. It does not authorize reopening this package.",
+      "original_comparator_sha256": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95"
+    }
+  },
+  "independent_source_sass_review": {
+    "reviewers": "Root and independent subagent inspected source, exact compile flags, ptxas output and SASS; no second compile or device run.",
+    "extra_resource_cap": false,
+    "resource_observation": "M4 Gate/Up: 128 registers, 34,816 shared bytes, 8 stack bytes, 8 static spill-store bytes and 4 static spill-load bytes. Other five consumers have zero reported spills. M4 Down uses 138 registers, so no global 128-register cap explains the result.",
+    "shared_breakdown": {
+      "lift_ring_bytes": 32768,
+      "tables_bytes": 2048
+    },
+    "control_flow": "Entry 0x0190 reads input exceptional flag; 0x01a0 reads scale flag; 0x01e0 branches to exceptional body 0xa080. Spill sites belong to ordinary finite body. STL 0x5e80 and 0x5f80 are mutually exclusive arms joining at 0x5fd0; LDL 0x7e10 restores an accumulator used at FFMA 0x8060/0x8130. Loop counter increments at 0x9340, with 0x9380 backedge to 0x09a0; loop count K>>9=10.",
+    "dynamic_logical_accesses": "Each thread executes one 4-byte store and one 4-byte load per K512 tile: 80 bytes across ten tiles. N17408 / 16 outputs per CTA = 1088 CTAs, 128 threads each, or 11,141,120 logical local-memory bytes per Gate or Up projection. These are instruction-derived accesses, not observed DRAM bytes, stalls or latency.",
+    "prior_lesson": "Earlier static register/spill stops did not establish whole-product slowdown. This closure follows the fixed local package budget only; do not turn zero-spill into a global performance or safety rule.",
+    "prior_records": [
+      "docs/metadata/qwen36-27b-mtp-static-gate-api-rejection-2026-10-10.json",
+      "docs/metadata/qwen36-27b-mtp-gate-register-pair-api-rejection-2026-10-20.json"
+    ]
+  },
+  "completed": {
+    "compile_attempts": 1,
+    "compiler_exitcode": 0,
+    "artifact_hashes_verified": 7,
+    "finite_host_proof": "Preserved under selected design; all 265297920 finite products passed. Not a CUDA/full-output qualification."
+  },
+  "not_run": [
+    "Original comparator not yet linked into same ELF; no complete executable exists.",
+    "Device owner, host packing and T2 main were not implemented after the early T0 gate failed.",
+    "T1 plan was communicated but synthetic.cu was not written or executed.",
+    "Payload helper was drafted and syntax-checked; full weight/scale authentication and payload preparation were not run.",
+    "No T1, T2, sanitizer, real-model/API, numerical-state or performance result exists for this candidate."
+  ],
+  "process_and_workspace": {
+    "gpu_processes_started": 0,
+    "new_checkpoint_payload_scans": 0,
+    "payload_helper": "Draft syntax/source-hash check only; no payload manifest or new payload produced.",
+    "t1_helper": "Plan only; no synthetic.cu produced.",
+    "active_task_processes": 0,
+    "artifacts": ".q3x-work/decode-plan-20261021/nv-factor-prototype",
+    "runtime_source_mutations": 0
+  },
+  "joint_API_metrics": {
+    "new_measurements": false,
+    "prefill": null,
+    "ttft": null,
+    "decode": null,
+    "request_total": null,
+    "acceptance": null,
+    "reference": "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json",
+    "note": "Installed v127 joint metrics remain unchanged; no new API run or gain is claimed."
+  },
+  "goal_achieved": false,
+  "production_changed": false
+}
