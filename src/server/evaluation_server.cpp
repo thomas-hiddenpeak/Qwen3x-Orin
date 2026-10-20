@@ -304,7 +304,7 @@ class UniqueFd final {
   identity.build_testing = kEvaluationGatewayBuildTesting;
   // Only the corrected sealed service is production-eligible. Other compiled
   // profiles retain their own evidence; none claims the full future release SLOs.
-#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION) || defined(Q3X_ENABLE_MTP_SERVICE_PACKAGE)
   identity.production_eligible = true;
 #else
   identity.production_eligible = false;

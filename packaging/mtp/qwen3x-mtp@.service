@@ -1,0 +1,24 @@
+[Unit]
+Description=Qwen3x-Orin independent MTP service (%i)
+After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qwen3x
+Group=qwen3x
+SupplementaryGroups=video render
+EnvironmentFile=/etc/qwen3x-mtp/%i.env
+ExecStart=/usr/local/bin/qwen3x-mtp-server-%i ${Q3X_MODEL_DIR} --host 127.0.0.1 --port ${Q3X_PORT} --api-key-file ${Q3X_API_KEY_FILE}
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=120
+NoNewPrivileges=true
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

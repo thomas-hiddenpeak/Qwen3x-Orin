@@ -4,6 +4,11 @@ endif()
 if(NOT DEFINED Q3X_MTP_PROFILE)
   set(Q3X_MTP_PROFILE "q3x.sm87.candidate.mtp-eos-frontier-cap${Q3X_MTP_CAP}.v122")
 endif()
+if(Q3X_MTP_PACKAGED)
+  set(package_contract "independent service package; qualification is artifact-specific")
+else()
+  set(package_contract "candidate, not production qualified or installable")
+endif()
 execute_process(COMMAND "${Q3X_EVAL_SERVER}" --help
   RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 0)
@@ -12,7 +17,7 @@ endif()
 foreach(required IN ITEMS
     "${Q3X_MTP_PROFILE}"
     "MTP draft cap: ${Q3X_MTP_CAP} (compiled)"
-    "candidate, not production qualified or installable"
+    "${package_contract}"
     "Fixed concurrency: one GPU request, one queued request, three HTTP threads")
   string(FIND "${output}" "${required}" position)
   if(position EQUAL -1)

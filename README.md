@@ -160,6 +160,38 @@ an owner-only regular file (0400 or 0600). Add `Authorization: Bearer …` to
 models and generation requests; `/healthz` remains public. Put TLS termination
 in a trusted reverse proxy when exposing the service beyond the host.
 
+## Independent MTP package
+
+MTP is an opt-in executable-only package, separate from the ordinary non-MTP
+service above. Its v127 architecture passed the fixed short/8K/40K API selection
+for caps 2 and 3; **exact installed-artifact qualification is still in progress**.
+[Current Status](docs/CURRENT_STATUS.md#v127-independent-process-architecture-selection)
+owns the joint Prefill/Decode results and limits. This is not a universal
+speed guarantee or permission to replace the running ordinary service.
+
+Build one fixed cap (replace `cap3` with `cap2` for the other package):
+
+```bash
+cmake --preset orin-mtp-package-cap3
+cmake --build --preset orin-mtp-package-cap3 --parallel 3
+ctest --preset orin-mtp-package-cap3
+cmake --install .q3x-work/build/orin-mtp-package-cap3 \
+  --prefix "$PWD/.q3x-work/install/mtp-cap3"
+python3 -B .q3x-work/install/mtp-cap3/share/Qwen3xOrinMTP/tools/audit_mtp_install.py \
+  --prefix .q3x-work/install/mtp-cap3 --cap 3
+.q3x-work/install/mtp-cap3/bin/qwen3x-mtp-server-cap3 MODEL_DIR \
+  --host 127.0.0.1 --port 8000 --api-key-file /absolute/path/to/owner-only-key
+```
+
+Use a separate install prefix; this package exports no C++ libraries or headers.
+It preserves the same API capacity and authentication contract and requires the
+8-GiB post-startup free-memory reserve. Run only one GPU service at a time.
+The optional `share/Qwen3xOrinMTP/systemd/qwen3x-mtp@.service` template uses
+instance `cap2` or `cap3`; configure its account, model, key, port and executable
+path before deployment. Installation never enables or starts it. Fatal runtime
+recovery restarts the process; recreating the large MTP owner in the same
+process is not qualified.
+
 ## Service operation
 
 The installed `share/Qwen3xOrin/systemd/` directory contains a service unit and

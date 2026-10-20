@@ -663,3 +663,15 @@ The [v127 independent architecture selection](metadata/qwen36-27b-mtp-gdn-owner-
 passes both caps across all three pinned buckets and advances existing MTP,
 Current Status and Roadmap to separate installation/qualification. No Markdown
 paths or classifications change; ordinary non-MTP production is unchanged.
+
+
+The [independent MTP package design](metadata/qwen36-27b-mtp-package-design-2026-10-20.json)
+adds executable-only installation under the existing SDD, MTP, Roadmap, README
+and Current Status boundaries. Fixed caps share no exported ABI with ordinary
+0.8.2. Exact installed-artifact qualification is pending; no Markdown paths or
+classifications change.
+
+The [MTP package host admission](metadata/qwen36-27b-mtp-package-host-2026-10-20.json)
+closes both-cap executable-only build/install checks and advances the existing
+Roadmap to clean-source installed API qualification. No Markdown paths/classes
+change; dirty-source test installations have no real-model qualification.

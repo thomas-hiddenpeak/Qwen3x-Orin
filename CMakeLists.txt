@@ -93,6 +93,13 @@ option(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION
   ${_q3x_service_default})
 option(Q3X_BUILD_MTP_SERVICE_CANDIDATE
   "Build sealed MTP candidate without test seams (not installable)" OFF)
+option(Q3X_BUILD_MTP_SERVICE_PACKAGE
+  "Build independent executable-only sealed MTP service package" OFF)
+if(Q3X_BUILD_MTP_SERVICE_PACKAGE)
+  set(Q3X_BUILD_MTP_SERVICE_CANDIDATE ON)
+  set(Q3X_BUILD_MTP_GDN_OWNER ON)
+  add_compile_definitions(Q3X_ENABLE_MTP_SERVICE_PACKAGE=1)
+endif()
 set(Q3X_MTP_CANDIDATE_DRAFT_LENGTH "3" CACHE STRING "Sealed MTP draft cap (2 or 3)")
 if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   if(BUILD_TESTING OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR
@@ -223,7 +230,9 @@ if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
   set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
   set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
-  if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+  if(Q3X_BUILD_MTP_SERVICE_PACKAGE)
+    message(STATUS "Sealed MTP executable-only package; exact-artifact qualification required")
+  elseif(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
     message(STATUS "Sealed MTP candidate inventory (unqualified; no installation)")
   elseif(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
     message(STATUS "Sealed corrected whole-core service inventory enabled")
@@ -1081,7 +1090,10 @@ q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
 target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
-if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
+if(Q3X_BUILD_MTP_SERVICE_PACKAGE)
+  set_target_properties(qwen3x-eval-server PROPERTIES
+    OUTPUT_NAME qwen3x-mtp-server-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH})
+elseif(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   set_target_properties(qwen3x-eval-server PROPERTIES OUTPUT_NAME qwen3x-eval-server-mtp-candidate)
 elseif(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
   # Canonical executable: the sealed plan is the default; no tactic/profile CLI.
@@ -3793,7 +3805,9 @@ endif()
 # Black-box checks do not enable engine/runner test hooks in the MTP candidate.
 if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
   enable_testing()
-  if(Q3X_BUILD_MTP_GDN_OWNER)
+  if(Q3X_BUILD_MTP_SERVICE_PACKAGE)
+    set(_q3x_mtp_test_profile "q3x.sm87.service.mtp-gdn-owner-input-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v1")
+  elseif(Q3X_BUILD_MTP_GDN_OWNER)
     set(_q3x_mtp_test_profile "q3x.sm87.candidate.mtp-gdn-owner-input-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v127")
   elseif(Q3X_BUILD_MTP_STARTUP_FP8_INPUT)
     set(_q3x_mtp_test_profile "q3x.sm87.candidate.mtp-startup-input-cap${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}.v126")
@@ -3804,6 +3818,7 @@ if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
     COMMAND ${CMAKE_COMMAND} -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
       -DQ3X_MTP_CAP=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}
       -DQ3X_MTP_PROFILE=${_q3x_mtp_test_profile}
+      -DQ3X_MTP_PACKAGED=${Q3X_BUILD_MTP_SERVICE_PACKAGE}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/mtp_sealed_help_test.cmake)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME mtp_capability_contract COMMAND ${Python3_EXECUTABLE} -B
@@ -3812,4 +3827,42 @@ if(Q3X_BUILD_MTP_SERVICE_CANDIDATE)
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(mtp_sealed_help mtp_capability_contract
     PROPERTIES LABELS "host;mtp;candidate")
+endif()
+
+# MTP owns a different RequestState layout. Never export its libraries/headers
+# as the ordinary 0.8.2 C++ package or replace the ordinary service executable.
+if(Q3X_BUILD_MTP_SERVICE_PACKAGE)
+  install(TARGETS qwen3x-eval-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  set(_q3x_mtp_data "${CMAKE_INSTALL_DATADIR}/Qwen3xOrinMTP")
+  install(FILES LICENSE NOTICE DESTINATION ${_q3x_mtp_data}/licenses)
+  install(DIRECTORY packaging/licenses/ DESTINATION ${_q3x_mtp_data}/licenses)
+  install(DIRECTORY third_party/flashinfer/ DESTINATION ${_q3x_mtp_data}/licenses/flashinfer
+    FILES_MATCHING PATTERN "LICENSE*")
+  install(FILES packaging/mtp/qwen3x-mtp@.service packaging/mtp/server.env.example
+    DESTINATION ${_q3x_mtp_data}/systemd)
+  install(PROGRAMS tools/evaluation/audit_mtp_install.py DESTINATION ${_q3x_mtp_data}/tools)
+  execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE Q3X_MTP_PACKAGE_SOURCE OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY)
+  execute_process(COMMAND git status --porcelain --untracked-files=normal
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE _q3x_mtp_source_changes COMMAND_ERROR_IS_FATAL ANY)
+  set(Q3X_MTP_PACKAGE_SOURCE_DIRTY false)
+  if(NOT _q3x_mtp_source_changes STREQUAL "")
+    set(Q3X_MTP_PACKAGE_SOURCE_DIRTY true)
+  endif()
+  configure_file(packaging/mtp/write_manifest.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/mtp_write_manifest.cmake @ONLY)
+  install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/generated/mtp_write_manifest.cmake)
+  add_test(NAME mtp_installed_package COMMAND ${CMAKE_COMMAND}
+    -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+    -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+    -DQ3X_MTP_CAP=${Q3X_MTP_CANDIDATE_DRAFT_LENGTH}
+    -DQ3X_PYTHON=${Python3_EXECUTABLE}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/mtp_installed_package_test.cmake)
+  set_tests_properties(mtp_installed_package PROPERTIES LABELS "host;mtp;package" TIMEOUT 180)
+  add_test(NAME mtp_install_contract COMMAND ${Python3_EXECUTABLE} -B
+    -m unittest tests.test_mtp_install)
+  set_tests_properties(mtp_install_contract PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} LABELS "host;mtp;package")
 endif()

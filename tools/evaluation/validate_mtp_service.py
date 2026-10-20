@@ -152,12 +152,14 @@ def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True)
         q.require(any(w['mtp']['initialized'] and w['mtp']['committed_decode_tokens'] > 0
                       for w in cancelled), 'missing Decode cancellation receipt')
     health = json.loads((out / 'health.json').read_text())['q3x_production']
+    packaged = expected_profile == f'q3x.sm87.service.mtp-gdn-owner-input-cap{draft}.v1'
     q.require(health['capacity']['max_sequence_length'] == 44095 and
               health['capacity']['maximum_output_tokens'] == 4096 and
               health['capacity']['request_arena_bytes'] == 9508218624 and
               health['retained_acceleration_sidecar_bytes'] == 11013898240 and
               health['decode']['graph_cache']['slots'] == 25 and
-              not health['production_eligible'], 'MTP inventory/capacity identity')
+              health['production_eligible'] is packaged and
+              health['release_qualified'] is False, 'MTP inventory/capacity identity')
     q.save(out / 'audited-metrics.json', rows)
     return rows
 
@@ -296,16 +298,29 @@ def main():
     parser.add_argument('--startup-input', action='store_true', help='Expect isolated v126 startup input composition')
     parser.add_argument('--sealed-candidate', action='store_true',
                         help='Run fixed-cap BUILD_TESTING=OFF MTP candidate without admission selectors')
+    parser.add_argument('--service-package', action='store_true',
+                        help='Require installed fixed-cap executable-only MTP service and manifest')
     parser.add_argument('--restart-from', type=Path,
                         help='Fresh-process recovery after a completed same-artifact sustained run')
     parser.add_argument('--soak-seconds', type=int, default=0,
                         help='Sustained-only P513/O16 panel; minimum 7200 seconds')
     parser.add_argument('--control-pid', type=int, action='append', default=[])
     args = parser.parse_args(); out = args.output.resolve()
+    if args.service_package:
+        q.require(args.draft_length is not None and not args.startup_input,
+                  'service package requires cap 2/3 and its fixed GDN owner composition')
+        from audit_mtp_install import audit as audit_install
+        installed = audit_install(args.server.resolve().parent.parent, args.draft_length)
+        q.require(not installed['source_dirty'], 'installed qualification requires clean source identity')
+        q.require(q.digest(args.server) == installed['binary_sha256'],
+                  'selected server differs from installed fixed-cap manifest')
+        args.sealed_candidate = True
+        args.gdn_owner = True
     q.require(out.is_relative_to(q.ROOT / '.q3x-work'), 'output must be under .q3x-work')
     q.require(bool(args.baseline) == bool(args.draft_length), 'MTP run requires a baseline')
     q.require(not args.sealed_candidate or args.draft_length is not None, 'sealed candidate requires expected draft cap')
     q.require(not args.startup_input or args.sealed_candidate, 'startup input requires sealed candidate')
+    q.require(not args.gdn_owner or args.sealed_candidate, 'GDN owner requires sealed candidate or package')
     q.require(bool(args.capability_cases) == bool(args.reference_results), 'capability cases and reference must be paired')
     q.require(not args.capability_cases or args.sealed_candidate, 'capability panel requires sealed candidate')
     q.require(args.soak_seconds == 0 or (args.soak_seconds >= 7200 and args.sealed_candidate
@@ -326,6 +341,8 @@ def main():
         q.PROFILE = f'q3x.sm87.candidate.mtp-startup-input-cap{args.draft_length}.v126'
     if args.gdn_owner:
         q.PROFILE = f'q3x.sm87.candidate.mtp-gdn-owner-input-cap{args.draft_length}.v127'
+    if args.service_package:
+        q.PROFILE = f'q3x.sm87.service.mtp-gdn-owner-input-cap{args.draft_length}.v1'
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length and not args.sealed_candidate: cmd += ['--candidate-profile', 'whole-core-exact-decode']
@@ -334,6 +351,7 @@ def main():
     for k, name in [('TMPDIR', 'tmp'), ('CUDA_CACHE_PATH', 'cache/cuda'), ('XDG_CACHE_HOME', 'cache')]:
         p = out / name; p.mkdir(parents=True, exist_ok=True); env[k] = str(p)
     q.save(out / 'identity.json', {'command': cmd, 'binary_sha256': q.digest(args.server),
+           'service_package': args.service_package,
            'draft_length': args.draft_length, 'sealed_candidate': args.sealed_candidate,
            'panel': 'restart' if args.restart_from else 'sustained' if args.soak_seconds else 'capability' if args.capability_cases else 'integration',
            'soak_seconds': args.soak_seconds,

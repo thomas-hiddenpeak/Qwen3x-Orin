@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-PACKAGE-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-package-design-2026-10-20.json",
+  "authority": "T0 build/install/host admission only; no model/API or performance qualification",
+  "source_parent": "46a1542a6141577b24c4087d33c96344ac5154d3",
+  "implementation": "Separate fixed-cap service profile and executable-only installation, no exported C++ ABI; complete v127 arithmetic/state unchanged. Optional supervisor and exact source/hash manifest.",
+  "host_validation": {
+    "both_caps_built": true,
+    "ctest_per_cap": 4,
+    "python_tests_passed": 32,
+    "invalid_configurations_rejected": 4,
+    "document_control": {
+      "tracked": 86,
+      "links": 1734,
+      "errors": 0
+    }
+  },
+  "provisional_test_install_manifests": {
+    "2": {
+      "schema": "q3x-mtp-executable-package-v1",
+      "source_commit": "46a1542a6141577b24c4087d33c96344ac5154d3",
+      "source_dirty": true,
+      "version": "0.8.2",
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1",
+      "draft_cap": 2,
+      "executable": "bin/qwen3x-mtp-server-cap2",
+      "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "BUILD_TESTING": false,
+      "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "qualification": "requires exact installed-artifact evidence",
+      "exports_cpp_abi": false
+    },
+    "3": {
+      "schema": "q3x-mtp-executable-package-v1",
+      "source_commit": "46a1542a6141577b24c4087d33c96344ac5154d3",
+      "source_dirty": true,
+      "version": "0.8.2",
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+      "draft_cap": 3,
+      "executable": "bin/qwen3x-mtp-server-cap3",
+      "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "BUILD_TESTING": false,
+      "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "qualification": "requires exact installed-artifact evidence",
+      "exports_cpp_abi": false
+    }
+  },
+  "artifact_hashes": {
+    ".q3x-work/mtp-package-20261020/build-cap2.log": "be71c0e13a8881ca3778953d29f8d789bd3f65fc07c87900eb8ad1e40370fd39",
+    ".q3x-work/mtp-package-20261020/configure-cap3.log": "6099b8c6268b745cb076d26a29d00eb4260ea129799d0f365d8304d0d0024720",
+    ".q3x-work/mtp-package-20261020/ctest-cap2-initial.log": "c57961e38eb30fc9ed49e6cfdadd19ac1d73e18a230753d11859ed5ffc83eb2f",
+    ".q3x-work/mtp-package-20261020/ctest-cap2.log": "05cdb18fd3eac9e848228aa3542e8ec7765243461c30a2fda96033ffb90aeb7b",
+    ".q3x-work/mtp-package-20261020/configure-cap2-host.log": "398e23c0661edfcb48628b411a92f8ac1a7de1233eb84a1794ed137b9f5b396a",
+    ".q3x-work/mtp-package-20261020/build-cap2-host.log": "f8978ae7797234e7ae2507a9c59a62615e9c561e03add9063eea35a96b6a797a",
+    ".q3x-work/mtp-package-20261020/guard-cap4.log": "acda51747c2570bde742164ff6ee73c47c6525edf443823109c88c3f3c161675",
+    ".q3x-work/mtp-package-20261020/guard-testing.log": "bca6663bf26ac91c41d6fddb85ce9757607875060f504d7113ca753855bf52bd",
+    ".q3x-work/mtp-package-20261020/guard-mixed-production.log": "bca6663bf26ac91c41d6fddb85ce9757607875060f504d7113ca753855bf52bd",
+    ".q3x-work/mtp-package-20261020/ctest-cap3.log": "bca5f2c4f80dda50f857314126c4424764a9911859773bdaed56f7e1b1e02048",
+    ".q3x-work/mtp-package-20261020/configure-cap2.log": "9363790a3f37836d6164f4372625260bfdb11a667592f798fbfe83600809d764",
+    ".q3x-work/mtp-package-20261020/build-cap3.log": "c19ebfbdcf0215ee23990a3702dcd40023bc168dbc134cf2a9ac87a52b90a44d",
+    ".q3x-work/mtp-package-20261020/guard-admission.log": "d71debc092b1535a4a74316ef93c5d9ff8030753215f2039e9899eb6f8cbc6ca",
+    ".q3x-work/mtp-package-20261020/configure-negative-controls.json": "9039f64e376e59c068e574e35bc61aa625a31dcf77d2bfbbc0c65c610639f30d",
+    ".q3x-work/mtp-package-20261020/check-configurations.py": "a6abde33ba36cc20d756c1e493b35e39bf64a151a5969ef12cac86dfb79a0a55"
+  },
+  "retained_failures": [
+    "First cap2 host audit rejected historical native CUDA source basenames containing cublas. Actual dependency/API-symbol inspection found no vendor call; repaired entry-name matching retains cuBLASLt/context and dependency rejection with two additional regression cases.",
+    "First inline configure-negative wrapper failed tuple unpacking before any configuration; corrected persistent wrapper passes four rejects."
+  ],
+  "limits": [
+    "Test installations were produced from dirty source and explicitly record that state. Real-model qualification rejects dirty provenance.",
+    "After this source milestone commits, reconfigure/install from the clean commit and freeze those exact installed manifests before model execution.",
+    "No installed performance, capability, capacity or sustained claim yet."
+  ],
+  "ordinary_production_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "goal_achieved": false,
+  "production_changed": false
+}

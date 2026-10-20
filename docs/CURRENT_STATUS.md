@@ -121,6 +121,13 @@ MTP IDs compared to frozen v122 and numerical authority supplied by independent
 native references plus full-state transaction checks. Installation, affected
 delivery qualification and the final goal audit remain open.
 
+Independent executable-only package implementation and [host admission](metadata/qwen36-27b-mtp-package-host-2026-10-20.json) now pass under
+`orin-mtp-package-cap2` and `orin-mtp-package-cap3`. The new service identity
+does not inherit the frozen candidate ELF's qualification; both installed
+artifacts still require the [package delivery checks](metadata/qwen36-27b-mtp-package-design-2026-10-20.json).
+The ordinary non-MTP release and default non-installable candidate remain
+unchanged. No installed MTP performance result is claimed yet.
+
 ### Preceding v127 direction and lifecycle evidence
 
 The default-off [v127 complete GDN owner composition](metadata/qwen36-27b-mtp-gdn-owner-cap2-direction-2026-10-20.json)

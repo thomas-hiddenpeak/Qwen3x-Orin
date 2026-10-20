@@ -338,6 +338,27 @@ request reset and owner destruction restore physical ownership under the
 This changes storage ownership only, preserving every numerical boundary and
 complete observer state. It remains default-off and has no production authority.
 
+After the positive v127 architecture selection, the independent MTP service
+package composes that exact arithmetic behind `Q3X_BUILD_MTP_SERVICE_PACKAGE`.
+It fixes cap 2 or 3 at build time, has no admission CLI/environment selector,
+and names its compiled profile
+`q3x.sm87.service.mtp-gdn-owner-input-cap{2,3}.v1`. Its separate executable is
+`qwen3x-mtp-server-cap2` or `qwen3x-mtp-server-cap3`. Installation exports no
+C++ libraries, headers or package configuration: selected GDN ownership changes
+RequestState layout and must not masquerade as the ordinary 0.8.2 C++ ABI.
+The package carries licenses, an exact executable-hash/source manifest, a
+host audit tool and an optional supervisor template; installation never starts
+a service. Fatal recovery uses a fresh process. Same-process recreation of a
+large MTP owner remains unqualified.
+
+This build marks the sealed service form `production_eligible=true`, as does
+the ordinary service, while retaining `release_qualified=false`. Neither field
+is evidence that a particular artifact passed delivery qualification. Current
+Status and the exact installed-artifact record own that decision. The ordinary
+non-MTP preset, installed executable and its qualification remain separate.
+The [package work package](metadata/qwen36-27b-mtp-package-design-2026-10-20.json)
+binds the installed API return and final qualification scope.
+
 ## 4. System decomposition from the API inward
 
 ```text

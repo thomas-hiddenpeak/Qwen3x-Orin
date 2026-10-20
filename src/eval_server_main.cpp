@@ -27,7 +27,10 @@ void PrintUsage(std::ostream& output) {
   output
       << "Qwen3x-Orin evaluation server " Q3X_VERSION_STRING "\n\n"
       << "Usage:\n"
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+#if defined(Q3X_ENABLE_MTP_SERVICE_PACKAGE)
+      << "  qwen3x-mtp-server-cap" << Q3X_MTP_COMPILED_DRAFT_LENGTH
+      << " MODEL_DIR [options]\n\n"
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
       << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
 #elif defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       << "  qwen3x-eval-server-p40-v10-dev MODEL_DIR [options]\n\n"
@@ -44,7 +47,11 @@ void PrintUsage(std::ostream& output) {
          << "  Prompt + output - 1 <= 44095; output ceiling 4096; greedy text/chat\n";
 #if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
   output << "  MTP draft cap: " << Q3X_MTP_COMPILED_DRAFT_LENGTH
+#if defined(Q3X_ENABLE_MTP_SERVICE_PACKAGE)
+         << " (compiled); independent service package; qualification is artifact-specific\n";
+#else
          << " (compiled); candidate, not production qualified or installable\n";
+#endif
 #endif
 #elif defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
   output << "  --candidate-profile whole-core-exact-decode\n"

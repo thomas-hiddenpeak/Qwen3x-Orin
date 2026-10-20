@@ -90,6 +90,34 @@
         "Q3X_BUILD_MTP_SERVICE_CANDIDATE": "ON",
         "Q3X_MTP_CANDIDATE_DRAFT_LENGTH": "3"
       }
+    },
+    {
+      "name": "orin-mtp-package-cap2",
+      "displayName": "Independent MTP service package, cap 2",
+      "description": "Executable-only v127 composition; exact installed-artifact qualification required; ordinary non-MTP unchanged",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-mtp-package-cap2",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
+        "Q3X_BUILD_MTP_SERVICE_PACKAGE": "ON",
+        "Q3X_MTP_CANDIDATE_DRAFT_LENGTH": "2"
+      }
+    },
+    {
+      "name": "orin-mtp-package-cap3",
+      "displayName": "Independent MTP service package, cap 3",
+      "description": "Executable-only v127 composition; exact installed-artifact qualification required; ordinary non-MTP unchanged",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-mtp-package-cap3",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
+        "Q3X_BUILD_MTP_SERVICE_PACKAGE": "ON",
+        "Q3X_MTP_CANDIDATE_DRAFT_LENGTH": "3"
+      }
     }
   ],
   "buildPresets": [
@@ -135,6 +163,20 @@
       "targets": [
         "qwen3x-eval-server"
       ]
+    },
+    {
+      "name": "orin-mtp-package-cap2",
+      "configurePreset": "orin-mtp-package-cap2",
+      "targets": [
+        "qwen3x-eval-server"
+      ]
+    },
+    {
+      "name": "orin-mtp-package-cap3",
+      "configurePreset": "orin-mtp-package-cap3",
+      "targets": [
+        "qwen3x-eval-server"
+      ]
     }
   ],
   "testPresets": [
@@ -161,6 +203,26 @@
       },
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "orin-mtp-package-cap2",
+      "configurePreset": "orin-mtp-package-cap2",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "orin-mtp-package-cap3",
+      "configurePreset": "orin-mtp-package-cap3",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
       }
     }
   ]

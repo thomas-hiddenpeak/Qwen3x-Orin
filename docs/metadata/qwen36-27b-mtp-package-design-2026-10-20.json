@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-PACKAGE-20261020",
+  "parent": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "decision_unit": "release_candidate",
+  "product_constraint": "Deliver independently callable cap 2/3 MTP preserving exact target semantics and >=1.5x Decode in each pinned API bucket, with joint Prefill/TTFT/Decode/total reporting.",
+  "prerequisite": "docs/metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json",
+  "downward_contract": "Packaging changes compiled identity and installation only; selected v127 kernels, draft policy, capacity, numerical/state and 8-GiB reserve are fixed. No parameter optimization.",
+  "delivery": "Default-off BUILD_TESTING=OFF executable-only package, distinct fixed-cap executable/profile, licenses and optional supervisor template. Export no C++ headers/libraries/package config. Ordinary non-MTP 0.8.2 unchanged.",
+  "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap{2,3}.v1",
+  "qualification": "Production-shaped sealed package; full future release qualification remains false. Current Status and exact artifact evidence, not build success, decide deployment selection.",
+  "milestones": [
+    "Implement both cap presets, install boundary, exact installed hash/identity and forbidden-symbol host audit.",
+    "Return exact installed artifacts to API: full output/route, lifecycle, capacity, public capability, affected sustained reuse and fresh-process recovery.",
+    "Final independent same-workload installed comparison and requirement-by-requirement completion audit; no favorable retry or lower speed floor."
+  ],
+  "scope_limits": [
+    "Pinned workloads and host envelope do not establish universal 50% gain.",
+    "Historical native full token IDs absent; full response/usage and independently qualified state references remain distinct evidence.",
+    "Large same-process MTP owner recreation remains unqualified; fatal recovery uses fresh process."
+  ],
+  "artifact_root": ".q3x-work/mtp-package-20261020",
+  "goal_achieved": false
+}

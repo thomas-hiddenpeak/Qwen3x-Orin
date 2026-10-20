@@ -275,7 +275,13 @@ inline constexpr EvaluationProductionDeploymentPlan kWholeCoreServiceProductionP
 #if defined(Q3X_ENABLE_MTP_SERVICE_CANDIDATE)
 inline constexpr EvaluationProductionDeploymentPlan kMtpServiceCandidatePlan = [] {
   auto plan = kWholeCoreExactDecodeAdmissionPlan;
+#if defined(Q3X_ENABLE_MTP_SERVICE_PACKAGE)
 #if Q3X_MTP_COMPILED_DRAFT_LENGTH == 2
+  plan.id = "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1";
+#else
+  plan.id = "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1";
+#endif
+#elif Q3X_MTP_COMPILED_DRAFT_LENGTH == 2
 #if defined(Q3X_ENABLE_MTP_GDN_OWNER)
   plan.id = "q3x.sm87.candidate.mtp-gdn-owner-input-cap2.v127";
 #elif defined(Q3X_ENABLE_MTP_STARTUP_FP8_INPUT)

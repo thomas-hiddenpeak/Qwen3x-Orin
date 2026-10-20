@@ -67,6 +67,14 @@ capacity, capability, resource/restart and performance attestation, then audit
 the full goal. No new parameter scan, production switch or full-goal claim
 follows from this architecture selection.
 
+The [package design](metadata/qwen36-27b-mtp-package-design-2026-10-20.json)
+activates fixed-cap executable-only build/install implementation. The
+[host admission](metadata/qwen36-27b-mtp-package-host-2026-10-20.json) now passes
+both builds, four CTests per cap and negative configuration/manifest checks.
+Next freeze clean-source installed artifacts and run the exact installed API, affected capacity,
+capability, resource/restart and final matched performance gates. Do not
+transfer the frozen candidate's timing or v122 sustained result to a new ELF.
+
 ## 2026-10-20 startup FP8 input composition — closed below API floor
 
 The [startup ownership composition](metadata/qwen36-27b-mtp-startup-input-design-2026-10-20.json)

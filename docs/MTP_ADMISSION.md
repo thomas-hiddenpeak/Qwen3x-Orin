@@ -73,6 +73,13 @@ capacity, capability, resource/restart and performance attestation, then audit
 the full goal. No new parameter scan, production switch or full-goal claim
 follows from this architecture selection.
 
+The [independent service package](metadata/qwen36-27b-mtp-package-design-2026-10-20.json)
+now owns the delivery composition. Its installable profile adds only compiled
+identity and executable-only packaging to v127. Numerical/state, draft policy,
+capacity, reset and failure contracts are unchanged. The owning system boundary
+is [SDD section 3.4](SDD.md#34-isolated-mtp-development-boundary); exact installed
+artifact qualification remains required before delivery selection.
+
 ## 2026-10-20 startup FP8 input composition — closed below API floor
 
 The [startup ownership composition](metadata/qwen36-27b-mtp-startup-input-design-2026-10-20.json)

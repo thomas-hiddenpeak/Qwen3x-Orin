@@ -1,0 +1,6 @@
+set(root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(executable "@CMAKE_INSTALL_BINDIR@/qwen3x-mtp-server-cap@Q3X_MTP_CANDIDATE_DRAFT_LENGTH@")
+file(SHA256 "${root}/${executable}" binary_sha256)
+set(manifest_dir "${root}/@_q3x_mtp_data@/cap@Q3X_MTP_CANDIDATE_DRAFT_LENGTH@")
+file(MAKE_DIRECTORY "${manifest_dir}")
+file(WRITE "${manifest_dir}/manifest.json" "{\n  \"schema\": \"q3x-mtp-executable-package-v1\",\n  \"source_commit\": \"@Q3X_MTP_PACKAGE_SOURCE@\",\n  \"source_dirty\": @Q3X_MTP_PACKAGE_SOURCE_DIRTY@,\n  \"version\": \"@PROJECT_VERSION@\",\n  \"profile\": \"@_q3x_mtp_test_profile@\",\n  \"draft_cap\": @Q3X_MTP_CANDIDATE_DRAFT_LENGTH@,\n  \"executable\": \"${executable}\",\n  \"binary_sha256\": \"${binary_sha256}\",\n  \"BUILD_TESTING\": false,\n  \"model_revision\": \"0893e1606ff3d5f97a441f405d5fc541a6bdf404\",\n  \"qualification\": \"requires exact installed-artifact evidence\",\n  \"exports_cpp_abi\": false\n}\n")
