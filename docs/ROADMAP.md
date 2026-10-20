@@ -70,22 +70,26 @@ output and physical work match both references. Target projections occupy
 84.36% and 63.72% of the short and 40K diagnostic windows; Attention occupies
 0.21% and 22.44%. These windows omit the first draft and entry work; their
 instrumented intervals are not complete Decode latency or speedup evidence.
-Stop profiling. The [output-channel ownership work package](metadata/qwen36-27b-mtp-output-lane-design-2026-10-21.json)
-selects one fixed FP8 input executor prototype that retains the original FP32
-leaves and reduction tree. Its first local gate requires at least 10% aggregate
-input-projection latency reduction with every mirrored pair favorable; this is
-a prerequisite threshold, not an API gain. A passing prototype must compose
-with Gate/Up and 53 packed Down roles within the second milestone, update the
-affected owner/inventory contracts, and return immediately to both-cap
-short/8K/40K API checks. There is at most one correctness repair and no layout
-scan. The proposal reserves 75,382,784 additional bytes and preserves the
-8-GiB reserve; resource admission is still pending. Existing
-multi-row weight reuse, K512 input staging, FP8 preswizzle and rejected
-Gate/Up or PV variants are not new designs. No parameter scan or indefinite
-profile campaign is selected. After minimum affected correctness admission,
-return the composition promptly to the real API; reserve broad qualification
-for a positive complete runner. Ordinary non-MTP and the delivered MTP
-artifacts retain their existing status.
+Stop profiling. The fixed [output-channel ownership prototype](metadata/qwen36-27b-mtp-output-lane-design-2026-10-21.json)
+has now [closed at its local performance gate](metadata/qwen36-27b-mtp-output-lane-rejection-2026-10-21.json).
+Build/resource checks, 144 complete synthetic cases, 36 changing-input Graph
+replays and 21 invalid zero-enqueue cases pass. Four mirrored comparisons of
+all 144 real-weight input roles across M2/M3/M4 preserve every compared output,
+but candidate latency increases **18.08%**, with every pair and M group slower.
+The predeclared minimum 10% reduction gate fails. Cancel its Gate/Up and
+53-packed-Down composition; retain the workspace prototype and evidence only.
+No runtime integration, layout scan or additional profiler is selected for
+this version. Its proposed full-model owner/resource plan remains unadmitted.
+
+The additional 25%/50% product goal remains active. Next select a materially
+different dataflow after checking the closed lineages and current whole-runner
+budget; lower register count or fewer activation addresses alone did not make
+this executor faster. Existing multi-row weight reuse, K512 input staging,
+FP8 preswizzle and rejected Gate/Up or PV variants are not new designs.
+Any successor needs a bounded composition point and an immediate return to
+both-cap short/8K/40K API checks after minimum affected correctness admission.
+Reserve broad qualification for a positive complete runner. Ordinary non-MTP
+and the delivered MTP artifacts retain their existing status and metrics.
 
 ## 2026-10-21 MTP delivery — complete
 

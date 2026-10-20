@@ -732,3 +732,9 @@ activates one bounded local prototype under the staged Decode goal. Its two
 milestones bind exact arithmetic, owner/resource admission and immediate whole
 API composition. No executor has yet passed GPU admission or performance;
 existing Markdown classifications and production defaults remain unchanged.
+
+The [output-channel prototype rejection](metadata/qwen36-27b-mtp-output-lane-rejection-2026-10-21.json)
+closes its fixed local work package after exact numerical/Graph admission and
+a valid negative real-weight comparison. Existing Current Status and Roadmap
+cancel that version's NVFP4 composition while retaining the additional Decode
+goal. No runtime, installed artifact, Markdown path or classification changes.

@@ -103,6 +103,14 @@ work dominates both diagnostic windows, while Attention becomes material at
 Nsight agent; one recorded long-only continuation completed. No unprofiled
 performance baseline, runtime executor or production selection changed.
 
+The first fixed output-channel projection prototype is now
+[closed without retention](metadata/qwen36-27b-mtp-output-lane-rejection-2026-10-21.json).
+Its exact numerical/Graph checks pass, but all-role real-weight projection
+latency is 18.08% higher across four mirrored pairs. The result cancels that
+version's planned NVFP4 composition before runtime integration. No new API
+speed, Prefill regression or production change follows from this component
+experiment; the additional Decode goal remains open.
+
 ### Installed MTP delivery complete
 
 The [final delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
