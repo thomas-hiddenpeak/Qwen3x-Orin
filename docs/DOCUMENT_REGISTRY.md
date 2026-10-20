@@ -720,3 +720,15 @@ exact-session NSys ownership-attribution failure before P40000, and clean
 shutdown. Roadmap selects one fresh P40000-only continuation with explicit
 profiler/agent identity binding; the original design and failed outcome remain
 frozen. No Markdown paths/classes, runtime mechanism or production status change.
+
+The [current installed Decode node budget](metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json)
+closes short/40K attribution, preserving the partial first attempt and successful
+long-only continuation. Existing Current Status and Roadmap select projection
+composition as the next implementation unit; no runtime or speedup is selected.
+The Markdown inventory and classifications are unchanged.
+
+The [output-channel projection design](metadata/qwen36-27b-mtp-output-lane-design-2026-10-21.json)
+activates one bounded local prototype under the staged Decode goal. Its two
+milestones bind exact arithmetic, owner/resource admission and immediate whole
+API composition. No executor has yet passed GPU admission or performance;
+existing Markdown classifications and production defaults remain unchanged.

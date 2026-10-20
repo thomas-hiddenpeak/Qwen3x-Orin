@@ -96,6 +96,13 @@ attribution before implementation. No new executor or performance gain is
 qualified. The completed delivery metrics and ordinary non-MTP default below
 remain authoritative; this new work does not reopen the old qualification panel.
 
+The [current installed node profile](metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json)
+now closes short/40K attribution with exact output and work identity. Projection
+work dominates both diagnostic windows, while Attention becomes material at
+40K. The first driver stopped before its long request on its own orphaned
+Nsight agent; one recorded long-only continuation completed. No unprofiled
+performance baseline, runtime executor or production selection changed.
+
 ### Installed MTP delivery complete
 
 The [final delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)

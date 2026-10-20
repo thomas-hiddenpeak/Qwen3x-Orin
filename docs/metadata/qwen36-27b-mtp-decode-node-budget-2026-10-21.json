@@ -1,0 +1,796 @@
+{
+  "date": "2026-10-21",
+  "work_package_id": "WP-MTP-DECODE-NEXT-20261021",
+  "decision_unit": "T4_current_installed_node_attribution",
+  "status": "diagnostic_closed_no_more_profile_selected",
+  "authority": "Current installed artifact diagnosis only; no new unprofiled speedup, numerical change, runtime retention or production selection.",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-decode-next-design-2026-10-21.json",
+  "continuation_design": "docs/metadata/qwen36-27b-mtp-decode-profile-continuation-2026-10-21.json",
+  "source_at_long_capture": "02da73f7624fc9987e82d151edff637f79eb38c5",
+  "installed_source": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+  "installed_cap": 3,
+  "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+  "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+  "cases": [
+    {
+      "label": "p65",
+      "artifact_root": ".q3x-work/decode-plan-20261021/profile",
+      "prompt_tokens": 65,
+      "output_tokens": 16,
+      "output_and_work_comparison": [
+        {
+          "label": "p65",
+          "full_output_equal": true,
+          "full_token_ids_equal": true,
+          "all_nontiming_work_equal": true,
+          "baseline": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-installed-repeat-20261020/cap3-a"
+        }
+      ],
+      "instrumented_joint_observations": {
+        "prefill_seconds": 0.929735118,
+        "prefill_tokens_per_second": 69.91238551881828,
+        "external_ttft_seconds": 1.282259393017739,
+        "decode_tokens_per_second": 14.907630117462942,
+        "external_total_seconds": 3.787238051998429,
+        "accepted": 9,
+        "proposed": 13,
+        "rounds": 6,
+        "verified_rows": 19
+      },
+      "window": {
+        "start_ns": 962088384,
+        "end_ns": 1950544384,
+        "interval_s": 0.988456,
+        "generation_start_ns": 14624160,
+        "generation_end_ns": 1950867840
+      },
+      "families": {
+        "verify_gate_up": {
+          "nanoseconds": 317075840,
+          "calls": 768,
+          "seconds": 0.31707584,
+          "mean_us": 412.8591666666667
+        },
+        "verify_down_packed": {
+          "nanoseconds": 132738432,
+          "calls": 318,
+          "seconds": 0.132738432,
+          "mean_us": 417.4164528301887
+        },
+        "verify_fp8_gdn_qkv": {
+          "nanoseconds": 111566432,
+          "calls": 288,
+          "seconds": 0.111566432,
+          "mean_us": 387.3834444444444
+        },
+        "verify_fp8_output": {
+          "nanoseconds": 85840224,
+          "calls": 384,
+          "seconds": 0.085840224,
+          "mean_us": 223.54225
+        },
+        "verify_fp8_gdn_z": {
+          "nanoseconds": 67298720,
+          "calls": 288,
+          "seconds": 0.06729872,
+          "mean_us": 233.6761111111111
+        },
+        "verify_fp8_full_q": {
+          "nanoseconds": 44509344,
+          "calls": 96,
+          "seconds": 0.044509344,
+          "mean_us": 463.639
+        },
+        "verify_vocabulary": {
+          "nanoseconds": 40070048,
+          "calls": 6,
+          "seconds": 0.040070048,
+          "mean_us": 6678.341333333333
+        },
+        "draft_vocabulary_integer": {
+          "nanoseconds": 39860544,
+          "calls": 22,
+          "seconds": 0.039860544,
+          "mean_us": 1811.8429090909092
+        },
+        "verify_down_canonical": {
+          "nanoseconds": 26456736,
+          "calls": 66,
+          "seconds": 0.026456736,
+          "mean_us": 400.85963636363635
+        },
+        "draft_matrix_including_reconcile": {
+          "nanoseconds": 21550976,
+          "calls": 67,
+          "seconds": 0.021550976,
+          "mean_us": 321.6563582089552
+        },
+        "target_gdn_direct_input": {
+          "nanoseconds": 17207584,
+          "calls": 624,
+          "seconds": 0.017207584,
+          "mean_us": 27.57625641025641
+        },
+        "draft_mlp_int8": {
+          "nanoseconds": 16395360,
+          "calls": 33,
+          "seconds": 0.01639536,
+          "mean_us": 496.8290909090909
+        },
+        "target_ab_pair": {
+          "nanoseconds": 10385600,
+          "calls": 912,
+          "seconds": 0.0103856,
+          "mean_us": 11.387719298245614
+        },
+        "target_residual_norm": {
+          "nanoseconds": 10059392,
+          "calls": 768,
+          "seconds": 0.010059392,
+          "mean_us": 13.098166666666666
+        },
+        "target_gdn_selected_input": {
+          "nanoseconds": 9013504,
+          "calls": 288,
+          "seconds": 0.009013504,
+          "mean_us": 31.29688888888889
+        },
+        "verify_fp8_full_kv": {
+          "nanoseconds": 8320320,
+          "calls": 192,
+          "seconds": 0.00832032,
+          "mean_us": 43.335
+        },
+        "other": {
+          "nanoseconds": 5487072,
+          "calls": 765,
+          "seconds": 0.005487072,
+          "mean_us": 7.172643137254902
+        },
+        "target_conv": {
+          "nanoseconds": 2714400,
+          "calls": 912,
+          "seconds": 0.0027144,
+          "mean_us": 2.9763157894736842
+        },
+        "verify_short_attention": {
+          "nanoseconds": 2027264,
+          "calls": 96,
+          "seconds": 0.002027264,
+          "mean_us": 21.11733333333333
+        },
+        "draft_pv": {
+          "nanoseconds": 504704,
+          "calls": 11,
+          "seconds": 0.000504704,
+          "mean_us": 45.88218181818181
+        },
+        "draft_qk": {
+          "nanoseconds": 81536,
+          "calls": 11,
+          "seconds": 8.1536e-05,
+          "mean_us": 7.412363636363636
+        },
+        "draft_or_scalar_softmax": {
+          "nanoseconds": 42560,
+          "calls": 11,
+          "seconds": 4.256e-05,
+          "mean_us": 3.869090909090909
+        }
+      },
+      "projection_seconds": 0.833876096,
+      "attention_seconds": 0.002027264,
+      "projection_window_fraction": 0.8436147850789514,
+      "attention_window_fraction": 0.0020509400519598243,
+      "count_contract": {
+        "passed": true,
+        "target_rounds": 6,
+        "verified_rows": 19,
+        "GDN_calls_total": 912,
+        "role_assertions": [
+          {
+            "role": "verify_fp8_gdn_qkv",
+            "actual": 288,
+            "expected": 288,
+            "basis": "48 per target round"
+          },
+          {
+            "role": "verify_fp8_gdn_z",
+            "actual": 288,
+            "expected": 288,
+            "basis": "48 per target round"
+          },
+          {
+            "role": "verify_fp8_full_q",
+            "actual": 96,
+            "expected": 96,
+            "basis": "16 per target round"
+          },
+          {
+            "role": "verify_fp8_full_kv",
+            "actual": 192,
+            "expected": 192,
+            "basis": "32 per target round"
+          },
+          {
+            "role": "verify_fp8_output",
+            "actual": 384,
+            "expected": 384,
+            "basis": "64 per target round"
+          },
+          {
+            "role": "verify_gate_up",
+            "actual": 768,
+            "expected": 768,
+            "basis": "128 per target round"
+          },
+          {
+            "role": "verify_down_packed",
+            "actual": 318,
+            "expected": 318,
+            "basis": "53 per target round"
+          },
+          {
+            "role": "verify_down_canonical",
+            "actual": 66,
+            "expected": 66,
+            "basis": "11 per target round"
+          },
+          {
+            "role": "verify_vocabulary",
+            "actual": 6,
+            "expected": 6,
+            "basis": "1 per target round"
+          },
+          {
+            "role": "target_gdn_selected_input",
+            "actual": 288,
+            "expected": 288
+          },
+          {
+            "role": "target_gdn_direct_input",
+            "actual": 624,
+            "expected": 624
+          },
+          {
+            "role": "target_conv",
+            "actual": 912,
+            "expected": 912
+          },
+          {
+            "role": "target_ab_pair",
+            "actual": 912,
+            "expected": 912
+          },
+          {
+            "role": "verify_short_attention",
+            "actual": 96,
+            "expected": 96
+          },
+          {
+            "role": "verify_qk",
+            "actual": 0,
+            "expected": 0
+          },
+          {
+            "role": "verify_softmax",
+            "actual": 0,
+            "expected": 0
+          },
+          {
+            "role": "verify_pv",
+            "actual": 0,
+            "expected": 0
+          }
+        ]
+      },
+      "observed_gpu_kernel_copy_memset_union_s": 0.971993056,
+      "outside_observed_union_s": 0.016462944,
+      "environment": {
+        "preflight": {
+          "authority": "T4 diagnosis only. Same exact installed cap3; short and 40K node attribution. Profile timings include instrumentation and are not a performance baseline or selection.",
+          "hard_stops": [],
+          "qualifiers": [],
+          "material_contention_thresholds": {
+            "noncontrol_cpu_percent_of_one_core": 50,
+            "aggregate_cpu_busy_percent": 75,
+            "gr3d_percent": 10,
+            "gr3d_min_samples": 3
+          },
+          "cold_cache_claim_eligible": true
+        },
+        "cleanup": {
+          "success": false,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 60.343,
+          "observation_qualifiers": [],
+          "authority": "T4 diagnosis only. Same exact installed cap3; short and 40K node attribution. Profile timings include instrumentation and are not a performance baseline or selection."
+        },
+        "startup_free_bytes": 10864164864,
+        "gpu_clock_hz_min": 1300500000,
+        "gpu_clock_hz_max": 1300500000
+      },
+      "claim_limit": "One node-instrumented API capture, first target-verifier FP8 kernel through last kernel inside its q3x.generation range. Includes target verification and later draft/reconciliation; excludes the first draft proposal and pre-verifier entry work. This is neither complete Decode latency nor an unprofiled baseline.",
+      "copies_and_memsets": [
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 8,
+          "graph": true,
+          "calls": 969,
+          "bytes": 65664152,
+          "nanoseconds": 2200512,
+          "seconds": 0.002200512,
+          "mean_us": 2.270910216718266
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 2,
+          "graph": false,
+          "calls": 23,
+          "bytes": 264,
+          "nanoseconds": 32640,
+          "seconds": 3.264e-05,
+          "mean_us": 1.4191304347826088
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 8,
+          "graph": false,
+          "calls": 41,
+          "bytes": 41523200,
+          "nanoseconds": 600384,
+          "seconds": 0.000600384,
+          "mean_us": 14.643512195121952
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 1,
+          "graph": false,
+          "calls": 10,
+          "bytes": 2080,
+          "nanoseconds": 3584,
+          "seconds": 3.584e-06,
+          "mean_us": 0.3584
+        }
+      ]
+    },
+    {
+      "label": "p40000",
+      "artifact_root": ".q3x-work/decode-plan-20261021/profile-long",
+      "prompt_tokens": 40000,
+      "output_tokens": 256,
+      "output_and_work_comparison": [
+        {
+          "label": "p40000",
+          "full_output_equal": true,
+          "full_token_ids_equal": true,
+          "all_nontiming_work_equal": true,
+          "baseline": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-installed-repeat-20261020/cap3-a"
+        }
+      ],
+      "instrumented_joint_observations": {
+        "prefill_seconds": 92.84884061600002,
+        "prefill_tokens_per_second": 430.8077487518683,
+        "external_ttft_seconds": 93.24195657705422,
+        "decode_tokens_per_second": 11.779697858981848,
+        "external_total_seconds": 120.30691246397328,
+        "accepted": 150,
+        "proposed": 200,
+        "rounds": 105,
+        "verified_rows": 305
+      },
+      "window": {
+        "start_ns": 92897530432,
+        "end_ns": 114521669440,
+        "interval_s": 21.624139008,
+        "generation_start_ns": 23677728,
+        "generation_end_ns": 114521897920
+      },
+      "families": {
+        "verify_gate_up": {
+          "nanoseconds": 5348290368,
+          "calls": 13440,
+          "seconds": 5.348290368,
+          "mean_us": 397.93827142857145
+        },
+        "verify_down_packed": {
+          "nanoseconds": 2217199392,
+          "calls": 5565,
+          "seconds": 2.217199392,
+          "mean_us": 398.41857897574124
+        },
+        "verify_pv": {
+          "nanoseconds": 2177465184,
+          "calls": 1680,
+          "seconds": 2.177465184,
+          "mean_us": 1296.1102285714287
+        },
+        "verify_qk": {
+          "nanoseconds": 2140668937,
+          "calls": 1680,
+          "seconds": 2.140668937,
+          "mean_us": 1274.207700595238
+        },
+        "verify_fp8_gdn_qkv": {
+          "nanoseconds": 1814421536,
+          "calls": 5040,
+          "seconds": 1.814421536,
+          "mean_us": 360.004273015873
+        },
+        "verify_fp8_output": {
+          "nanoseconds": 1407187200,
+          "calls": 6720,
+          "seconds": 1.4071872,
+          "mean_us": 209.40285714285713
+        },
+        "verify_fp8_gdn_z": {
+          "nanoseconds": 1098127104,
+          "calls": 5040,
+          "seconds": 1.098127104,
+          "mean_us": 217.8823619047619
+        },
+        "verify_fp8_full_q": {
+          "nanoseconds": 722715200,
+          "calls": 1680,
+          "seconds": 0.7227152,
+          "mean_us": 430.1876190476191
+        },
+        "draft_vocabulary_integer": {
+          "nanoseconds": 719345728,
+          "calls": 396,
+          "seconds": 0.719345728,
+          "mean_us": 1816.529616161616
+        },
+        "verify_vocabulary": {
+          "nanoseconds": 594328544,
+          "calls": 105,
+          "seconds": 0.594328544,
+          "mean_us": 5660.271847619048
+        },
+        "verify_softmax": {
+          "nanoseconds": 533866368,
+          "calls": 1680,
+          "seconds": 0.533866368,
+          "mean_us": 317.77759999999995
+        },
+        "verify_down_canonical": {
+          "nanoseconds": 437380576,
+          "calls": 1155,
+          "seconds": 0.437380576,
+          "mean_us": 378.68448138528134
+        },
+        "draft_matrix_including_reconcile": {
+          "nanoseconds": 399184000,
+          "calls": 1248,
+          "seconds": 0.399184,
+          "mean_us": 319.85897435897436
+        },
+        "draft_mlp_int8": {
+          "nanoseconds": 297845536,
+          "calls": 594,
+          "seconds": 0.297845536,
+          "mean_us": 501.42346127946126
+        },
+        "target_gdn_direct_input": {
+          "nanoseconds": 262159904,
+          "calls": 9600,
+          "seconds": 0.262159904,
+          "mean_us": 27.308323333333334
+        },
+        "target_residual_norm": {
+          "nanoseconds": 183950176,
+          "calls": 13440,
+          "seconds": 0.183950176,
+          "mean_us": 13.686769047619048
+        },
+        "target_ab_pair": {
+          "nanoseconds": 170283232,
+          "calls": 14640,
+          "seconds": 0.170283232,
+          "mean_us": 11.631368306010929
+        },
+        "target_gdn_selected_input": {
+          "nanoseconds": 157899328,
+          "calls": 5040,
+          "seconds": 0.157899328,
+          "mean_us": 31.329231746031745
+        },
+        "verify_fp8_full_kv": {
+          "nanoseconds": 138335392,
+          "calls": 3360,
+          "seconds": 0.138335392,
+          "mean_us": 41.17124761904761
+        },
+        "draft_pv": {
+          "nanoseconds": 136653984,
+          "calls": 198,
+          "seconds": 0.136653984,
+          "mean_us": 690.1716363636364
+        },
+        "draft_qk": {
+          "nanoseconds": 122329120,
+          "calls": 198,
+          "seconds": 0.12232912,
+          "mean_us": 617.8238383838384
+        },
+        "other": {
+          "nanoseconds": 109683904,
+          "calls": 18340,
+          "seconds": 0.109683904,
+          "mean_us": 5.9805836423118865
+        },
+        "target_conv": {
+          "nanoseconds": 44369504,
+          "calls": 14640,
+          "seconds": 0.044369504,
+          "mean_us": 3.030703825136612
+        },
+        "draft_or_scalar_softmax": {
+          "nanoseconds": 35180576,
+          "calls": 198,
+          "seconds": 0.035180576,
+          "mean_us": 177.67967676767677
+        }
+      },
+      "projection_seconds": 13.777985312,
+      "attention_seconds": 4.852000489,
+      "projection_window_fraction": 0.6371576369770255,
+      "attention_window_fraction": 0.2243788983785652,
+      "count_contract": {
+        "passed": true,
+        "target_rounds": 105,
+        "verified_rows": 305,
+        "GDN_calls_total": 14640,
+        "role_assertions": [
+          {
+            "role": "verify_fp8_gdn_qkv",
+            "actual": 5040,
+            "expected": 5040,
+            "basis": "48 per target round"
+          },
+          {
+            "role": "verify_fp8_gdn_z",
+            "actual": 5040,
+            "expected": 5040,
+            "basis": "48 per target round"
+          },
+          {
+            "role": "verify_fp8_full_q",
+            "actual": 1680,
+            "expected": 1680,
+            "basis": "16 per target round"
+          },
+          {
+            "role": "verify_fp8_full_kv",
+            "actual": 3360,
+            "expected": 3360,
+            "basis": "32 per target round"
+          },
+          {
+            "role": "verify_fp8_output",
+            "actual": 6720,
+            "expected": 6720,
+            "basis": "64 per target round"
+          },
+          {
+            "role": "verify_gate_up",
+            "actual": 13440,
+            "expected": 13440,
+            "basis": "128 per target round"
+          },
+          {
+            "role": "verify_down_packed",
+            "actual": 5565,
+            "expected": 5565,
+            "basis": "53 per target round"
+          },
+          {
+            "role": "verify_down_canonical",
+            "actual": 1155,
+            "expected": 1155,
+            "basis": "11 per target round"
+          },
+          {
+            "role": "verify_vocabulary",
+            "actual": 105,
+            "expected": 105,
+            "basis": "1 per target round"
+          },
+          {
+            "role": "target_gdn_selected_input",
+            "actual": 5040,
+            "expected": 5040
+          },
+          {
+            "role": "target_gdn_direct_input",
+            "actual": 9600,
+            "expected": 9600
+          },
+          {
+            "role": "target_conv",
+            "actual": 14640,
+            "expected": 14640
+          },
+          {
+            "role": "target_ab_pair",
+            "actual": 14640,
+            "expected": 14640
+          },
+          {
+            "role": "verify_short_attention",
+            "actual": 0,
+            "expected": 0
+          },
+          {
+            "role": "verify_qk",
+            "actual": 1680,
+            "expected": 1680
+          },
+          {
+            "role": "verify_softmax",
+            "actual": 1680,
+            "expected": 1680
+          },
+          {
+            "role": "verify_pv",
+            "actual": 1680,
+            "expected": 1680
+          }
+        ]
+      },
+      "observed_gpu_kernel_copy_memset_union_s": 21.315052553,
+      "outside_observed_union_s": 0.309086455,
+      "environment": {
+        "preflight": {
+          "authority": "T4 diagnosis only. Exact installed cap3; P40000 continuation after preserved short capture. Profile timings include instrumentation and are not a performance baseline or selection.",
+          "hard_stops": [],
+          "qualifiers": [],
+          "material_contention_thresholds": {
+            "noncontrol_cpu_percent_of_one_core": 50,
+            "aggregate_cpu_busy_percent": 75,
+            "gr3d_percent": 10,
+            "gr3d_min_samples": 3
+          },
+          "cold_cache_claim_eligible": true
+        },
+        "cleanup": {
+          "success": true,
+          "returncode": 0,
+          "errors": [],
+          "max_temperature": 72.906,
+          "observation_qualifiers": [],
+          "authority": "T4 diagnosis only. Exact installed cap3; P40000 continuation after preserved short capture. Profile timings include instrumentation and are not a performance baseline or selection."
+        },
+        "startup_free_bytes": 10859433984,
+        "gpu_clock_hz_min": 1300500000,
+        "gpu_clock_hz_max": 1300500000
+      },
+      "claim_limit": "One node-instrumented API capture, first target-verifier FP8 kernel through last kernel inside its q3x.generation range. Includes target verification and later draft/reconciliation; excludes the first draft proposal and pre-verifier entry work. This is neither complete Decode latency nor an unprofiled baseline.",
+      "copies_and_memsets": [
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 8,
+          "graph": true,
+          "calls": 15555,
+          "bytes": 1054082440,
+          "nanoseconds": 35264512,
+          "seconds": 0.035264512,
+          "mean_us": 2.2670853101896498
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 2,
+          "graph": false,
+          "calls": 407,
+          "bytes": 4440,
+          "nanoseconds": 516928,
+          "seconds": 0.000516928,
+          "mean_us": 1.270093366093366
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 8,
+          "graph": false,
+          "calls": 863,
+          "bytes": 875432960,
+          "nanoseconds": 12749440,
+          "seconds": 0.01274944,
+          "mean_us": 14.773395133256082
+        },
+        {
+          "table": "CUPTI_ACTIVITY_KIND_MEMCPY",
+          "copy_kind": 1,
+          "graph": false,
+          "calls": 208,
+          "bytes": 43264,
+          "nanoseconds": 75328,
+          "seconds": 7.5328e-05,
+          "mean_us": 0.36215384615384616
+        }
+      ]
+    }
+  ],
+  "analysis_scope": "One node-instrumented API capture, first target-verifier FP8 kernel through last kernel inside its q3x.generation range. Includes target verification and later draft/reconciliation; excludes the first draft proposal and pre-verifier entry work. This is neither complete Decode latency nor an unprofiled baseline.",
+  "comparability": "Two node-instrumented requests in separate server processes. Same installed binary, exact original requests/output/physical work; not unprofiled throughput, repeated speed selection or a hardware bound.",
+  "conclusion": {
+    "projection_priority": "Target projections occupy 84.36% of the short diagnostic window and 63.72% at 40K. FP8, Gate/Up and Down dominate both; choose a composed projection executor as the next implementation unit.",
+    "attention_priority": "Target Attention occupies 0.21% of the short diagnostic window and 22.44% at 40K. It remains a second long-context architecture budget; optimizing it alone cannot meet all-bucket goals.",
+    "not_gdn_recurrence": "GDN update kernels total 26.221088 ms short and 420.059232 ms long. A Graph region named GDN is not recurrence alone.",
+    "not_a_hardware_cause": "This profile measures kernel durations and physical multiplicities, not DRAM bandwidth, shared-bank conflicts or instruction stalls. It supplies no measured hardware ceiling.",
+    "next_action": "Evaluate one output-channel-owned projection composition that preserves every original FP32 leaf and reduction-tree operation. Freeze its equivalence, ownership/resource and bounded local-to-API contract before mutation; do not repeat profiling or revive the closed Gate/Up/PV/layout lineages."
+  },
+  "limits": [
+    "First process remains incomplete after the tree-only Nsight-agent ownership stop. Its completed short response, work and capture are retained with the exact-session causal assessment and historical identity-check limitation in the continuation record.",
+    "The long capture is one fresh process, not the originally planned second request in one process. Both requests match their installed outputs/work; this does not create a matched unprofiled comparison.",
+    "Windows start at first target verifier FP8 kernel and end at last generation kernel. First proposal and pre-verifier entry work are excluded; family shares are window shares, not full Decode shares.",
+    "Nsight node tracing changes execution and external timings; the installed six-process comparison remains the performance baseline.",
+    "No new 8K capture, NCU replay, accuracy qualification or speedup selection was performed."
+  ],
+  "evidence_sha256": {
+    ".q3x-work/decode-plan-20261021/analyze-installed.py": "d984289968d6c94a7a9a01e18176670fbc076e28d271602e54acfdfefd419243",
+    ".q3x-work/decode-plan-20261021/analyze-pair.py": "b21f4267ef4fa900d61075f10be9b3dc6c1c352cf146dba73d08d3ed85b7500b",
+    ".q3x-work/decode-plan-20261021/current-node-analysis.json": "d516dc50c86b0357d3d880f4a82a90819b4b2158988eaaed1c7d571d1b4ce633",
+    ".q3x-work/decode-plan-20261021/profile/before-p40000-gpu-audit-console.log": "226a8daf02e15b2acff10c339e101ff6b21019eb550ff47c97c7863312d275e0",
+    ".q3x-work/decode-plan-20261021/profile/before-p40000-gpu-audit.json": "777200231751601366657e40f026ed7428b67d06825da65781e8c11dd570eb52",
+    ".q3x-work/decode-plan-20261021/profile/before-p65-gpu-audit-console.log": "5cdf6c41bf6c845e45e858857df20a1b3d10d14b3d0d37d633c669e66b2207b1",
+    ".q3x-work/decode-plan-20261021/profile/before-p65-gpu-audit.json": "290d4516fe7ef59fefaaf94f3ae92565d8b68095ba2418c736336f7efa96475f",
+    ".q3x-work/decode-plan-20261021/profile/cache-preparation.json": "ad721da1ee4c3ac8c1c1fe6bb8f6a8fa74ed52b1c3d79e4fd4517c2a0c5e0082",
+    ".q3x-work/decode-plan-20261021/profile/capture.1.nsys-rep": "6b0618eb64a2813cfcc5352981077ff2551d3035253e2e6471f6728761e8f6c8",
+    ".q3x-work/decode-plan-20261021/profile/capture.1.sqlite": "a602205434bab425abd27b5dc257b273b5ad7b327518ab95f644dd0d81e43516",
+    ".q3x-work/decode-plan-20261021/profile/cleanup-gpu-audit-console.log": "1d1fd7359bd312540f090fcbd670c7e6c8d609c114bca8865c9715677eff097e",
+    ".q3x-work/decode-plan-20261021/profile/cleanup-gpu-audit.json": "88e76466d20867b24051649eb11aa9ef943653c6ddfa26993016db8a37ea346b",
+    ".q3x-work/decode-plan-20261021/profile/cleanup.json": "939209e7066e2dece18fdbaa24b43c10828d3e0ef9dacf98a78d6490570f1214",
+    ".q3x-work/decode-plan-20261021/profile/clocks.jsonl": "996ecec671d6e900443bc9a19c567319b0089c704c6a5212b07dcebd60f573cb",
+    ".q3x-work/decode-plan-20261021/profile/diagnostic-preflight-decision.json": "3d3e85d0042a98071b21ce53d0d28cbce8af39b433da9a9d49cb1024537960a9",
+    ".q3x-work/decode-plan-20261021/profile/health.json": "f2bc1483d7c87bd5da1f5ca8fe33c3e9c9d62de4c210b67ca803ad45edd13143",
+    ".q3x-work/decode-plan-20261021/profile/identity.json": "4c7faeda9e28687b96a8fcbba4a81b16c875e23b9347a9d8c9d8dbec71b41094",
+    ".q3x-work/decode-plan-20261021/profile/installed-audit.json": "80083acd1ff33c6301236de273166e059813b4485c988daa4935375fc362c433",
+    ".q3x-work/decode-plan-20261021/profile/observation-qualifiers.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    ".q3x-work/decode-plan-20261021/profile/output-work-comparison.json": "28bb25fae13e5afeccd0249e1c63a7aeb67f5f24a77029cc9c22209d836e3d59",
+    ".q3x-work/decode-plan-20261021/profile/p65-witness.json": "8a164f34c451e9dddf74c1f02a88fb2bde9fde5647e4a36a6e56a44322f748e6",
+    ".q3x-work/decode-plan-20261021/profile/p65.json": "1f9ef07032adca9dc17a04b8c5dfe610a5411f69a8ec97a43d649979f8c90884",
+    ".q3x-work/decode-plan-20261021/profile/preflight-console.log": "69947df2755a21ed43a3eb3477da0dee7c613cd39171d850f0cd2b2ba73fb871",
+    ".q3x-work/decode-plan-20261021/profile/preflight.json": "c81dbea588b99afd63533a33fb8c3f98517814d695ca9f95eefc121d24f26b7e",
+    ".q3x-work/decode-plan-20261021/profile/process.json": "a98cc1f10612fefbdfa7cf6ff8c061becc225a81fcb9e7c0bec03ac1e86e5a87",
+    ".q3x-work/decode-plan-20261021/profile/profiler-command.json": "1f735491b73a856fca429e711eb6fcda72376ebaf3db6d5ef03fd5606d76c691",
+    ".q3x-work/decode-plan-20261021/profile/profiler-version.json": "c31c2870f59835a251b2b190ecfdbd6e0b30f0ed0dbc021d92b72c48062a71d1",
+    ".q3x-work/decode-plan-20261021/profile/requests.jsonl": "c99e3f4fc9128fa3e531798b585f0ad96dd47b5392e1ae9ef023d775eb15725d",
+    ".q3x-work/decode-plan-20261021/profile/results.json": "673601341839ebe6082e0d87a0ef9e244edafd3905b3b27d5363ca77fd3e75b2",
+    ".q3x-work/decode-plan-20261021/profile/server.log": "15dc32ecf119126642eddf437d6837f00e4b3f5d578edba6d618c9af023e74f6",
+    ".q3x-work/decode-plan-20261021/profile/telemetry.log": "0c7a7fdd10f760ebc7d3c7e7ed5cd1138c48aeba9285dd0802742ebaa7488541",
+    ".q3x-work/decode-plan-20261021/profile-first-driver-frozen.py": "403d2a5202d1ed56cb35c5cccb1ba33250f57b0bc7fb89084630290f5fd1182c",
+    ".q3x-work/decode-plan-20261021/profile-long/audited-metrics.json": "9a52719c0feba8b7d7dd30da53e65405ed550bc891ec2982cd403fe0bdc7f71d",
+    ".q3x-work/decode-plan-20261021/profile-long/before-p40000-gpu-audit-console.log": "1142c4d8ecd28a3f75e86ad814edee7fd75c4447f640536acb31cfb20546f489",
+    ".q3x-work/decode-plan-20261021/profile-long/before-p40000-gpu-audit.json": "46994dfed6d0c8b0a19b2c5ee72cb261e46738c65874ca66b4b446f98289729f",
+    ".q3x-work/decode-plan-20261021/profile-long/cache-preparation.json": "e4cb9d602524349000255c0dcd7b3a7ecb3e8663b776f51f55cf236db9d77fad",
+    ".q3x-work/decode-plan-20261021/profile-long/capture.nsys-rep": "a54fbcbdbd1ed5be37d633b23a885ebbc85ea8b8376f90b5fa0fe725b20009c9",
+    ".q3x-work/decode-plan-20261021/profile-long/capture.sqlite": "890ddf7525e957217a036335b55c486e4b3da26f4da3bc4efa82c48bfec17202",
+    ".q3x-work/decode-plan-20261021/profile-long/cleanup-gpu-audit-console.log": "853bbfb74d15d455306421f10c4795475fb45e6b4ac2f73cbbbc01789b3b4951",
+    ".q3x-work/decode-plan-20261021/profile-long/cleanup-gpu-audit.json": "26fc3d3c6d896896b754aa7d03faf4f7025affe7e6f9787d8359be0b4bc43692",
+    ".q3x-work/decode-plan-20261021/profile-long/cleanup.json": "c2f4812b67e39961d3cc4e98716b571127d6b82d4259d3396fdc5d9aeeb46e19",
+    ".q3x-work/decode-plan-20261021/profile-long/clocks.jsonl": "7e853d2dc0c6c9226e6e3dd568437c4f828ff4f20a790b0981e34fd5401493ef",
+    ".q3x-work/decode-plan-20261021/profile-long/diagnostic-preflight-decision.json": "39a0fd25dab14e32156d7391141c1f013b9ede09dcf1d82c080094b33b23ea0e",
+    ".q3x-work/decode-plan-20261021/profile-long/export-console.log": "64a58f00b25edd132b8c62526db3ba75187cec11ecea3ac433e88231dbde0c31",
+    ".q3x-work/decode-plan-20261021/profile-long/health.json": "f2bc1483d7c87bd5da1f5ca8fe33c3e9c9d62de4c210b67ca803ad45edd13143",
+    ".q3x-work/decode-plan-20261021/profile-long/identity.json": "7400f8a0197d11b0c0ce04d1d8dbd41ba989984c304a0f9c48db9471229e15fa",
+    ".q3x-work/decode-plan-20261021/profile-long/installed-audit.json": "80083acd1ff33c6301236de273166e059813b4485c988daa4935375fc362c433",
+    ".q3x-work/decode-plan-20261021/profile-long/observation-qualifiers.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    ".q3x-work/decode-plan-20261021/profile-long/output-work-comparison.json": "6dbe18d6519c75a28c5054e3d185a3a488820fcd285ca27636c45f205c6bd3b7",
+    ".q3x-work/decode-plan-20261021/profile-long/p40000-witness.json": "9ddefd091d909cfd564aadbe493da1fe0d733dfb0974737b305bb834140698f2",
+    ".q3x-work/decode-plan-20261021/profile-long/p40000.json": "17acb6ae269faf84eab3d8fdcd70339f7d51cfe6b9630ab012f6f73e516030ff",
+    ".q3x-work/decode-plan-20261021/profile-long/preflight-console.log": "f061e4dd95cf5c3cc3eb398defeaee8150b7400d72cd5c785e8e3667310a49cf",
+    ".q3x-work/decode-plan-20261021/profile-long/preflight.json": "0653484f441c9bc03ef6525c28be6905d02fe86a40f78a21321eacb82e2a1c0a",
+    ".q3x-work/decode-plan-20261021/profile-long/process.json": "8437ccbe87e32234e441283734c79e822117172a5f7e32bfb799c000b0ae537e",
+    ".q3x-work/decode-plan-20261021/profile-long/profiler-command.json": "021efd8df80d9933c97871e196b2a3b2e15e6bff420598fd796901742d893478",
+    ".q3x-work/decode-plan-20261021/profile-long/reports.json": "ddc681d788bbe2c904ec32a03df406d3d517a0c1b1d861e0ae28bc84dd5d82ba",
+    ".q3x-work/decode-plan-20261021/profile-long/requests.jsonl": "9119a99d5f73dea9361526c6e6263dcdc1122a4eb7b27a085b3db3f40e140ebc",
+    ".q3x-work/decode-plan-20261021/profile-long/results.json": "63ac8c8046b90ced2feaaa9b60e3eab3ebde63175c7d017981deaa70ee19e976",
+    ".q3x-work/decode-plan-20261021/profile-long/server.log": "fe19032433ab6d1e6d34b9cc910ac86a8acf9383619552cbb8e70c15cd2e796e",
+    ".q3x-work/decode-plan-20261021/profile-long/telemetry.log": "dd5f518161a289eeaa9c2c28e17a45a007f3e397162b898692bdec37f23c9435",
+    ".q3x-work/decode-plan-20261021/profile-long.py": "6c82608d83094ec2f744b6b471e9d34f30d218dddcf9b2b299a10961ed846e4a",
+    ".q3x-work/decode-plan-20261021/short-node-analysis.json": "3672096bba8cfa48090b287438cd57f69665a76cdc72d2df502780bddf099bbc"
+  },
+  "goal_achieved": false,
+  "production_changed": false
+}

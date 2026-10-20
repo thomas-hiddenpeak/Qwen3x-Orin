@@ -64,11 +64,22 @@ above-90C stop; 85C is not an independent veto. The long capture's fresh-process
 boundary is explicit. Instrumented timings cannot replace the unprofiled
 baseline or select a performance gain.
 
-Close that diagnostic after the retained short capture, one continuation and
-analysis. The next action is
-one named executor composition with an equivalence ledger, actual phase budget,
-resource contract and bounded implementation/API return, or rejection of a
-materially unsupported mechanism. No new mechanism is active yet. Existing
+The [completed node attribution](metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json)
+closes the retained short capture and one successful long continuation. Full
+output and physical work match both references. Target projections occupy
+84.36% and 63.72% of the short and 40K diagnostic windows; Attention occupies
+0.21% and 22.44%. These windows omit the first draft and entry work; their
+instrumented intervals are not complete Decode latency or speedup evidence.
+Stop profiling. The [output-channel ownership work package](metadata/qwen36-27b-mtp-output-lane-design-2026-10-21.json)
+selects one fixed FP8 input executor prototype that retains the original FP32
+leaves and reduction tree. Its first local gate requires at least 10% aggregate
+input-projection latency reduction with every mirrored pair favorable; this is
+a prerequisite threshold, not an API gain. A passing prototype must compose
+with Gate/Up and 53 packed Down roles within the second milestone, update the
+affected owner/inventory contracts, and return immediately to both-cap
+short/8K/40K API checks. There is at most one correctness repair and no layout
+scan. The proposal reserves 75,382,784 additional bytes and preserves the
+8-GiB reserve; resource admission is still pending. Existing
 multi-row weight reuse, K512 input staging, FP8 preswizzle and rejected
 Gate/Up or PV variants are not new designs. No parameter scan or indefinite
 profile campaign is selected. After minimum affected correctness admission,

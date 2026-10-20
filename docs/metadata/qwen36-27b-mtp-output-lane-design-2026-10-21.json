@@ -1,0 +1,273 @@
+{
+  "status": "selected_bounded_local_prototype_before_composition",
+  "parent_constraint": "Owner-authorized additional25% then50% Decode gain over installedv127 cap2/cap3, across pinnedP65/O16,P8192/O256,P40000/O256. Preserve numerical,state,output,API,capacity and8GiB reserve. Prefill remains regressionguard.",
+  "identity": {
+    "git_head_at_read": "02da73f7624fc9987e82d151edff637f79eb38c5",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "source_sha256": {
+      "src/runtime/mtp_verify_projection_internal.cu": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95",
+      "src/runtime/mtp_verify_internal.cpp": "68a97b213af9e464c2c925504d4ebf445345b69cf60ff13d59e204b504fd19d6",
+      "src/runtime/mtp_device_internal.cpp": "af16ac8eb40024757e7d270a868940235b27b91c1974911eb489ece1e219f20f",
+      "include/q3x/runtime/model_weights.h": "5e54039f5f3b0ca213574676bb25427c9c79bc41c62636292f1249eaafee49c4",
+      "src/kernels/reference/projection_dispatch.cpp": "1f110c4dca60a4403c5a728cb63b1ccb07fce492c8c902e891f29eeed166ec76",
+      "docs/MTP_ADMISSION.md": "cdcc8fd96acf2502f279c7515ac7dd308df59a86ba9070c3d73b234621b25cc5",
+      "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json": "9756deea0e7f4aec643653c825ed5b66c5542528fcf13ee3e9536d777d8a32c6",
+      ".q3x-work/tmp-archive-20260809/qwen36-vllm-eval/csrc/libtorch_stable/quantization/marlin/dequant.h": "39c4640d2de39374ef5d96e7fa27701a675922113c3f5b05d45369321090e728",
+      ".q3x-work/tmp-archive-20260809/qwen36-vllm-eval/csrc/libtorch_stable/quantization/marlin/marlin_template.h": "be1300672e0072b4d93826139c1869efe407238b30f7fbddad1271f82235bc37",
+      ".q3x-work/tmp-archive-20260809/flashinfer-audit.kaXayz/flashinfer/flashinfer/triton/kernels/sm_constraint_gemm.py": "fec317385b5b16f7b75466148f60dee479d5aa0145ea2fd3189906edea6a4e1f"
+    }
+  },
+  "baseline": {
+    "source": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+    "cap2_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+    "cap3_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+    "record": "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json"
+  },
+  "mechanism": "Assign each SIMT lane one output channel and all M token rows, instead of one K leaf and four outputs. Each lane evaluates the original ordered four-chain leaves, then the identical binary tree in registers. A startup layout supplies coalesced weight loads and uniform activation addresses. No reassociation, Tensor Core, tolerance, certificate or approximate repair is introduced.",
+  "novelty": {
+    "vs_v70": "v70 split four outputs across two256-thread groups but retained originalK-lane ownership. This relocates complete original leaves into output lanes, and all live tree arithmetic into per-lane registers.",
+    "vs_v37_v41": "Those computed guarded exact roots with BF16 MMA then repairs; v37 repeated FP8 kernels dominated and8K Decode fell to4.291t/s; v41 fell to3.061t/s. This executes originalfmaf for every term with no metadata, guard or repair.",
+    "vs_v12_15_58_59_69": "Those certified different sums with BF16-cell bounds and scalar repair, all negativeAPI. No such numerical path is reopened.",
+    "vs_v46": "v46 extended oldGate/Up CTA lifetimes across output groups, retainingK-lane ownership and shared full inputs. This has fixed output-lane ownership and no persistent output loop or resource-tuned grid.",
+    "vs_v7_v8_v11_v26_v47_v48": "No further decoder, fullKshared residency, asynchronouspacked ring, registerlookahead, replicatedLUT or feed sweep. Current exact decoder is retained; one new lane/layout ownership is the coupled hypothesis."
+  },
+  "finite_precision_ledger": {
+    "notation": "RN denotes the existing explicitFP32 operation; B16 denotes existing rounded(float); rev_b reversesb lowbits.",
+    "fp8_original": "Foroutputn,rowm,originaltid d=32*g+l,c in0..3: a_c=+0; fort=0..K/1024-1 ascending, a_c=fmaf(fp8(W[n,4*d+1024*t+c]),bf16(X[m,4*d+1024*t+c]),a_c). leaf=(a0+a1)+(a2+a3). Eachg reducesl0..31 in original offsets16,8,4,2,1. Final rootsg0..7 each add+0 twice, then originaloffsets4,2,1; scale andB16 remain last.",
+    "new_root": "Visitl=rev_5(i),i0..31. Compute unchangedleaf. Maintain5-level binarycarry stack: for each occupiedlevel, v=__fadd_rn(stack[level],v), retaining prior/left operand first; clearlevel and carryup. Store atfirstempty. Finalcarryafterleaf31 is exactsame32-leafroot. Neverusegeneric serialsum or reverse operands.",
+    "fp8_final": "Publish roots[m,n,g] toboundedFP32scratch. Following same-stream kernel first performs __fadd_rn(root,+0), then another __fadd_rn(...,+0) independently oneachroot. Use original4,2,1tree, or rev_3/carry withsameleft/right expression. Tensor scale multipliesonlyafterroot; originalB16 publication unchanged. Signedzeros, NaNs/infinities are evaluated byidenticaloperations andoperandorder, not algebraic identities.",
+    "nv_original": "Fororiginall andc0..3: a_c=+0; fortile0..K/512-1,phase0..1,half0..1 inthatorder, j=512*tile+256*phase+8*l+4*half+c; decodeE2M1 andE4M3 blockscale(j/16) usingcurrentpairedBF16 FMAwithnegativezero addend; thenoriginalFP32fmaf(weight,x,a_c). Chainlength40 atK5120,136 atK17408. Samefourchainmerge, rev_5/carry31-addtree, tensorscale,B16. No crosswarp/root scratch forNV.",
+    "proof_status": "Hostsymbolic expressioncomparison confirms32-leaf originalshuffletree equals rev5/carry; confirms current8-root(+0,+0)tree equalsrev3/carry. This isindex/parenthesizationproof, not GPUcompiler, specialvalue orstatequalification.",
+    "forbidden": "NochangingFMAorder, roundingmode, signedzero/NaN behavior, tensorscaleplacement, activationsdtype, recurrentstate, tokenhistory, targetlogits orfixedcapacity. Exactinteger orTensorCore dot isnotreplacement: [1,2^-25,-1] inoneFP32chain gives0, whileexactsummedrealvalueis2^-25, allvalidBF16inputs."
+  },
+  "fp8_layout": {
+    "shapes": [
+      [
+        1024,
+        5120
+      ],
+      [
+        6144,
+        5120
+      ],
+      [
+        10240,
+        5120
+      ],
+      [
+        12288,
+        5120
+      ]
+    ],
+    "count": 144,
+    "all_weight_bytes": 7214202880,
+    "input_owner_bytes": 5200936960,
+    "output_weight_bytes": 2013265920,
+    "grid": "Fixed128threads,4warps; grid=(N/128,8). CTAx covers128outputs; threadid owns n=128*blockIdx.x+threadIdx.x; CTAy isoriginalg0..7. AllNaredivisible128. MinimumN1024has64CTAs. NoNtile/gridscan.",
+    "offset": "Each projection hasN/32 outputtiles,8originalwarp-root groups,32bit-reversedleaf slots. LetT=K/1024,nt=n/32,u=n%32,i=rev5(l),segmentB=32*4*T,base=(((nt*8+g)*32+i)*segmentB). Forcanonicalj=4*(32*g+l)+1024*t+c, offset=base+(t<4 ? u*16+4*t+c : 32*16+u*4*(T-4)+4*(t-4)+c). RawFP8bytevalueunchanged; codebookmayretaincurrentinvolutiveswizzleifbothproducerandcheckerexplicitlyagree.",
+    "load_trade": "T5 uses16B+4B peroutputleaf,T6uses16B+8B. Naive2loadimplementationincreasesweightloadinstructioncount1.6x/1.333x vsfully16Bincumbent despiteidenticalpayloadbytes. Thisisapredeclaredrisk, notpermissionforlayoutscan. Coalescingcovers32outputlanes; tailsaredense,nozero-paddingweightgrowth.",
+    "scratch": "FP32roots[M,N,8], exactmaximumM4*N12288*8*4=1572864bytes, reusedseriallyperprojection. Storem-major andn-major withgminor, orfixedcoalescedvariantdeclaredbeforeimplementation. Noaliaswithcurrentinput/output,snapshots,liveGDNselectedstorage,hiddenorlogits.",
+    "register_model": "AtM3:12fourchainaccumulators+15binarycarrylivevalues=27floats minimum vsincumbent48FMAaccumulators. Rawweightvectors,inputwords,indicesandLUT temporariesalsocharge;actualptxasresourcesrequired. Claimnot12totalregisters.",
+    "cta_count": "NewN/16 vsoldN/4:4xfewerLUTinitializationCTAs, fixedwork. NoFMAcountreduction.",
+    "activation_demand": "Warp-unique activationbytes old(M*N*K*2/4),new(M*N*K*2/32),8xlower. Thisisloadaddress/requestreuse, notDRAMsaving. Currentinputsoftenfitcache;profilemustnotinferbandwidthsaturationfromthisformula.",
+    "selected_weight_bytes": 5200936960,
+    "unmodified_output_weight_bytes": 2013265920,
+    "scope": "Only 144 K5120 FP8 input projections. All 64 K6144 output projections and their ordinary scalar sidecars stay unchanged. The generic offset equation also describes K6144, but that shape is not selected by this candidate."
+  },
+  "nv_layout": {
+    "scope": "All128 Gate/Up projections plus53 existingpackedDown projections; remaining11canonicalDown andvocabularyhead retainincumbent. Do notclaimall64Downconversion.",
+    "grid": "Fixed128threadsCTA,4warps,oneoutputperlane; grid=N/128; all32originalKlanescomputedbyeachoutputlane inrev5order. Gate/UpN17408=>136CTAs; DownN5120=>40CTAs. OldgridN/16, so8xfewerLUTinitializationCTAs;longerperlanecriticalwork and2.5wavesminimumDownareexplicitrisks.",
+    "weight_offset": "SetT=K/128=40or136, H=T/8=5or17. Forcanonicalj, l=(j%256)/8; tile=j/512; phase=(j%512)/256; half=(j%8)/4;c=j%4;t=4*tile+2*phase+half; i=rev5(l); nt=n/32;u=n%32;h=t/8;v=t%8. byteoffset=((((nt*32+i)*H+h)*32+u)*16+2*v+c/2); nibble=c%2. ExactlyN*K/2bytes,16B/outputlane/groupof8originalchainsteps, noscaleassociationchange.",
+    "scale_offset": "Canonicalblockj/16 haslpair=floor(l/2),tile,phase; withinh=t/8, s=(t%8)/2 is0..3. Canonical8bit scalepayload placedat((((nt*16+lpair)*H+h)*32+u)*4+s). Storeeachoriginalscaleonce, notonceperoldlane. Eachpair of oldleavesrevisitssameaddress; cachemayreusebutnodependency. ExactlyN*K/16bytes. ForDown53 thisexpandsold6bitderivedscalestoexactoriginal8bit codes(+73809920bytes), noapproximation. Canonicalsourceblocksremainread-only.",
+    "raw_bytes": {
+      "gate_up_weights": 5704253440,
+      "gate_up_scales": 713031680,
+      "gate_up_total_replaces_existing": 6417285120,
+      "packed_down53_weights_replaces_existing": 2361917440,
+      "packed_down53_old_scale6": 221429760,
+      "packed_down53_new_scale8": 295239680,
+      "packed_down53_scale_growth": 73809920
+    },
+    "activation_demand": "Gate/Upring currentlysharesinputsacross16outputs/CTA; newuniformwarpacross32outputs gives2xwarp-uniqueinputreuse, not8x. Downoldwarpreuse4->new32 gives8x. FMA/scaleddecodenumberunchanged. NoextraK-ringstaging32times: usefixeduniformreadonlyglobalinputaddresses,cachehintonlyifdeclaredaspartinitialexecutor.",
+    "critical_risks": [
+      "DownN5120only40CTAsvsold320;longchainsandfewwavesmaylose.",
+      "NVblockscaleaddressesarevisitedtwicebydifferentleafiterations;actualL1/L2trafficmaygrowdespiteunchangeduniquepayload.",
+      "Binarycarrytreeloop/controlandlonglanecriticalpathcanerasefeedandregistersavings."
+    ]
+  },
+  "ownership_and_M1": {
+    "FP8": "Replace the private 5,200,936,960-byte input owner with the new layout of exactly the same size. Do not add or repack the 2,013,265,920-byte output sidecar. Authenticate the inverse mapping before Ready. M1 keeps the canonical input route and existing ordinary output sidecar.",
+    "NV": "In the new compiled MTP candidate, replace the startup pack/preparation stage for Sm87NvFp4GateUpCoupledFeedSidecars (reference_engine.cpp:2495, selected at5727) with a private format owner of the same 6,417,285,120 bytes. Replace the53-layer Sm87NvFp4DownConsumerOrderSidecars weight owner (2856, selected at5769) and its scale preparation with private weight/scale owners of2,361,917,440 and295,239,680 bytes. Preserve the exact existing53-layer eligibility plan. Do not construct the old owners in this build, and do not attach new bytes to old-format ModelWeights pointer fields. Expose separately tagged private views to TargetTransaction. Canonical checkpoint arrays remain read-only. Ordinary production and frozen v127 preparation are unchanged. Constructor failures drain and release all partial owners; startup receipts must name the new format and exact inventory.",
+    "M1_tail_and_oracle": "Old NV sidecar fields remain null in the new candidate. Bind existing canonical fused M1 Gate/Up and Down dispatches before enqueue (projection_dispatch.cpp:1539 and1650). This covers the scalar oracle, singleton verifier tail, scalar continuation and scalar Prefill terminal row. No new M1 executor is required and no after-error fallback occurs. Canonical arithmetic is already the scalar contract, but full same-input state/logit identity and Prefill timing must be rechecked for the changed physical route.",
+    "additional_planned_bytes": 73809920,
+    "concurrency_lifetime": "OneactiveGPUrequest,allocationsconstructiononly; immutableweightownersoutliveallgraphsandtransactions. Rootsareperrequestboundedworkspace,streamorderedanddisjoint; graphcapturebindingsstable. Abortdrainsbeforecleanup;ownerdestructiondrainsandrestoresselectedGDNownershipunchanged. Reserve>=8GiBafterfullcapacitycreation; nostaleordinarylayoutbindings.",
+    "additional_planned_bytes_including_roots": 75382784,
+    "additional_bytes_explanation": "Only73,809,920 bytes for exact Down scale6-to-scale8 expansion, plus at most1,572,864 bytes of roots. Owner metadata and allocator alignment must be included in admission. No extra6GB NV or2GB FP8 output copy is permitted."
+  },
+  "budget": {
+    "authority": "Diagnostic current installed node traces, not full Decode latency or speedup forecasts. Window excludes first draft and pre-verifier entry work. Required cuts below are window arithmetic and must be reconciled with unprofiled whole-API phase budgets.",
+    "source": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-plan-20261021/current-node-analysis.json",
+    "source_sha256": "d516dc50c86b0357d3d880f4a82a90819b4b2158988eaaed1c7d571d1b4ce633",
+    "cases": [
+      {
+        "label": "p65",
+        "window_seconds": 0.988456,
+        "FP8_input_seconds": 0.231694816,
+        "Gate_Up_seconds": 0.31707584,
+        "packed_Down_seconds": 0.132738432,
+        "selected_family_seconds": 0.681509088,
+        "selected_fraction_of_diagnostic_window": 0.6894683101726329,
+        "required_selected_family_cut_for_25pct_window_speedup": 0.29007859686824894,
+        "required_selected_family_cut_for_50pct_window_speedup": 0.4834643281137483,
+        "all_projection_seconds": 0.833876096,
+        "attention_seconds": 0.002027264
+      },
+      {
+        "label": "p40000",
+        "window_seconds": 21.624139008,
+        "FP8_input_seconds": 3.773599232,
+        "Gate_Up_seconds": 5.348290368,
+        "packed_Down_seconds": 2.217199392,
+        "selected_family_seconds": 11.339088991999999,
+        "selected_fraction_of_diagnostic_window": 0.5243718137311744,
+        "required_selected_family_cut_for_25pct_window_speedup": 0.38140875379417793,
+        "required_selected_family_cut_for_50pct_window_speedup": 0.6356812563236299,
+        "all_projection_seconds": 13.777985312,
+        "attention_seconds": 4.852000489
+      }
+    ],
+    "all_FP8_nominal_bytes_per_round": 7214202880,
+    "selected_FP8_input_bytes_per_round": 5200936960,
+    "unmodified_FP8_output_bytes_per_round": 2013265920,
+    "all_FP8_nominal_one_pass_at_204p8GBs_ms": 35.2256,
+    "short_all_FP8_profile_ms_per_round": 52.92250000000001,
+    "conditional_all_FP8_saved_ms_per_round": 17.696900000000007,
+    "conditional_limit": "Under a hypothetical single complete weight pass and all204.8GB/s available, all FP8 reads need35.2256ms versus52.9225ms of short profiled FP8 kernels:17.6969ms conditional difference per round. These mixed observation surfaces cannot establish an achieved gain or hardware limit. Current actual DRAM traffic is not measured. FP8 alone is not the complete25% plan.",
+    "composition": "144 FP8 inputs plus128 Gate/Up and53 packed Down. Long Attention remains a material unmodified budget and may require a separate composition for the50% milestone; no gain is forecast."
+  },
+  "bounded_execution": {
+    "milestone1": "Implement one fixed FP8 input executor and its private startup layout. Complete build/resource/bounds admission and directed numerical/Graph checks. Run one same-binary paired real-checkpoint comparison of complete current/new projections, including root stores and final merge. A local pass permits dependency-only retention until milestone2. A local failure closes this ownership version before all-role packing. No layout, grid or decoder scan.",
+    "milestone1_local_gate": "Before timing, freeze four B-C/C-B pairs of the complete144-input-projection corpus, rotating all actual layer weights in natural order. Aggregate candidate elapsed must be at most90% of incumbent (at least10% latency cut), and every pair must favor the candidate, with zero complete-output mismatches. The10% floor is prospective and selects a material prerequisite, not an API gain. If a validated payload-feature-selected FP8 panel is found before execution, root may freeze that panel instead; never choose it after viewing timing. All144 layers avoids a new multiGB host feature scan. Startup packing is excluded from hot projection time only because the composition owns it at startup and reports startup cost.",
+    "milestone2": "Compose the same exact NV output-lane executor for all Gate/Up and53 packed Down projections, private owner replacement, and explicit canonical M1 binding. After bounded complete projection/state/transaction/Graph/resource admission, return immediately to P65/O16, P8192/O256 and P40000/O256 for both caps. At most one correctness repair across both milestones; no second ownership/layout variant. A negative complete API composition archives the architecture even if FP8 was locally positive.",
+    "API_gate": "The first reversible API direction must preserve full IDs, physical work, usage, finish and state, and report joint Prefill/TTFT/Decode/total metrics. Stop if any bucket Decode regresses by more than3%, or Prefill exceeds1.02 times the same-cap frozen baseline. Stage25 selection requires Decode at least1.25 times the frozen installed MTP baseline in all three buckets for both caps, Prefill at most1.02, and all correctness/API/capacity/resource gates. Positive composition unlocks independent mirrored-process selection. Stage50 requires1.50 times the same baseline. Freeze conservative ratio and environment in the root work package; these median targets are planning values only.",
+    "cap3_median_targets_tps": {
+      "p65": {
+        "baseline": 15.26400515,
+        "stage25": 19.0800064375,
+        "stage50": 22.896007725
+      },
+      "p8192": {
+        "baseline": 15.930279352,
+        "stage25": 19.91284919,
+        "stage50": 23.895419028
+      },
+      "p40000": {
+        "baseline": 12.009237181,
+        "stage25": 15.01154647625,
+        "stage50": 18.0138557715
+      }
+    },
+    "cap2_median_targets_tps": {
+      "p65": {
+        "baseline": 14.407595971,
+        "stage25": 18.00949496375,
+        "stage50": 21.6113939565
+      },
+      "p8192": {
+        "baseline": 15.945672154,
+        "stage25": 19.9320901925,
+        "stage50": 23.918508231
+      },
+      "p40000": {
+        "baseline": 12.018332658,
+        "stage25": 15.0229158225,
+        "stage50": 18.027498987
+      }
+    },
+    "correctness": "ExhaustiveFP8codesandsignedzeros/NaNs; NVFP4pairs/allscales; finite/extreme/cancellation-sensitivechains; exactallshapeM1..4outputs; completeprefixstate/logits, target/draftKV,scalarcontinuation,EOS/cancel/abort/reset; constructorpartialfailureandownerdestruction; stableCUDAgraphs. IndependentnativeFP32/FP64referencesremainauthority; same-inputscalar isimplementationequivalenceoracle.",
+    "final_selection": "Architecture+25qualifiesnewcompositiononlyafterwholeAPIrepeat; affectedexactinstalledartifactqualificationbeforeoptionalpackagepromotion. Goalextra50remainsactiveevenif25passes. RetainordinarynonMTPdefault.",
+    "payload_panel": {
+      "existing_gate_panel": {
+        "path": ".q3x-work/mtp-nv-feed-audit-20261014/selection.json",
+        "sha256": "8d0e84a21e67ff56d73c41eb26e543c750963b2379657d80279b1a90102522c0",
+        "layers": [
+          20,
+          58,
+          27,
+          34
+        ],
+        "criterion": "all64 Gate FP4 entropy, then layer"
+      },
+      "historical_FP8_activations": {
+        "path": ".q3x-work/mtp-certified-publication-20261010/p65/rounding-audit.json",
+        "sha256": "e3959ef9647ff718f2e473a8504109e1f77a5058821e29154f6a1f58d273e1bd",
+        "linear_layers": [
+          0,
+          20,
+          40,
+          60
+        ],
+        "full_attention_layers": [
+          3,
+          23,
+          43,
+          63
+        ],
+        "scope": "Authentic historical P65 M3 inputs, with only32 sampled weight/output rows in captures. Load complete checkpoint weights for full shape. These depth-selected layers do not establish an all-eligible payload-feature selection."
+      },
+      "first_FP8_gate": "Use all144 eligible FP8 input projections, not an invented four-layer feature panel. Value-independent dense projection timing may use the frozen matching-shape P65 activation for unmatched layers, labelled checkpoint_weight_only; natural same-history API validation remains mandatory. A bounded standalone local owner may hold one current/new projection at a time, reusing allocations across corpus roles; pack both before each timed pair. This avoids loading duplicate full-model sidecars."
+    }
+  },
+  "external_translation": {
+    "vllm_marlin": "Localprimarydequant.h/marlin_template.h pinnedabove. Studiedproducer-packedfragments,dequantthenM-rowreuseandownershipplanning. CurrentcodealreadysharesweightsacrossM; proposaldoesnotclaimnewMreuse. MarlinMMAandpotentialscalecommutationarenotnumericallytransferable; onlypackedconsumerorientationandimmutablelayoutownershiptransfer.",
+    "flashinfer_triton": "Localprimarysm_constraint_gemm.py pinnedabove usespersistenttiles,tl.dotandFP32accumulator followedbydtypepublication. Transferoutput-tileownership/residencyprincipleonly; tl.dot/persistentgridandnewerISAarenotused. Fixedoriginalleafarithmeticandcarryareproject-specifictranslation.",
+    "license": "Noexternalcodecopied; referencesarearchitecturestudyonly."
+  },
+  "limits": [
+    "NoactualcodeorGPUexperimentbythisagent.",
+    "Noassurance25%or50%targetsachievablewiththisarchitecture.",
+    "PhysicalformatchangesandcanonicalM1fallbackbindingrequireownerSDD/contractupdatesandfullinventoryauditbeforeimplementation.",
+    "NoNVfullpayloadextraallocation, nooverwritingconstweightsorordinarysidecarspostReady, noexternalmodelenvmutation."
+  ],
+  "host_index_mapping_checks": [
+    {
+      "format": "FP8",
+      "k": 5120,
+      "one_N32_tile_bijective": true
+    },
+    {
+      "format": "FP8",
+      "k": 6144,
+      "one_N32_tile_bijective": true
+    },
+    {
+      "format": "NVFP4",
+      "k": 5120,
+      "one_N32_tile_nibbles_bijective": true,
+      "scale_bytes_bijective": true
+    },
+    {
+      "format": "NVFP4",
+      "k": 17408,
+      "one_N32_tile_nibbles_bijective": true,
+      "scale_bytes_bijective": true
+    }
+  ],
+  "work_package_id": "WP-DECODE-OUTPUT-LANE-20261021",
+  "architecture_candidate_id": "AC-DECODE-OUTPUT-LANE-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-decode-next-design-2026-10-21.json",
+  "current_budget_evidence": "docs/metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json",
+  "activation": {
+    "decision": "Activate milestone 1: one fixed output-channel-owned FP8 input executor and layout, with unchanged original arithmetic. Only the explicitly bounded two-milestone coupled composition may retain a positive prerequisite.",
+    "authority": "Local implementation and real-weight direction only. No installed route, production status or performance baseline changes.",
+    "before_first_timing": "Complete host/device arithmetic, bounds, resource and Graph admission. Freeze complete 144-input-projection rotation, payload identities, paired order and all four mirrored pairs. For value-independent dense projections, a shared deterministic or previously retained activation is permitted only when explicitly labelled checkpoint_weight_only; do not mislabel it as per-layer current-prompt capture. All real API gates remain mandatory.",
+    "composition_boundary": "Before milestone 2 integration, update affected Engine/MTP/state owner and route-inventory contracts together with the implementation. Do not silently expose a new physical layout through an old-format pointer or identity.",
+    "budget": "At most two implementation milestones and one correctness repair. A failed first fixed executor closes this architecture version; no layout/tile scan or profiler expansion. Complete composition returns immediately to short/8K/40K real API for both caps.",
+    "proof_scope": "CPU symbolic and layout checks in the proposal are planning admission only; GPU numerical equivalence and performance remain unmeasured."
+  },
+  "proposal_sha256": "3c73549f34e4ab9a676c431c0c49aaa4b7ca1d3106d5a27e349fc2f990067ebf",
+  "retained_host_proof": {
+    ".q3x-work/decode-plan-20261021/prove-output-lane.py": "e06c5a854c2477fc649de2792b767a89b2e34b36a9400502ee72a8a910a67f16",
+    ".q3x-work/decode-plan-20261021/output-lane-host-proof.json": "3b2cb0aca30b06bc159eb009035758bd0b4d01ccd3495c49b781f002c819b76b"
+  }
+}
