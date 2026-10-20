@@ -1,0 +1,1161 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-20261020",
+  "architecture_candidate_id": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "status": "bounded_ownership_lifecycle_passed",
+  "scope": "Seven fresh-process native ownership cases and both sealed-cap API auth/input/cancellation/recovery panels, not sustained or final release qualification.",
+  "native": {
+    "normal": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal",
+          "--owner-lifecycle"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "0c84a0eebe912158a799802cc242bc0eae9d12d2",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.656
+      },
+      "results": [
+        "gdn_owner_memory_stage=initial free=12095614976",
+        "gdn_owner_memory_stage=before_destroy free=11997368320",
+        "gdn_owner_memory_stage=after_destroy free=11997368320",
+        "gdn_owner_normal_destruction=bitwise_equal scalar_continuation=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/run.log": "04b01e3de9cce1107798812afcc0119dafe96dd73b5f3a7b178623a5845a372c",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/identity.json": "c631802c4b14d9c2979ae3123aeafcc9a59df18b6203c26aa4f611dfd3095f49",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/preflight.json": "a0c7185f262cf645b16c58358e4f58cb0fda4c6b5b3f4dc64c5d2eeebfb1eb34",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/cache-preparation.json": "32a9808fd0928a80ce999083d04d0594d2de8ba0901d9b09313c48c343d5bd63",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-normal/cleanup.json": "321805704f9a05b618fdb45fd21afe95f17100c3b413768981ecf4d9c206ecd6"
+      }
+    },
+    "active": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-active",
+          "--owner-active"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "0c84a0eebe912158a799802cc242bc0eae9d12d2",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.937
+      },
+      "results": [
+        "gdn_owner_memory_stage=initial free=12070682624",
+        "gdn_owner_active_destruction=poisoned full_reset=zero recovery=pass"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/run.log": "5bd7974c9c2d23f3c5b5a29be59fe948005f504042b185ff34e83f71a026250d",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/identity.json": "8c3c5aa14f25e257b3d4464104029a95fa3cb1dccf42b252873e93f395828bf6",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/preflight.json": "60cb1288a368bf918f2ac5f56235e09addaaf992ecb30ac4881601fc74235908",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/cache-preparation.json": "ce6f5de644572f75715cb2633ceb3a6124913af97e3cad57a6103d1e063fbf5e",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-active/cleanup.json": "44909989c58ac99cb67154d657f5fec4145e2d1df2d209c3ed55bc69ada09468"
+      }
+    },
+    "failure-1": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1",
+          "--owner-failure-1"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.843
+      },
+      "results": [
+        "gdn_owner_constructor_failure_stage=1 state=bitwise_equal free_before=17557270528 free_after=17523507200 cleanup=pass scalar_recovery=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/run.log": "0a007d930dde5b82f3e31b26abbd98da5e34c9db9e0c9518c1ded7deb2971175",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/identity.json": "c46c4123600d71133f2635cb16e4a2ba132a49835735f3d1f8ca299d7e8154c9",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/preflight.json": "fc1c41767f1c5ba944d3bf4585d48a61bdb6d3ab370883babae3af828cf504a8",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/cache-preparation.json": "c3e7b4eed48d14c65efce614ba52ee6144b7adb9aaacb50f0ddf5368384ab163",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-1/cleanup.json": "62f7b657341f4d8f3ac2c0ad1d22b1ccb1c79fce8d97e42b1127dc9ec161ff44"
+      }
+    },
+    "failure-2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2",
+          "--owner-failure-2"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.531
+      },
+      "results": [
+        "gdn_owner_constructor_failure_stage=2 state=bitwise_equal free_before=17588953088 free_after=17556348928 cleanup=pass scalar_recovery=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/run.log": "0b1846960b2ea9cc2079040fc7176a8b13616f56a46d74019cf1165196baa0ab",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/identity.json": "eda1219ae2780bdef4f10ca60304f61e0b05a6a7e45f9616dc47aa694ad22427",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/preflight.json": "fe57c22ddfe5cb9be7ba1bef7c6c898ce9a67e3169234fab88d6c9cab7df5acb",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/cache-preparation.json": "7629381320172a9900ec97b837153388bebdbd9a1a07fd828871f4166f1d4edf",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-2/cleanup.json": "fb153f07b2871b0959b14985283e3aed4c2e78b606e258527d747469242c3174"
+      }
+    },
+    "failure-3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3",
+          "--owner-failure-3"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.531
+      },
+      "results": [
+        "gdn_owner_constructor_failure_stage=3 state=bitwise_equal free_before=17557368832 free_after=12260683776 cleanup=pass scalar_recovery=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/run.log": "a72a6dbd6e5d0397e748494c4c9173d232c1f8999b0d986462654eb5eccc29de",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/identity.json": "fd300ed57dc3a2436f185299440e871184e44b052553675913a1c41a97747bc0",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/preflight.json": "d99fea006670eea197f1a54db59045c5cc98b069a8fcbb08fb417d594b36f054",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/cache-preparation.json": "354f5f416c52e863cccefc177ba0591b52bcff5a0aacc557cf6cb0a139fed533",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-3/cleanup.json": "fb153f07b2871b0959b14985283e3aed4c2e78b606e258527d747469242c3174"
+      }
+    },
+    "failure-4": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4",
+          "--owner-failure-4"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.312
+      },
+      "results": [
+        "gdn_owner_constructor_failure_stage=4 state=bitwise_equal free_before=17594712064 free_after=12421136384 cleanup=pass scalar_recovery=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/run.log": "2990eb19751bb4e6b6da0939f03d9bbc50f2613aaf8566a2a6d1088c075446a0",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/identity.json": "1d2457337497e5dd7ea5924f829d046d41da6bb3a2404979cd393a8aa756a3c7",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/preflight.json": "5aba4b526eb9da000991e79bd38f304c8a65c036ae1eda1ae2468e00fb11c900",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/cache-preparation.json": "0cce52bcc3a5605f32dc44a12f7ba0f358e5402926ae7d1a771aa6d76e3f8a8c",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-4/cleanup.json": "1a0654f5039328c89dd2e216e6eb258a7c9d1b3d8d8bcab182f2aaeca01091e9"
+      }
+    },
+    "failure-5": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5",
+          "--owner-failure-5"
+        ],
+        "binary_sha256": "f4cfd20c348d485175b97a40d2901eed32c19a3956ae27a1daee7312a6bb3ed5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 60.375
+      },
+      "results": [
+        "gdn_owner_constructor_failure_stage=5 state=bitwise_equal free_before=17629806592 free_after=12332462080 cleanup=pass scalar_recovery=bitwise_equal"
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/run.log": "02facd608e3158c35aa5421ccf79c72c7b9b1c4b57f67dc2e62fa46967e25cd4",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/identity.json": "191d09e1954bfada085e6e0f1f6d060d1ec3034ddb20b32dfe2066dc82668ee9",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/preflight.json": "a6efb7684f3ef7834cc817372f09ce5abc990a963ed9bb1ede98c01491169275",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/cache-preparation.json": "46936322ea853d038fe2e431fa8044abe7f475217e9c9c3d61f797bb7589d77a",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-final-failure-5/cleanup.json": "61bcbfc805600e1022c907260b6f02da4c582f5a353e5ac810827519f8039269"
+      }
+    }
+  },
+  "api": {
+    "2": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/server-cap2",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/api-key"
+        ],
+        "binary_sha256": "033e576939913fce313140f6531da4ecf272e07df564ff143918070beebafea9",
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "soak_seconds": 0,
+        "restart_from": null,
+        "prior_soak_sha256": null,
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "9cb5a174908e50d851447eaf6f7b62eb9042d6fe98ea57ea3804bd256e4760d2",
+        "driver_sha256": "175ac7dae44e1bfc20bebabec2d63a2960c5432cabfbabb0032f6419bde75bd0",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 63.281
+      },
+      "observations": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.892899876,
+          "prefill_tps": 72.79651587721803,
+          "ttft_s": 0.9116300690220669,
+          "elapsed_s": 1.9533350060228258,
+          "decode_tps": 14.39827144259071,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.396458,
+            "draft_ms": 87.23213700000001,
+            "verify_ms": 948.769011,
+            "reconcile_ms": 5.435981000000001,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8899442350000001,
+          "prefill_tps": 73.03828424710228,
+          "ttft_s": null,
+          "elapsed_s": 1.948376022046432,
+          "decode_tps": 14.419927666335855,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.287721,
+            "draft_ms": 85.85462,
+            "verify_ms": 948.760947,
+            "reconcile_ms": 5.404523,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.8250642739999999,
+          "prefill_tps": 6.060133928426527,
+          "ttft_s": 0.8568114640656859,
+          "elapsed_s": 1.7323275540256873,
+          "decode_tps": 17.131394458299518,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 5,
+            "draft_prefill_rows": 4,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 2,
+            "proposed": 9,
+            "accepted": 9,
+            "verified_rows": 15,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              6,
+              3,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              6,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              3,
+              3,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 11,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 720,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 3,
+            "tail_kv_rows": 6,
+            "state_copy_bytes_elided": 1606121472,
+            "draft_initialization_ms": 2.009711,
+            "draft_ms": 78.32937799999999,
+            "verify_ms": 790.770086,
+            "reconcile_ms": 6.201200999999999,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.8289135839999999,
+          "prefill_tps": 24.127967481831018,
+          "ttft_s": 0.8468891150550917,
+          "elapsed_s": 0.9583133739652112,
+          "decode_tps": 8.97022635657563,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 1,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 20,
+            "draft_prefill_rows": 19,
+            "initialized": true,
+            "rounds": 1,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 1,
+            "proposed": 0,
+            "accepted": 0,
+            "verified_rows": 1,
+            "committed_decode_tokens": 1,
+            "accepted_by_position": [
+              0,
+              0,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              1,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              0,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 1,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 1,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 0,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 1,
+            "tail_kv_batches": 0,
+            "tail_kv_rows": 0,
+            "state_copy_bytes_elided": 78943232,
+            "draft_initialization_ms": 2.659349,
+            "draft_ms": 7.1918,
+            "verify_ms": 104.164938,
+            "reconcile_ms": 0.074913,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.88980644,
+          "prefill_tps": 73.04959492089088,
+          "ttft_s": 1.1502583529800177,
+          "elapsed_s": 2.1904367139795795,
+          "decode_tps": 14.419571954948838,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.319081,
+            "draft_ms": 85.832827,
+            "verify_ms": 948.694288,
+            "reconcile_ms": 5.405577999999999,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8898425970000001,
+          "prefill_tps": 73.04662669458607,
+          "ttft_s": 1.0620847049867734,
+          "elapsed_s": 2.102429624996148,
+          "decode_tps": 14.417964645535877,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12318957568,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.322569,
+            "draft_ms": 85.874109,
+            "verify_ms": 948.823344,
+            "reconcile_ms": 5.367206999999999,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/server.log": "b13cd184cabaa6545db92412191b24a128e05a9587e40ef4887b2db31a3836eb",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/results.json": "9c328d4b707b7ebf08a294fd424a0194a71b2a3b29a81e6c79734182c1d6d5de",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/preflight.json": "08fd417210551bf24911fc78960b3c4af2bdca05dc9d460d475006bb772ea926",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/cache-preparation.json": "6da2648eff03acd34be418e18a923d914808108b31e0fbda08b1a46f6474d5de",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/cleanup.json": "a5d730d27fda7e26d5c7f3bb1a8e9ce5283e81a41462cec2cda11e910c95ccc0",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap2/lifecycle.json": "3b69af87c00bb5ed386d7cb26b6edc58545e5ea228f6a00948f8631101e434da"
+      }
+    },
+    "3": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/server-cap3",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/api-key"
+        ],
+        "binary_sha256": "de55b7e45202df8820afa3b936eda4e004b11c33e140cb91ca9a344c8ad80456",
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "soak_seconds": 0,
+        "restart_from": null,
+        "prior_soak_sha256": null,
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "ec3c0bc5c433c17e0fa016db208d63208d89db08d47a14759e36a8157cf468bc",
+        "driver_sha256": "175ac7dae44e1bfc20bebabec2d63a2960c5432cabfbabb0032f6419bde75bd0",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "56eedf2cca66dfef2a21561b60854f7ec017316a",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 63.687
+      },
+      "observations": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8948569060000001,
+          "prefill_tps": 72.63731169103811,
+          "ttft_s": 0.9135139780119061,
+          "elapsed_s": 1.8946423979941756,
+          "decode_tps": 15.288287631837681,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 13,
+            "accepted": 9,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              1
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 13,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 912,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 19,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 9,
+            "state_copy_bytes_elided": 1908111360,
+            "draft_initialization_ms": 5.434507,
+            "draft_ms": 94.49087499999999,
+            "verify_ms": 881.6680670000001,
+            "reconcile_ms": 4.6489329999999995,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891978674,
+          "prefill_tps": 72.87169737872007,
+          "ttft_s": null,
+          "elapsed_s": 1.8928317270474508,
+          "decode_tps": 15.264583094764859,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 13,
+            "accepted": 9,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              1
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 13,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 912,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 19,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 9,
+            "state_copy_bytes_elided": 1908111360,
+            "draft_initialization_ms": 5.293545,
+            "draft_ms": 94.520186,
+            "verify_ms": 882.9654539999999,
+            "reconcile_ms": 4.944997000000001,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.8343000519999999,
+          "prefill_tps": 5.993047690712598,
+          "ttft_s": 0.8660912740742788,
+          "elapsed_s": 1.742579811019823,
+          "decode_tps": 17.110219643319223,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 5,
+            "draft_prefill_rows": 4,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 2,
+            "proposed": 9,
+            "accepted": 9,
+            "verified_rows": 15,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              6,
+              3,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              6,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              3,
+              3,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 11,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 720,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 3,
+            "tail_kv_rows": 6,
+            "state_copy_bytes_elided": 1606121472,
+            "draft_initialization_ms": 2.09624,
+            "draft_ms": 78.75660900000001,
+            "verify_ms": 791.18743,
+            "reconcile_ms": 6.393935,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.831291516,
+          "prefill_tps": 24.05894877435511,
+          "ttft_s": 0.8494320720201358,
+          "elapsed_s": 0.9607443569693714,
+          "decode_tps": 8.972557710392055,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 1,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 20,
+            "draft_prefill_rows": 19,
+            "initialized": true,
+            "rounds": 1,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 1,
+            "proposed": 0,
+            "accepted": 0,
+            "verified_rows": 1,
+            "committed_decode_tokens": 1,
+            "accepted_by_position": [
+              0,
+              0,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              1,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              0,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 1,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 1,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 0,
+            "full_graph_rounds": 0,
+            "full_graph_rows": 0,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 1,
+            "tail_kv_batches": 0,
+            "tail_kv_rows": 0,
+            "state_copy_bytes_elided": 78943232,
+            "draft_initialization_ms": 2.650196,
+            "draft_ms": 7.179991,
+            "verify_ms": 104.151302,
+            "reconcile_ms": 0.072864,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891917551,
+          "prefill_tps": 72.87669126717297,
+          "ttft_s": 1.1524764620698988,
+          "elapsed_s": 2.1316849590511993,
+          "decode_tps": 15.317455318377796,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 13,
+            "accepted": 9,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              1
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 13,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 912,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 19,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 9,
+            "state_copy_bytes_elided": 1908111360,
+            "draft_initialization_ms": 5.297353,
+            "draft_ms": 93.00215899999999,
+            "verify_ms": 881.360252,
+            "reconcile_ms": 4.609863,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8918113099999999,
+          "prefill_tps": 72.88537302806802,
+          "ttft_s": 1.0640432649524882,
+          "elapsed_s": 2.043266352964565,
+          "decode_tps": 15.317008387506997,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 3,
+            "startup_fp8_input_bytes": 5200936960,
+            "gdn_owner_commits": 15,
+            "startup_free_bytes": 12303077376,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 13,
+            "accepted": 9,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              1
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              5,
+              1
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 13,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "scalar_verify_rows": 0,
+            "direct_gdn_state_rows": 912,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 19,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 9,
+            "state_copy_bytes_elided": 1908111360,
+            "draft_initialization_ms": 5.259689,
+            "draft_ms": 93.011855,
+            "verify_ms": 881.390684,
+            "reconcile_ms": 4.618116,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/server.log": "747d4fd5574d3b8df3ff99857ddb838f94f4d33d8f7b73c89bf90ff18cdbb225",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/results.json": "497e747e2fdf24995fdf4cb4519d4f2ec78619810715338e8a96d6a3219c0667",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/preflight.json": "3fc31f727cd5563f2f7d0a03893e204c1c429d0c347d8919bb61548e299b7b1e",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/cache-preparation.json": "2678f918587a5ac9930633307946774d3959a43c9ad785c064c0dccc4d1bef16",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/cleanup.json": "c1676f65b60a7fa4b4af2523566992232e01b7a2e9e1bc60157985560392c7a7",
+        ".q3x-work/mtp-gdn-owner-20261020/api-lifecycle-cap3/lifecycle.json": "5d9025741cc095390b53a6e320599482ebd0d3650bcd454d75dd7c26261c8309"
+      }
+    }
+  },
+  "retained_failed_same_process_reconstruction": {
+    "native-owner-lifecycle": {
+      "cleanup": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 68.718
+      },
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle/run.log": "eb1e15798532bdadf26129870e8b6b0fef9f236a397dd29aa9d275a9f99e99db",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle/identity.json": "d800914aab35f3b9704cbd21e1fb9bc3bd04ed22c02bd8ed3c7bdc943f3ac981",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle/q3x_mtp_whole_core_test": "a6badd2abba3b797c5a116bab8fc2da060ba2e33a294c88057f3646323d8739f"
+      }
+    },
+    "native-owner-lifecycle-r1": {
+      "cleanup": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 63.062
+      },
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r1/run.log": "3ab3a9af028f006b411cb16f00b14f66f991d3a187b5997fe02e7701cea8de44",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r1/identity.json": "96dd64d8381f168350b07f5c02855972dd906ac830d9ed91ac4e8dfc401e4285",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r1/q3x_mtp_whole_core_test": "a6759ce8edd6dfd19011d9bda1a69044e0938894a07690ac06d0a95a212030d7"
+      }
+    },
+    "native-owner-lifecycle-r2": {
+      "cleanup": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 62.156
+      },
+      "files": {
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r2/run.log": "448e2eb33fb500223ccdb012d55deb163a1d95d469a377ccb0c4b136d57de5d8",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r2/identity.json": "4ecd137617e329b38f6fd81c47982ed061dbbcab02d52b83eff9f69c771a9548",
+        ".q3x-work/mtp-gdn-owner-20261020/native-owner-lifecycle-r2/q3x_mtp_whole_core_test": "1acdf11e6c55a3c0528659c25893a44bc7360b10992c9bf238b96122aba0e243"
+      }
+    }
+  },
+  "allocation_calibration": {
+    "scope": "hardware_calibration only; no model performance claim",
+    "result": "iteration=0 address=0x661f4c000 before=62812778496 allocated=57603379200 freed=57603698688 free_status=0 pointer_status=0 memory_type=0\niteration=1 address=0x661f4c000 before=57603698688 allocated=52411244544 freed=54533152768 free_status=0 pointer_status=0 memory_type=0\n",
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.843
+    },
+    "source_sha256": "1d30c9f820856b5203ec4b4162984df495f086e157300c9b6e832717b290927b"
+  },
+  "implementation": "Fault checkpoints compile only into whole-core native tests; sealed artifacts have no hooks. No numerical/runtime architecture repair was made for the harness memory finding.",
+  "limitation": "Same-process MTP-owner reconstruction after freeing its5.2GB startup layout may fail the conservative8GiB preallocation guard because reported free memory does not immediately recover; it is not qualified. Actual service failure recovery is process restart. Original runner state continuation is independently checked after normal destruction.",
+  "next_action": "Prospective six-process N-C2-C3-C3-C2-N selection with frozen artifacts and strict floor; no favorable-timing retries.",
+  "source_diff_sha256": "44899320028d95936e41ed8de23d5c26f5c8923fd9e12b96fa73ea97dda5642c",
+  "production_changed": false,
+  "goal_achieved": false
+}

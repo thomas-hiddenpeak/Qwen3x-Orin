@@ -10,6 +10,11 @@
 
 namespace q3x::runtime::mtp_detail {
 
+#if defined(Q3X_MTP_WHOLE_CORE_TEST) && defined(Q3X_ENABLE_MTP_GDN_OWNER)
+// Native admission only; absent from the sealed service.
+void set_gdn_owner_constructor_failure_for_test(unsigned stage) noexcept;
+#endif
+
 // All definitions live exclusively in the non-installable test target.
 class Weights {
  public:

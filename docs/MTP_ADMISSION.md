@@ -59,6 +59,14 @@ has a [recorded process-boundary repair](metadata/qwen36-27b-mtp-gdn-owner-lifec
 same-process reconstruction attempts hit the unchanged reserve guard after
 successful CUDA release. Fresh-process fault checks preserve the reserve and
 match the service restart boundary; same-process reconstruction is unqualified.
+The [completed lifecycle panel](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json)
+now passes seven native ownership cases and both-cap API cancellation/recovery,
+with normal exit throughout. Stop lifecycle collection. Next execute the
+[bounded independent selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-design-2026-10-20.json):
+N-C2-C3-C3-C2-N, at most six fresh processes, exact output/work and joint metrics,
+strict >=1.5x worst-observed floor per cap/bucket, with early rejection and no
+favorable-timing retries. Installation and final delivery attestation follow
+only a positive selection.
 The short margin is only 0.00883 token/s; this single process does not establish
 stable >=1.5x. No further isolated measurement or parameter scan is selected. The complete
 API gate remains 14.389333336846462 Decode token/s with exact state/output and

@@ -90,7 +90,7 @@ The default-off [v127 complete GDN owner composition](metadata/qwen36-27b-mtp-gd
 passes native complete state/logit/draft-KV admission and the first sealed API
 return for both caps; the [cap 3 result](metadata/qwen36-27b-mtp-gdn-owner-cap3-direction-2026-10-20.json)
 completes the same three-bucket direction panel. It combines startup FP8 input ownership with selected GDN prefix
-storage; every committed token receipts that ownership. All three requests
+storage; every committed token receipts that ownership. All six requests
 preserve full output IDs, response semantics and physical verification work.
 Cap 2 startup free memory is 12,186,071,040 bytes; normal exit and thermal
 checks pass for both artifacts.
@@ -107,8 +107,14 @@ checks pass for both artifacts.
 Prefill includes draft initialization; TTFT and total are external. These are
 single-process direction observations. Short Decode is 1.50092x the frozen
 same-request non-MTP comparator, only 0.00883 token/s above the gate; stable
-1.5x remains unproven. Affected ownership lifecycle/resource checks and
-independent selection remain open. The retained default candidate is still
+1.5x remains unproven. The [affected ownership lifecycle panel](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json)
+now passes normal/active destruction, five constructor failure points, and six
+exact API responses plus auth/input/cancellation checks per cap. Every final
+process exits normally. Earlier same-process reconstruction attempts remain
+failed: successful CUDA release did not immediately restore reported free
+memory, so the unchanged 8-GiB reserve rejected a new owner. Same-process owner
+reconstruction is unqualified; service restart and surviving-runner recovery
+are separately checked. Independent performance selection remains open. The retained default candidate is still
 v122; this opt-in composition changes neither ordinary non-MTP production nor
 installation, and does not complete the full goal.
 

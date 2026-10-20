@@ -163,14 +163,23 @@ void confidence_test() {
   std::cout << "confidence_cpu_cases=" << cases << std::endl;
 }
 int main(int argc, char** argv) try {
+  const std::string owner_argument = argc == 5 ? argv[4] : "";
+  const bool owner_active = owner_argument == "--owner-active";
+  unsigned owner_failure = 0;
+  for (unsigned stage = 1; stage <= 5; ++stage)
+    if (owner_argument == "--owner-failure-" + std::to_string(stage)) owner_failure = stage;
+  const bool owner_lifecycle = owner_argument == "--owner-lifecycle" || owner_active || owner_failure;
   const bool draft_long = argc == 5 && std::string(argv[4]) == "--draft-long";
   const bool eos_only = argc == 5 && std::string(argv[4]) == "--eos-only";
   const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
-  if (argc != 4 && !prefix_only && !draft_long && !eos_only) {
-    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long|--eos-only]\n"; return 2;
+  if (argc != 4 && !prefix_only && !draft_long && !eos_only && !owner_lifecycle) {
+    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only|--draft-long|--eos-only|--owner-lifecycle|--owner-active|--owner-failure-N]\n"; return 2;
   }
 #if !defined(Q3X_MTP_WHOLE_CORE_TEST)
-  if (prefix_only || draft_long || eos_only) return 2;
+  if (prefix_only || draft_long || eos_only || owner_lifecycle) return 2;
+#endif
+#if !defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (owner_lifecycle) return 2;
 #endif
   const std::filesystem::path output(argv[3]);
   require(std::filesystem::is_directory(output), "output directory must exist");
@@ -222,13 +231,50 @@ int main(int argc, char** argv) try {
   mtp::Draft draft(weights, *model_weights, request->max_sequence_length(),
                    mtp::TargetTransaction::cosines(*target),
                    mtp::TargetTransaction::sines(*target));
-  mtp::TargetTransaction transaction(*target, *request, draft,
+#if defined(Q3X_MTP_WHOLE_CORE_TEST) && defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (owner_failure) {
+    const auto before = live_state(*request, *target);
+    std::size_t free_before = 0, total = 0, free_after = 0;
+    require(cudaMemGetInfo(&free_before, &total) == cudaSuccess, "constructor free before");
+    mtp::set_gdn_owner_constructor_failure_for_test(owner_failure);
+    bool failed = false;
+    try { mtp::TargetTransaction bad(*target, *request, draft, true); }
+    catch (const std::runtime_error& error) {
+      failed = std::string(error.what()) == "injected GDN owner constructor failure";
+    }
+    mtp::set_gdn_owner_constructor_failure_for_test(0);
+    require(failed && cudaDeviceSynchronize() == cudaSuccess &&
+        cudaGetLastError() == cudaSuccess, "injected constructor cleanup");
+    require(!target->poisoned() && live_state(*request, *target) == before,
+        "failed constructor changed target state");
+    for (unsigned layer = 0; layer < 64; ++layer) {
+      if (layer % 4 == 3) continue;
+      const auto view = request->gdn_state(layer);
+      require(view && view.value->arena_offset == request->plan().gdn_state.arena_offset +
+          (layer - layer / 4) * 48ULL * 128 * 128 * 2, "constructor restores physical ownership");
+    }
+    require(cudaMemGetInfo(&free_after, &total) == cudaSuccess && free_after >= (8ULL << 30),
+        "constructor cleanup reserve");
+    const auto token = step(*target, prompt[0], true);
+    const auto continued = live_state(*request, *target);
+    require(bool(target->reset()), "constructor recovery reset");
+    require(step(*target, prompt[0], true) == token && live_state(*request, *target) == continued,
+        "constructor failure scalar recovery");
+    std::cout << "gdn_owner_constructor_failure_stage=" << owner_failure
+              << " state=bitwise_equal free_before=" << free_before
+              << " free_after=" << free_after << " cleanup=pass scalar_recovery=bitwise_equal\n"
+              << "production_api=false speedup_claim=false\n";
+    return 0;
+  }
+#endif
+  auto transaction_owner = std::make_unique<mtp::TargetTransaction>(*target, *request, draft,
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
                                    true
 #else
                                    false
 #endif
                                    );
+  auto& transaction = *transaction_owner;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   const auto initialize = [&]() {
     rt::ReferenceGenerateOptions options;
@@ -260,6 +306,76 @@ int main(int argc, char** argv) try {
   std::uint32_t seed = 0;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   seed = initialize();
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  if (owner_lifecycle) {
+    const auto memory = [](const char* stage) {
+      std::size_t available = 0, total = 0;
+      require(cudaMemGetInfo(&available, &total) == cudaSuccess, "owner memory observation");
+      std::cout << "gdn_owner_memory_stage=" << stage << " free=" << available << "\n" << std::flush;
+    };
+    memory("initial");
+    const auto prefill_target = [&]() {
+      rt::ReferenceGenerateOptions options;
+      options.max_new_tokens = 1;
+      options.prefill_chunk_size = 512;
+      options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
+      options.prefill_execution_mode = rt::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+      const auto result = engine.value->generate_prompt_token_ids(prompt, options);
+      require(bool(result), "owner lifecycle target Prefill");
+      require(result.value->generated_token_ids.at(0) == seed, "owner recovery seed");
+    };
+    const auto physical = [&]() {
+      for (unsigned layer = 0; layer < 64; ++layer) {
+        if (layer % 4 == 3) continue;
+        const auto view = request->gdn_state(layer);
+        require(view && view.value->arena_offset == request->plan().gdn_state.arena_offset +
+            (layer - layer / 4) * 48ULL * 128 * 128 * 2, "physical owner restored");
+      }
+    };
+    const auto select_prefix = [&](mtp::TargetTransaction& owner, bool finish) {
+      std::array<std::uint32_t, 3> proposals{};
+      std::array<std::uint32_t, 4> predictions{};
+      require(owner.begin(2) && owner.propose(seed, 1, proposals.data()) &&
+          owner.verify(seed, proposals.data(), 1, predictions.data()) &&
+          owner.commit_prefix(1, predictions[0]), "owner lifecycle complete prefix");
+      require(request->gdn_state(0).value->arena_offset != request->plan().gdn_state.arena_offset,
+          "lifecycle must start from selected workspace");
+      if (finish) require(owner.finish(), "owner lifecycle finish");
+      return predictions[0];
+    };
+    if (!owner_active) {
+      const auto pending = select_prefix(transaction, true);
+      const auto selected = live_state(*request, *target);
+      memory("before_destroy");
+      transaction_owner.reset(); // No later access through transaction.
+      memory("after_destroy");
+      physical();
+      require(!target->poisoned() && live_state(*request, *target) == selected,
+          "normal destructor must preserve complete state");
+      const auto next = step(*target, pending, true);
+      const auto continued = live_state(*request, *target);
+      prefill_target();
+      require(step(*target, seed, true) == pending && step(*target, pending, true) == next &&
+          live_state(*request, *target) == continued, "scalar continuation after destructor");
+      std::cout << "gdn_owner_normal_destruction=bitwise_equal scalar_continuation=bitwise_equal\n";
+    } else {
+      (void)select_prefix(transaction, false);
+      transaction_owner.reset();
+      physical();
+      require(target->poisoned(), "active owner destructor must poison");
+      require(bool(target->reset()) && !target->poisoned(), "active owner reset recovery");
+      physical();
+      const auto zero = read_device(static_cast<char*>(request->arena_data()) +
+          request->plan().gdn_state.arena_offset, request->plan().gdn_state.byte_size);
+      require(std::all_of(zero.begin(), zero.end(), [](char x) { return x == 0; }),
+          "recovery resets complete GDN state");
+      prefill_target();
+      std::cout << "gdn_owner_active_destruction=poisoned full_reset=zero recovery=pass\n";
+    }
+    std::cout << "production_api=false speedup_claim=false\n";
+    return 0;
+  }
+#endif
   if (draft_long) {
     const auto initial_position = draft.position();
     write(output / "initial-hidden.bf16", read_device(mtp::TargetTransaction::hidden(*target), 10240));

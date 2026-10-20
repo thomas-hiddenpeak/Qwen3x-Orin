@@ -572,6 +572,18 @@ void TargetTransaction::prepare_startup_inputs() {
 #endif
 }
 
+#if defined(Q3X_MTP_WHOLE_CORE_TEST) && defined(Q3X_ENABLE_MTP_GDN_OWNER)
+namespace { unsigned gdn_owner_constructor_failure_stage = 0; }
+void set_gdn_owner_constructor_failure_for_test(unsigned stage) noexcept {
+  gdn_owner_constructor_failure_stage = stage;
+}
+static void gdn_owner_constructor_checkpoint(unsigned stage) {
+  check(gdn_owner_constructor_failure_stage != stage, "injected GDN owner constructor failure");
+}
+#else
+static void gdn_owner_constructor_checkpoint(unsigned) {}
+#endif
+
 int prepare_mtp_verify_projection_device() noexcept;
 TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft,
                                      bool multirow)
@@ -616,13 +628,18 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
     check(!state_.mtp_gdn_offset_, "MTP constructor requires physical GDN owner");
     if (multirow_ && whole_core) {
       cuda_check(cudaMalloc(reinterpret_cast<void**>(&gdn_inputs_), 48 * sizeof(void*)));
+    gdn_owner_constructor_checkpoint(1);
       cuda_check(cudaMallocHost(reinterpret_cast<void**>(&gdn_inputs_host_), 48 * sizeof(void*)));
+    gdn_owner_constructor_checkpoint(2);
       check(publish_gdn_inputs(), "MTP GDN input publication");
     }
 #endif
     if (multirow_ && whole_core) prepare_startup_inputs();
+    gdn_owner_constructor_checkpoint(3);
     check(!multirow_ || prepare_gdn_graphs(), "MTP fixed GDN graph preparation");
+    gdn_owner_constructor_checkpoint(4);
     check(!multirow_ || !whole_core || prepare_full_graphs(), "MTP full verifier graph preparation");
+    gdn_owner_constructor_checkpoint(5);
   } catch (...) {
     release_full_graphs();
     release_gdn_graphs();

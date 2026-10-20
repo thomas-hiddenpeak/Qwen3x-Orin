@@ -649,3 +649,11 @@ completes both-cap initial API returns. The bounded lifecycle design and its
 explicit process-boundary repair preserve failed attempts and the unchanged
 8-GiB reserve. Existing paths/classes remain unchanged; lifecycle and independent
 performance selection are still pending.
+
+
+The [v127 lifecycle completion](metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json)
+closes the bounded native/API ownership panel while preserving the same-process
+reconstruction limitation and failed attempts. The
+[independent selection design](metadata/qwen36-27b-mtp-gdn-owner-repeat-design-2026-10-20.json)
+sets a maximum of six fresh processes with early rejection. Existing document
+paths/classes and ordinary production remain unchanged.
