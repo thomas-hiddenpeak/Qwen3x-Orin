@@ -33,10 +33,11 @@ fresh-process recovery. The MTP driver now checks exact native responses,
 repeated full output-ID equality and resource plateau gates.
 The [restart driver](metadata/qwen36-27b-mtp-sustained-restart-driver-2026-10-20.json)
 now rejects incomplete prior runs, binary/cap mismatches and output drift in
-host checks. Cap 2 sustained execution is in progress on the original frozen
-driver; cap 3 must use its byte-identical frozen copy. Real restart checks wait
-for successful sustained completion. Capacity and capability panels are already
-complete and are not repeated here.
+host checks. The [cap 2 sustained and restart result](metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json)
+passes 7,201 seconds and 1,907 measured requests, complete output-ID equality,
+resource plateau and normal shutdown, followed by exact fresh-process recovery.
+Cap 3 is now running the byte-identical frozen driver; its restart remains pending.
+Capacity and capability panels are already complete and are not repeated here.
 
 This closes a delivery obligation, not the cap 2 short-performance gap. That
 gap and final independent performance selection remain required. No runtime

@@ -606,3 +606,7 @@ The [private BF16 Down rejection](metadata/qwen36-27b-mtp-bf16-down-rejection-20
 The [complete verifier Graph design](metadata/qwen36-27b-mtp-full-graph-design-2026-10-14.json) activates a bounded dependency/composition/API sequence in existing MTP/Roadmap documents; no Markdown paths or classifications change.
 
 The [full-Graph Attention prerequisite](metadata/qwen36-27b-mtp-full-graph-attention-2026-10-20.json) records dependency-only numerical/Graph admission, its explicit regression target, and the remaining two-milestone composition deadline. No Markdown paths or classifications change.
+
+The [cap 2 sustained and restart result](metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json)
+closes that bounded reliability panel and updates existing status, roadmap and
+MTP documents; cap 3 remains active. No Markdown paths or classes change.

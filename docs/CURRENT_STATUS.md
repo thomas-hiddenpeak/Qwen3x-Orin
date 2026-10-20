@@ -86,6 +86,17 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [cap 2 sustained and fresh-restart panel](metadata/qwen36-27b-mtp-sustained-cap2-2026-10-20.json)
+passes 7,201 seconds and 1,907 measured P513/O16 requests. All 1,916 responses
+including baseline/warmups preserve the native response contract and full MTP
+output IDs; fresh-process recovery is exact and both processes exit normally.
+RSS grows 1,604 KiB, with no FD/thread growth; maximum temperature is 77.343 C.
+Measured medians: Prefill 1.631s (314.52 token/s), TTFT 1.650s, Decode
+14.431 token/s and complete request 2.689s. Decode ranges 14.271–14.439 token/s.
+These are sustained-reuse observations, not independent speed selection. Cap 3
+sustained/restart remains in progress, and cap 2 short still misses 1.5x.
+
+
 The [completed two-cap capacity panel](metadata/qwen36-27b-mtp-capacity-complete-2026-10-20.json)
 passes P40000/O4096, P44095/O1, P44095/O2 rejection and short recovery with normal
 exit in both frozen v122 configurations. Complete native-reference text/usage

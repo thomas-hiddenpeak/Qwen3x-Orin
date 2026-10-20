@@ -1,0 +1,256 @@
+{
+  "work_package_id": "WP-MTP-SUSTAINED-20261020",
+  "parent_protocol": "docs/metadata/qwen36-27b-mtp-sustained-design-2026-10-20.json",
+  "scope": "Frozen v122 cap2 two-hour reuse and fresh-process recovery pass. Cap3 remains running; no independent performance selection or production promotion.",
+  "sustained": {
+    "cap": 2,
+    "scope": "Two-hour sustained request reuse only. Fresh restart remains required; no performance selection or production promotion.",
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "--port",
+        "18872",
+        "--api-key-file",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/cap2/api-key"
+      ],
+      "binary_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+      "draft_length": 2,
+      "sealed_candidate": true,
+      "panel": "sustained",
+      "soak_seconds": 7200,
+      "capability_cases_sha256": null,
+      "reference_results_sha256": null,
+      "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+      "driver_sha256": "9a88f26e20ce0aae95bb402b55599bb17142664af842f02daf0957de58a44456",
+      "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "be9fa54a62c1d2e3493c56e7fa91e5ea2277bfef",
+      "scope": "whole-service multi-row MTP direction; no release authority"
+    },
+    "summary": {
+      "requests": 1907,
+      "elapsed_s": 7201.024518720922,
+      "growth": {
+        "rss_kib": 1604,
+        "fds": 0,
+        "threads": 0
+      },
+      "generated_token_ids": [
+        321,
+        51790,
+        13,
+        1510,
+        11591,
+        80,
+        18,
+        87,
+        27686,
+        14,
+        63,
+        369,
+        15865,
+        56497,
+        321,
+        26554
+      ],
+      "inter_request_idle_seconds": 1,
+      "complete": true,
+      "fresh_restart_required": true
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 77.343
+    },
+    "measured_metrics": {
+      "prefill_s": {
+        "min": 1.629856594,
+        "median": 1.631039324,
+        "max": 1.718922018
+      },
+      "prefill_tps": {
+        "min": 298.44285815646583,
+        "median": 314.52337932718046,
+        "max": 314.75161795737716
+      },
+      "ttft_s": {
+        "min": 1.6485873359488323,
+        "median": 1.6497354949824512,
+        "max": 1.7382088230224326
+      },
+      "decode_tps": {
+        "min": 14.271098153182326,
+        "median": 14.431303140525854,
+        "max": 14.438569730529622
+      },
+      "elapsed_s": {
+        "min": 2.6875867779599503,
+        "median": 2.689115679007955,
+        "max": 2.7819775530369952
+      }
+    },
+    "resource_first": {
+      "time": 571572.709405194,
+      "rss_kib": 51664532,
+      "threads": 8,
+      "fds": 46
+    },
+    "resource_last": {
+      "time": 578773.734922105,
+      "rss_kib": 51666136,
+      "threads": 8,
+      "fds": 46
+    },
+    "hashes": {
+      "identity.json": "2e4dd76c9fe8b944eeaed60c7b58d8c531435aee69e411d02e5a7785eb69c72e",
+      "results.json": "2fe26a3443bf4e8ccdc32eb0f7e72ac6f91f7995a8b697a5b30efaddb83b54fa",
+      "audited-metrics.json": "fe22f97cacaa4b999f6a9b5703ef4cb6437fef56222750af5a592c2624945474",
+      "soak-summary.json": "ef5c54c10165f9c3557d4a552961b8bd3f65694cd82b0e9983974972c4db56d0",
+      "resources.json": "2d0ba6777cdfcb03c95b460a1a83e1fd27eaa11db13ff6533987a27ef1a108ea",
+      "server.log": "f4e57417a65a3e3490ee78dbe9be32bfc0e3565aef0f4c90552f216131578660",
+      "clocks.jsonl": "60a51986d4daaf8a8d0a03c10892db68be7e9dd8173158bca5f3b62c13fd7b3b",
+      "cleanup.json": "d8c0e23add7fce57667bb2df99515ee4db420dd69d0c3670e41de69c2cc4ce77",
+      "cache-preparation.json": "afdd5c6ba825d2487dc51c86e01bf045ab2e139a55c1c509c4523d4feac00cb9",
+      "preflight.json": "e43ea4c9d30e54c33b0e45216bd124e43fd670b8e329a94d035b4497a16df971"
+    }
+  },
+  "restart": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-eos-frontier-20261020/server-cap2",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "--port",
+        "18872",
+        "--api-key-file",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/restart-cap2/api-key"
+      ],
+      "binary_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+      "draft_length": 2,
+      "sealed_candidate": true,
+      "panel": "restart",
+      "soak_seconds": 0,
+      "restart_from": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-sustained-20261020/cap2",
+      "prior_soak_sha256": "ef5c54c10165f9c3557d4a552961b8bd3f65694cd82b0e9983974972c4db56d0",
+      "capability_cases_sha256": null,
+      "reference_results_sha256": null,
+      "baseline_results_sha256": "e5f9bb8adf69e3dd13b30744e71a9ce40c0541e1246abefcbaddb2c457a7e8fb",
+      "driver_sha256": "8dbf2ae6d7f33d2f01953b1413f65ad32163ec3a940f0c1f5662b0afc0f48607",
+      "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "a0ade6f1e3a5cf61305e56320b83fc16906f30e0",
+      "scope": "whole-service multi-row MTP direction; no release authority"
+    },
+    "summary": {
+      "output_ids_equal": true,
+      "metrics": [
+        {
+          "label": "soak-baseline",
+          "prompt": 513,
+          "output": 16,
+          "prefill_s": 1.6313352589999999,
+          "prefill_tps": 314.4663227069991,
+          "ttft_s": 1.6503013119800016,
+          "elapsed_s": 2.691293863928877,
+          "decode_tps": 14.408296546126623,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 9956388864,
+            "prompt_rows": 513,
+            "draft_prefill_rows": 512,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 11,
+            "accepted": 8,
+            "verified_rows": 18,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              5,
+              3,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              1,
+              5,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 11,
+            "draft_ordered_attention_steps": 11,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 816,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 17,
+            "graph_qk_updates": 96,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 3,
+            "tail_kv_rows": 6,
+            "state_copy_bytes_elided": 1836059648,
+            "draft_initialization_ms": 35.528894,
+            "draft_ms": 80.385161,
+            "verify_ms": 942.108385,
+            "reconcile_ms": 18.190616000000002,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "generated_token_ids": [
+        321,
+        51790,
+        13,
+        1510,
+        11591,
+        80,
+        18,
+        87,
+        27686,
+        14,
+        63,
+        369,
+        15865,
+        56497,
+        321,
+        26554
+      ],
+      "scope": "Fresh-process output recovery only; requires normal cleanup"
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.656
+    },
+    "hashes": {
+      "identity.json": "b071ee0d4a387b9ccbed82dcc6be2b78c4788932116f90babe11043e9d3d3805",
+      "restart-summary.json": "6dd73d013b41a5086438974493465cedebda1bbf88a5cd25f0b1413001bb4dc4",
+      "results.json": "a6bea3c3e16ea1d0c4e6f2da981d286522c1ad01ee71a4316e04afda8f6f7ac8",
+      "audited-metrics.json": "9f37ceb8d4ebda6f709794b20739dc92a02088d8244145166088927cbb151ad1",
+      "cleanup.json": "492125269bafeb17aaa483f28bcd54e18875d755c37c03c47e7a59d70b60dc8c",
+      "cache-preparation.json": "c32b84f0c1ac91c6a458bcf81ed2556e3fa5d0ae105308acb6dcb4bba27184ca",
+      "preflight.json": "302d0253d401592816d4b278e3a8080a1cd6ee316546326f4567bc04af42a184",
+      "server.log": "295d858d94ff86f7ab6585f90cbe9869e4c357d021ff417c6cf543d46f464084"
+    }
+  },
+  "correctness": "All 1916 sustained responses (baseline + 8 warmups + 1907 measured) match full historical native response contract and complete first-MTP output IDs. Fresh restart matches both. Historical native token IDs are unavailable.",
+  "remaining": [
+    "Cap3 sustained and fresh restart",
+    "Cap2 short >=1.5x implementation",
+    "Independent repeated performance selection and delivery qualification"
+  ],
+  "goal_complete": false,
+  "production_eligible": false
+}
