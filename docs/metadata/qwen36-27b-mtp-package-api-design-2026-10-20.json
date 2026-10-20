@@ -1,0 +1,55 @@
+{
+  "work_package_id": "WP-MTP-PACKAGE-API-20261020",
+  "parent": "WP-MTP-PACKAGE-20261020",
+  "decision": "Two fresh installed processes, cap2 then cap3, eight full functional/API requests per cap; no timing selection or favorable retry.",
+  "artifacts": {
+    "2": {
+      "prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/mtp-package-20261020-cap2",
+      "manifest": {
+        "schema": "q3x-mtp-executable-package-v1",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "source_dirty": false,
+        "version": "0.8.2",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1",
+        "draft_cap": 2,
+        "executable": "bin/qwen3x-mtp-server-cap2",
+        "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+        "BUILD_TESTING": false,
+        "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+        "qualification": "requires exact installed-artifact evidence",
+        "exports_cpp_abi": false
+      }
+    },
+    "3": {
+      "prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/mtp-package-20261020-cap3",
+      "manifest": {
+        "schema": "q3x-mtp-executable-package-v1",
+        "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+        "source_dirty": false,
+        "version": "0.8.2",
+        "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+        "draft_cap": 3,
+        "executable": "bin/qwen3x-mtp-server-cap3",
+        "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+        "BUILD_TESTING": false,
+        "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+        "qualification": "requires exact installed-artifact evidence",
+        "exports_cpp_abi": false
+      }
+    }
+  },
+  "driver": {
+    "path": ".q3x-work/mtp-package-20261020/run-installed-api.py",
+    "sha256": "b530fbef77fbe7768a24877a0b1f671a302f832bbb8de3a76f1c1bf501c913b0"
+  },
+  "checks": [
+    "Installed source cleanliness/hash/profile/cap/dependency admission before GPU execution",
+    "Host/device ownership and cache preparation per fresh process; no competing compile/model process",
+    "P65/O16, P8192/O256, P40000/O256, stream/nonstream, raw text, chat EOS, auth/input rejection, Prefill/Decode disconnect and exact recovery",
+    "Full response, full MTP token-ID and physical-work equality to frozen same-cap v122; complete v127 owner receipt",
+    "Startup reserve, route coverage and normal exit; all joint phase and external metrics retained"
+  ],
+  "scope": "Installed composition/lifecycle admission. Later final performance selection, capability, capacity and affected sustained/restart qualification remain required.",
+  "process_limit": 2,
+  "goal_achieved": false
+}
