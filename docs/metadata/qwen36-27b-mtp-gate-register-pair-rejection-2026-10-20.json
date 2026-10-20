@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-20",
+  "source_parent": "a883feaa1a9b79d8da7bf3d08a9577b854dee54d",
+  "work_package_id": "WP-MTP-GATE-REGISTER-PAIR-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v123",
+  "design": "docs/metadata/qwen36-27b-mtp-gate-register-pair-design-2026-10-20.json",
+  "status": "closed_at_static_resource_gate",
+  "authority": "T0 offline SM87 compilation only; no GPU execution, numerical admission or API measurement",
+  "implementation": "One fixed 128-thread same-thread Gate/Up accumulator ownership with shared activation conversion, exact per-role four-chain structure and register-local BF16/SiLU epilogue. Original input-ring and codebook implementation reused from a frozen source copy.",
+  "compile": {
+    "command": "/usr/local/cuda/bin/nvcc -std=c++17 -O3 -arch=sm_87 -lineinfo -Xptxas=-v -c .q3x-work/mtp-gate-register-pair-20261020/prototype.cu -o .q3x-work/mtp-gate-register-pair-20261020/prototype.o",
+    "exit_code": 0,
+    "resources": {
+      "2": {
+        "registers": 127,
+        "stack_bytes": 0,
+        "spill_store_bytes": 0,
+        "spill_load_bytes": 0,
+        "barriers": 1,
+        "static_shared_bytes": 6144,
+        "max_registers": 128,
+        "register_gate_pass": true
+      },
+      "3": {
+        "registers": 167,
+        "stack_bytes": 0,
+        "spill_store_bytes": 0,
+        "spill_load_bytes": 0,
+        "barriers": 1,
+        "static_shared_bytes": 8192,
+        "max_registers": 160,
+        "register_gate_pass": false
+      }
+    }
+  },
+  "decision": "Close the complete M2/M3 composition because M3 uses167 registers above its predeclared160 limit. Do not change the gate after seeing compilation, force a new register limit, scan schedules/geometry or retain only M2. No integration or runtime prerequisite remains.",
+  "scope_limits": [
+    "The167-register count is a local design-budget failure, not a measured slowdown, hardware impossibility or proof that all Gate/Up fusion is unhelpful.",
+    "Both kernels have zero compiler-reported spills; no claim that167 alone violates the separately declared three-CTA floor. The explicit register-count gate is the failed condition.",
+    "Offline compilation proves neither exact numerical output nor synchronization correctness; those device checks were not run."
+  ],
+  "artifacts": {
+    ".q3x-work/mtp-gate-register-pair-20261020/compile.log": "b0e3266bb9514437657cf4b0ebfb907267218daa3b61813d0b520d58c41fc01b",
+    ".q3x-work/mtp-gate-register-pair-20261020/incumbent.cu": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    ".q3x-work/mtp-gate-register-pair-20261020/prototype.cu": "c866007b3c3d37beb169da672c4ded796b859946aa7cd20d4855f2b2059c2cff",
+    ".q3x-work/mtp-gate-register-pair-20261020/prototype.o": "232da30f22583d9d61de1f2ed380dac0bbd7507f2e4a2455f8c39472b9f14924"
+  },
+  "retained_joint_metrics": {
+    "authority": "Unchanged historical v122 regression observations, not remeasured",
+    "source": "docs/metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json",
+    "cap2_P65_O16": {
+      "prefill_s": 0.887871368,
+      "prefill_tps": 73.208802922,
+      "ttft_s": 0.906257632,
+      "decode_tps": 14.1397374275,
+      "total_s": 1.967017442
+    },
+    "cap3_P65_O16": {
+      "prefill_s": 0.888388339,
+      "prefill_tps": 73.166201251,
+      "ttft_s": 0.906782788,
+      "decode_tps": 14.9778737563,
+      "total_s": 1.908161009
+    }
+  },
+  "runtime_changed": false,
+  "production_changed": false,
+  "gpu_processes_launched": 0,
+  "goal_achieved": false,
+  "next_constraint": "Cap2 short>=1.5x remains open; select a materially different dominant dataflow, not a revision of this closed register/warp mapping."
+}

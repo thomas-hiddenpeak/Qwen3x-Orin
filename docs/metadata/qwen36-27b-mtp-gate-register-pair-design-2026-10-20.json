@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-20",
+  "source_parent": "a883fea",
+  "work_package_id": "WP-MTP-GATE-REGISTER-PAIR-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v123",
+  "decision_unit": "architecture_candidate",
+  "scope": "MTP M2/M3 coupled Gate/Up N17408 K5120; ordinary nonMTP, M4 and other projections unchanged",
+  "product_constraint": "Close cap2 P65/O16 >=1.5x matched nonMTP; keep cap3 and exact target state/full logits/output; report Prefill, TTFT, Decode and total together.",
+  "downward_budget": {
+    "short_gap_ms": 21.25676266666642,
+    "profiled_gate_up_ms": 307.106,
+    "source": "docs/metadata/qwen36-27b-mtp-cap2-architecture-assessment-2026-10-20.json",
+    "profile_source": ".q3x-work/mtp-v113-short-budget-20261020/analysis-corrected.json",
+    "scope": "Historical API/profiler opportunity envelope; no predicted gain or bandwidth ceiling"
+  },
+  "lineage": "Prior v33/v95 assigned Gate and Up to different warps and shared a publication buffer. This fixed design puts both complete four-output accumulator sets in the SAME thread, so activation loads and BF16-to-FP32 conversions serve both roles directly. No shared pair publication or cross-role barrier. No geometry/stage or decoder-table scan.",
+  "equivalence": "Preserve each role original lane K subsequences, four FP32 FMA chains, parenthesized merge and warp_sum_four reduction. Apply separate tensor scales, BF16_RNE Gate and Up, then original FP32 SiLU multiply and BF16_RNE output. Original packed sidecars, scale/pair tables and K512 input ring remain. No reassociation or target state change.",
+  "ownership": "128 threads, four warps; each thread owns eight output channels across two roles. Common M-row two-stage input ring, each input loaded and converted once for both sets. No new allocation, weight owner, scratch, model inventory or request lifetime.",
+  "trade": "Halves role-duplicated input loads/conversion, ring/table initialization and tile barriers; removes global intermediate publication and two launches/layer. Doubles accumulator count and increases register pressure. Source work counts are not measured speedup.",
+  "static_gate": {
+    "M2_max_registers": 128,
+    "M3_max_registers": 160,
+    "stack_bytes": 0,
+    "spill_bytes": 0,
+    "M2_min_resident_ctas": 4,
+    "M3_min_resident_ctas": 3,
+    "threads": 128,
+    "M2_shared_bytes": 6144,
+    "M3_shared_bytes": 8192
+  },
+  "validation": "First compile one fixed implementation. Resource failure closes before GPU, with no launch-bound/register repair. If admitted: complete original Gate+Up+SiLU numerical/guards/Graph/synchronization checks, then P65 complete scalar target-state/logits/transactions, then immediate sealed cap2 P65/O16 API. Must reach >=1.5x frozen conservative native 9.59288889123 token/s; failure removes. Positive direction unlocks 8K/40K and cap3 regression, then independent selection.",
+  "bounds": "One implementation and at most one correctness repair after static admission; no resource/geometry/policy scan. No production or goal completion from local correctness or timing.",
+  "reference_translation": "Native original scalar equations and prior pinned vLLM/Marlin paired-MLP producer-consumer study; direct register consumption replaces shared role exchange. No imported source or runtime dependency; FLA/Mamba recurrent and FlashInfer Attention boundaries unchanged.",
+  "artifact_root": ".q3x-work/mtp-gate-register-pair-20261020",
+  "production_changed": false
+}
