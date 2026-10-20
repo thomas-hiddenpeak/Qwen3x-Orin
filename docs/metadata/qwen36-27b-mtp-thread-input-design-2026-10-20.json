@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-THREAD-INPUT-20261020",
+  "architecture_candidate_id": "AC-MTP-THREAD-INPUT-v125",
+  "source_parent": "bd68351707b52afd9ac1807261071deeea011ef1",
+  "product_constraint": "50%-200% same-workload Decode improvement with caps2/3, exact target state/logits/output and paired Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "current_cap2_p65_gap_ms": 18.401223666666738,
+    "historical_gate_up_profile_ms": 307.105728,
+    "required_fraction_of_historical_family": 0.05991820402212341,
+    "scope": "Gate/Up profile is v113 diagnostic, not current unprofiled latency or predicted saving. Current gap is authenticated v122 API arithmetic."
+  },
+  "mechanism": "Only nvfp4_rows Layout1 M2/M3. Replace CTA-shared activation ring with four warp-private rings, with every 16B segment produced and consumed by the SAME thread. Each lane copies both phase offsets for each row with cp.async; commit/wait retires its own groups. Delete both CTA barriers at every K512 iteration. Keep original table initialization barrier, all weights, registers of accumulators, four-chain math, reductions and M4 route.",
+  "equivalence": "Each (warp,m,phase,lane) exclusively owns one16B slot containing x[m*5120+tile*512+phase*256+lane*8]. Both stages prime; wait_group1 precedes current read, all reads complete before that thread overwrites retired slot with tile+2. Last two tiles drain wait_group0. No cross-thread consumer or producer of activation slot. Immutable codebooks retain CTA publication.",
+  "trade": {
+    "M2_shared_bytes": 18432,
+    "M3_shared_bytes": 26624,
+    "activation_global_and_shared_writes_multiplier": 4,
+    "activation_shared_reads_multiplier": 1,
+    "removed_CTA_barriers_per_block": 20,
+    "new_allocation_bytes": 0,
+    "scope": "Load demand increases; neither fewer barriers nor unchanged arithmetic predicts speedup."
+  },
+  "lineage": "Different from v74 CTA-shared ring, rejected packed-weight rings, same-thread Gate/Up fusion and replicated codebooks. Changes activation producer ownership only; no register/tile/stage/threshold scan.",
+  "reference": "Pinned native v74 cp.async lifetime and vendored vLLM Marlin SM80 commit/wait primitive; native new ownership map, no imported code. Unchanged Attention/GDN/draft retain prior proven-framework study.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "admission": [
+    "Host exhaustive address/lifetime proof for both M values/all10tiles/128threads, all byte segments",
+    "T0 zero spills; same register-limited block residency and shared capacity sufficient under incumbent partition. A heuristic resource miss does not claim hardware failure.",
+    "Complete M2/M3 projection/guards/Graph and synchronization/race checks, then native P65 full-prefix/state/logit/draft-KV recovery",
+    "Immediate sealed cap2 P65/O16 API. Below14.389333336846462tps closes before long qualification. Passing short unlocks8K/40K andcap3; allmetrics andexactoutput required"
+  ],
+  "expiry": "Compose this one implementation through native admission and immediate real API in the next implementation phase, or remove. No unbounded local tuning or repeated old qualification.",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-thread-input-20261020",
+  "incumbent_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef"
+}

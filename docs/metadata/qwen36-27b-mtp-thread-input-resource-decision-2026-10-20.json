@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-20",
+  "design": "docs/metadata/qwen36-27b-mtp-thread-input-design-2026-10-20.json",
+  "authority": "Prospective correction to local resource selection before device correctness or API timing",
+  "original_gate": "Same register-limited block residency",
+  "static_observation": {
+    "M2": {
+      "incumbent_registers": 71,
+      "candidate_registers": 80,
+      "incumbent_shared": 6144,
+      "candidate_shared": 18432
+    },
+    "M3": {
+      "incumbent_registers": 96,
+      "candidate_registers": 96,
+      "incumbent_shared": 8192,
+      "candidate_shared": 26624
+    },
+    "spills": 0
+  },
+  "original_gate_passed": false,
+  "decision": "Preserve the failed original heuristic; permit this EXACT unchanged prototype to device correctness and immediate API selection. Lower M2 occupancy is a performance trade, not unsafe resource use. Whole API must pay it, including long-context M2 rounds. No source/resource variant or tuning scan.",
+  "corrected_gate": "Actual device admits both unchanged kernels with zero local storage, correct bounded static allocation, and successful full output/Graph/sanitizer checks before native/API. API short floor and long/cap3 gates remain unchanged.",
+  "reason": "The global contract selects complete runner fitness; a static occupancy equality heuristic cannot establish that additional per-thread producer independence loses. M3 register demand is unchanged; M2 added registers are explicitly retained as a risk, not hidden.",
+  "performance_claim": false,
+  "production_changed": false
+}

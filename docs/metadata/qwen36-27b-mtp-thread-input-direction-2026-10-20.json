@@ -1,0 +1,314 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-THREAD-INPUT-20261020",
+  "architecture_candidate_id": "AC-MTP-THREAD-INPUT-v125",
+  "source_parent": "bd68351",
+  "design": "docs/metadata/qwen36-27b-mtp-thread-input-design-2026-10-20.json",
+  "resource_decision": "docs/metadata/qwen36-27b-mtp-thread-input-resource-decision-2026-10-20.json",
+  "authority": "T0/T1, bounded real-model complete scalar state admission and sealed cap2 real API direction, no repeated selection or release qualification",
+  "status": "short_api_rejection",
+  "mapping": {
+    "address_and_lifetime_checks": 25600,
+    "M": [
+      2,
+      3
+    ],
+    "tiles": 10,
+    "threads": 128,
+    "result": "pass",
+    "authority": "Host mapping proof only; no GPU race/numerical/performance authority",
+    "prototype_sha256": "ee393bccb00b2461e5b92b289be55189baddf7ed164a0e8046e01745fb07ca60"
+  },
+  "synthetic": {
+    "complete_projection_cases": 8,
+    "changing_input_graph_replays": 24,
+    "guards": "pass",
+    "exceptional_inputs": "NaN/Inf/signed zeros and all packed codes/scales",
+    "scope": "Synthetic correctness only; no performance authority"
+  },
+  "sanitizer": {
+    "synccheck": "M3 one fixture and3changing-inputGraph replays,0errors",
+    "racecheck": "Same bounded M3 fixture,0errors/0warnings; no M2 sanitizer claim"
+  },
+  "native": {
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.093
+    },
+    "complete_prefix_rows": 10,
+    "complete_transactions": 17,
+    "EOS_state_checks": 26,
+    "failure_recoveries": 18,
+    "scope": "P65 full Conv/GDN/liveKV/hidden/full logits/draftKV against scalar, with bounded failure/EOS/cancel/recovery cases; not new capability validation. CPU server compilation overlapped part of this correctness-only process; no native timing claim.",
+    "initialization_cancel_recoveries": 8
+  },
+  "api": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-thread-input-20261020/server-cap2",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "--port",
+        "18872",
+        "--api-key-file",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-thread-input-20261020/api-cap2/api-key"
+      ],
+      "binary_sha256": "85981f5d488bc91b7e7df2d9486d3be67b4ab956b2ef32039691ec67cfadeb7d",
+      "draft_length": 2,
+      "sealed_candidate": true,
+      "panel": "capability",
+      "soak_seconds": 0,
+      "restart_from": null,
+      "prior_soak_sha256": null,
+      "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+      "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+      "baseline_results_sha256": "9cb5a174908e50d851447eaf6f7b62eb9042d6fe98ea57ea3804bd256e4760d2",
+      "driver_sha256": "5634367282962e75f6b4ce2ccd87ac7680c448a916b7ef84141f6f5821fdd8b9",
+      "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "bd68351707b52afd9ac1807261071deeea011ef1",
+      "scope": "whole-service multi-row MTP direction; no release authority"
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 65.187
+    },
+    "direction": {
+      "passed": false,
+      "stopped_at": "p65",
+      "decode_floor": 14.389333336845,
+      "observations": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8918063750000002,
+          "prefill_tps": 72.88577635476085,
+          "ttft_s": 0.9103867890080437,
+          "elapsed_s": 1.98444017698057,
+          "decode_tps": 13.965151703051925,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10020978688,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.517913,
+            "draft_ms": 87.92515399999999,
+            "verify_ms": 968.410422,
+            "reconcile_ms": 17.431728999999997,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "reason": "Fixed API performance floor failed; correctness passed. No retries."
+    },
+    "comparisons": [
+      {
+        "candidate": {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8918063750000002,
+          "prefill_tps": 72.88577635476085,
+          "ttft_s": 0.9103867890080437,
+          "elapsed_s": 1.98444017698057,
+          "decode_tps": 13.965151703051925,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10020978688,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.517913,
+            "draft_ms": 87.92515399999999,
+            "verify_ms": 968.410422,
+            "reconcile_ms": 17.431728999999997,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        "incumbent": {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.887871368,
+          "prefill_tps": 73.20880292200165,
+          "ttft_s": 0.9062576320720837,
+          "elapsed_s": 1.9670174421044067,
+          "decode_tps": 14.13973742754571,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-full-graph-v112",
+            "draft_length": 2,
+            "startup_free_bytes": 10297180160,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposal_policy": "eos-frontier-v122",
+            "eos_frontier_stops": 0,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "budget_policy": "output-tail-v119",
+            "requested_budget_histogram": [
+              0,
+              0,
+              7,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_head": "nvfp4-block16-dp4a-v1",
+            "draft_integer_head_steps": 12,
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "scalar_verify_rows": 1,
+            "direct_gdn_state_rows": 864,
+            "full_graph_rounds": 6,
+            "full_graph_rows": 18,
+            "graph_qk_updates": 0,
+            "seed_kv_reuses": 6,
+            "tail_kv_batches": 4,
+            "tail_kv_rows": 8,
+            "state_copy_bytes_elided": 1911557120,
+            "draft_initialization_ms": 5.584236,
+            "draft_ms": 86.282445,
+            "verify_ms": 956.822949,
+            "reconcile_ms": 17.377066,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        "decode_change_percent": -1.2347168777948614,
+        "verify_change_ms": 11.587473000000045
+      }
+    ],
+    "scope": "P65 floor then8K/40K only if passing; wrapper uses capability callback but is NOT a capability panel."
+  },
+  "decision": "Remove candidate and restore v122 after failed declared API floor. Do not scan ring size, stages, launch geometry or ownership variants.",
+  "artifact_root": ".q3x-work/mtp-thread-input-20261020",
+  "runtime_restored": true,
+  "production_changed": false,
+  "goal_achieved": false,
+  "artifact_manifest_sha256": "7d98a6e4c130ff464e6883598d93dd81bd092f469bd90adeb14216e8217c215d",
+  "restored_runtime_sha256": {
+    "src/runtime/mtp_verify_projection_internal.cu": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "include/q3x/server/evaluation_server.h": "871409bf6aa89aa4d139e848b623c0200de72e421895f80c59eed5e661f50be2",
+    "tools/evaluation/validate_mtp_service.py": "8dbf2ae6d7f33d2f01953b1413f65ad32163ec3a940f0c1f5662b0afc0f48607"
+  },
+  "restored_artifacts": {
+    ".q3x-work/build/orin-mtp-sealed-cap2/qwen3x-eval-server-mtp-candidate": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+    ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test": "d7b55fef69a05cc40326b70268874f7f311af7f55df2a5f9f94c10cc690e3e6a"
+  },
+  "limits": [
+    "Single-process short direction only; not a statistically qualified regression or hardware-stall attribution.",
+    "Stop occurred before8K/40K/cap3/lifecycle/repeated selection. Correctness cleanup success is not a performance pass.",
+    "Prototype remains evidence only, with no runtime prerequisite retained. Build objects can contain candidate code; restored source timestamps force recompilation. Frozen restored executable hashes are authoritative.",
+    "Prefill implementation unchanged; its timing variation is not attributed to this Decode edit."
+  ],
+  "hygiene": {
+    "project_device_processes": [],
+    "api_key_removed": true,
+    "all_five_process_cleanups": "normal exit, no errors",
+    "runtime_diff_empty": true,
+    "scope": "No termination of unrelated monitors or control processes; no new worktree."
+  },
+  "static_compile_command": "nvcc -std=c++17 -arch=sm_87 -O3 -Xptxas=-v -c {incumbent,prototype}.cu; same options plus consumer-test.cu for standalone correctness executable"
+}
