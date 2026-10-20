@@ -116,7 +116,10 @@ is closed at its predeclared static spill gate. Its exhaustive finite-domain
 host proof remains valid, but the fixed M4 Gate/Up consumer spills one
 accumulator inside the K512 loop. No GPU numerical or performance run took
 place. This local resource decision does not establish actual slowdown or
-rule out the product target; runtime and installed metrics remain unchanged.
+rule out the product target. A separately recorded
+[fixed-source continuation](metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json)
+will test actual resources and complete costs without retuning that kernel;
+runtime and installed metrics remain unchanged.
 
 ### Installed MTP delivery complete
 

@@ -1,0 +1,290 @@
+{
+  "schema": "q3x-decode-lineage-reconciliation-v1",
+  "date": "2026-10-21",
+  "source_git": "079e1b93bf32ad6828f9ff63835ad0cbbc38c994",
+  "status": "read_only_assessment_closed_without_new_implementation",
+  "parent_goal_preserved": "Additional Decode +25% then +50% against installed v127, caps 2/3, P65/8192/40000; exact numerical/state/output/API contracts, 8 GiB reserve, matched Prefill <=2% latency regression.",
+  "authority": "Current source, frozen numerical probes and conditional traffic reconciliation only. No new GPU, API, profile, payload histogram scan or performance result.",
+  "bf16_owner_assessment": {
+    "schema_version": 1,
+    "date": "2026-10-21",
+    "decision_class": "read_only_source_and_retained_evidence_assessment",
+    "status": "no_implementation_selected",
+    "scope": {
+      "gpu_runs": 0,
+      "new_profiles": 0,
+      "checkpoint_payload_scans": 0,
+      "tracked_edits": 0
+    },
+    "target_preserved": "Additional Decode +25% then +50% against installed v127, caps 2/3, P65/8192/40000; exact numerical/state/output/API contracts, 8 GiB reserve, matched Prefill <=2% latency regression.",
+    "historical_rejection": {
+      "record": "docs/metadata/qwen36-27b-mtp-expanded-qkv-assessment-2026-10-10.json",
+      "record_status": "closed_host_assessment_no_runtime_selected",
+      "gpu_runs": 0,
+      "candidate_binary_existed": false,
+      "roles": "48 GDN in_proj_qkv, each N10240 K5120",
+      "owner": "Request-time expansion into dead Prefill family storage, preparation charged to Decode; canonical resident FP8 retained.",
+      "expanded_bytes": 5033164800,
+      "family_bytes": 5985767424,
+      "snapshot_hole": [
+        2356490240,
+        2751257600
+      ],
+      "fit": true,
+      "reference_profile": "Historical v31 fp8_rows<3,false>; 5040 calls, 2.050542816 seconds; matched kernel bytes, unmatched surrounding scheduling/cache.",
+      "predicted_seconds": {
+        "zero_cache_204_8_GB_s": 2.58048,
+        "generous_16_MiB_per_call_cache": 2.1676032
+      },
+      "claim_boundary": "Host traffic screen only. No actual same-workload expanded-global-BF16 candidate or empirical slowdown was measured."
+    },
+    "distinct_actual_experiment": {
+      "record": "docs/metadata/qwen36-27b-mtp-fullk-residency-rejection-2026-10-09.json",
+      "mechanism": "Full-K BF16 shared-memory residency inside the executor, not a persistent expanded global owner.",
+      "P65_cap2": {
+        "prefill_s": 0.892770538,
+        "ttft_s": 0.911447824,
+        "decode_tokens_s": 8.743400467,
+        "total_s": 2.626832761,
+        "rounds": 7,
+        "verified_rows": 19,
+        "verify_ms": 1558.425318
+      },
+      "coverage": "Nine full-prefix state/logit matches; P8192 interrupted; no full long-context/cap3 performance panel."
+    },
+    "current_inventory": {
+      "roles": 144,
+      "K": 5120,
+      "shapes_counts": [
+        [
+          10240,
+          48
+        ],
+        [
+          6144,
+          48
+        ],
+        [
+          12288,
+          16
+        ],
+        [
+          1024,
+          32
+        ]
+      ],
+      "canonical_selected_bytes": 5200936960,
+      "startup_private_fp8_bytes": 5200936960,
+      "expanded_bf16_bytes": 10401873920,
+      "source": "src/runtime/mtp_device_internal.cpp:522",
+      "current_private_lifetime": "TargetTransaction owns immutable AoSoA4 input payload; full-byte check before graphs; graphs destroyed before owner.",
+      "already_reclaimed": "208 unused FP8 Marlin sidecars are already skipped; do not count them again."
+    },
+    "additive_replacement_reserve_screen": {
+      "definition": "Retain canonical FP8; replace private FP8 by private BF16. Net +5,200,936,960 bytes, already crediting release of old private FP8.",
+      "reserve_bytes": 8589934592,
+      "installed_receipts": [
+        {
+          "receipt": ".q3x-work/mtp-installed-repeat-20261020/cap2-a/server.log",
+          "startup_free_bytes": 12107190272,
+          "predicted_after_additive_replacement": 6906253312,
+          "reserve_deficit_bytes": 1683681280
+        },
+        {
+          "receipt": ".q3x-work/mtp-installed-repeat-20261020/cap2-b/server.log",
+          "startup_free_bytes": 12053676032,
+          "predicted_after_additive_replacement": 6852739072,
+          "reserve_deficit_bytes": 1737195520
+        },
+        {
+          "receipt": ".q3x-work/mtp-installed-repeat-20261020/cap3-a/server.log",
+          "startup_free_bytes": 11946074112,
+          "predicted_after_additive_replacement": 6745137152,
+          "reserve_deficit_bytes": 1844797440
+        },
+        {
+          "receipt": ".q3x-work/mtp-installed-repeat-20261020/cap3-b/server.log",
+          "startup_free_bytes": 12107501568,
+          "predicted_after_additive_replacement": 6906564608,
+          "reserve_deficit_bytes": 1683369984
+        }
+      ],
+      "decision": "All four installed repeats fail reserve under additive replacement, before extra metadata/alignment."
+    },
+    "canonical_plus_private_replacement": {
+      "mechanism": "Stream authenticated checkpoint FP8 directly into one explicitly typed raw-decoded BF16 device representation; omit selected canonical FP8 device payload and omit transaction private FP8 owner.",
+      "old_canonical_arena_bytes": 20150786560,
+      "new_canonical_arena_bytes": 25351723520,
+      "removed_private_owner_bytes": 5200936960,
+      "persistent_net_delta_bytes": 0,
+      "source_ownership": [
+        {
+          "file": "include/q3x/runtime/resident_weights.h",
+          "line": 17,
+          "fact": "Exact canonical arena contract and source/device view metadata."
+        },
+        {
+          "file": "src/runtime/resident_weights.cpp",
+          "line": 1134,
+          "fact": "Deterministic aligned monolithic arena layout."
+        },
+        {
+          "file": "src/runtime/resident_weights.cpp",
+          "line": 1519,
+          "fact": "One cudaMalloc; tensor pointers are arena base plus offsets. Individual FP8 holes cannot be freed."
+        },
+        {
+          "file": "src/runtime/model_weights.cpp",
+          "line": 731,
+          "fact": "Binder checks dtype, byte extent, alignment, arena membership and exact offset-pointer relation."
+        },
+        {
+          "file": "src/runtime/model_weights.cpp",
+          "line": 2635,
+          "fact": "Pinned binder requires old arena size and complete consumed tensor count; successor needs explicit representation contract."
+        }
+      ],
+      "startup_peak": "Must plan transformed arena from the outset and decode through bounded host staging into final offsets. Loading old full arena then allocating replacement is not this design and creates an avoidable extra peak. Keep full shard authentication/fstat/no-follow trust boundary and publish no views before authentication succeeds. Runtime reserve still needs a real readiness receipt; zero net payload is not a measured capacity pass.",
+      "typed_contract": "Keep checkpoint source dtype/shape/range/hash distinct from runtime BF16 dtype/layout/extent. Raw decoded BF16 must retain tensor-scale metadata. Plain Bf16LinearWeight or uint8_t pointer reinterpretation is invalid.",
+      "prefill_composition": {
+        "file": "src/kernels/sm87/fp8_dequant_cublas_projection.cu",
+        "lines": [
+          33,
+          130,
+          139
+        ],
+        "fact": "Current whole-core path already decodes raw FP8 to row-major BF16 scratch; unchanged CUTLASS reduction applies weight_scale in epilogue. Row-major immutable BF16 can feed GEMM directly; AoSoA immutable BF16 instead requires exact layout conversion into existing projection scratch. No second full BF16 layout may be silently retained."
+      },
+      "dispatch_changes": [
+        {
+          "file": "src/runtime/reference_runner.cpp",
+          "line": 2152,
+          "fact": "Whole-core FP8 dispatch currently insists on canonical uint8 payload."
+        },
+        {
+          "file": "src/runtime/reference_engine_prefill_authority.cpp",
+          "line": 820,
+          "fact": "Bound plan validates current canonical FP8 inventory."
+        },
+        {
+          "file": "src/kernels/reference/projection_dispatch.cpp",
+          "line": 100,
+          "fact": "Tile span validation and raw FP8 dispatch must explicitly support transformed representation."
+        },
+        {
+          "file": "src/kernels/reference/projection_dispatch.cpp",
+          "line": 1259,
+          "fact": "M1 QKV/Z, QKV/Z+AB and Q/KV fused consumers also require explicit transformed operands and unchanged original reduction trees."
+        },
+        {
+          "file": "src/runtime/mtp_verify_internal.cpp",
+          "line": 172,
+          "fact": "M2..4 verifier and M1 fallback require explicit typed representation dispatch before graph capture."
+        }
+      ],
+      "exclusions": "144 input roles only. Keep 64 FP8 output canonical+sidecar payloads, all NVFP4 Gate/Up/Down payloads, shared embedding and NVFP4 lm_head. Draft has separate BF16 projection weights and shares target embedding/head, not these 144 target input matrices.",
+      "bounded_api_return": "A new named representation/ownership candidate would compose loader+typed binding+Prefill layout consumption+M1/fused consumers+M2..4 verification before full-prefix admission and immediate both-cap three-bucket API screen. No implementation is selected by this audit."
+    },
+    "numerical_contract": {
+      "verifier_source": "src/runtime/mtp_verify_projection_internal.cu:15;118;127",
+      "rule": "Every raw FP8 value is exactly representable in BF16. Preserve decoded operand bits, original K-lane/FMA sequence, four-chain merge, warp roots and final BF16 publication. Keep tensor scale after the complete FP32 reduction; never fold it into stored BF16.",
+      "special_values": "A future conversion proof must cover signed zero and each consumer decoder's NaN convention; exact representability alone does not prove all consumer special-value semantics.",
+      "distinction": "This removes runtime FP8 lookup/decode without changing output-lane ownership or using MMA/short-chain arithmetic. It does not imply a latency gain."
+    },
+    "current_traffic_screen": {
+      "source": ".q3x-work/decode-plan-20261021/current-node-analysis.json",
+      "tracked_record": "docs/metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json",
+      "full_weight_bytes_per_round": 10401873920,
+      "assumed_bandwidth_GB_s": 204.8,
+      "short": {
+        "rounds": 6,
+        "measured_current_input_kernel_sum_s": 0.231694816,
+        "ideal_no_cache_BF16_s": 0.3047424,
+        "generous_16_MiB_per_call_BF16_s": 0.23986176
+      },
+      "long": {
+        "rounds": 105,
+        "measured_current_input_kernel_sum_s": 3.773599232,
+        "ideal_no_cache_BF16_s": 5.332992,
+        "generous_16_MiB_per_call_BF16_s": 4.1975808
+      },
+      "generous_cache_rule": "Deduct min(16 MiB, projection BF16 bytes) independently for every projection call. This overcredits reusable cache and ignores all other traffic.",
+      "boundary": "Instrumented first-verifier-to-end windows omit first draft and entry; this is a conditional traffic screen, not complete Decode, measured BF16 latency, hardware impossibility or a production speedup result.",
+      "conclusion": "Canonical/private consolidation removes the additive capacity objection but does not reduce doubled hot weight traffic. Current full-144 screen remains negative; no implementation or GPU experiment selected."
+    }
+  },
+  "bf16_traffic_review": {
+    "short_rounds_by_m": {
+      "3": 5,
+      "4": 1
+    },
+    "long_rounds_by_m": {
+      "2": 10,
+      "3": 95
+    },
+    "long_bf16_unique_read_bytes": 1092196761600,
+    "generous_cache_long_vs_current_latency_fraction": 0.11235468896767031,
+    "assumptions": "204.8 GB/s nominal bandwidth wholly available to weights, zero added activation/state/compute cost, independently deduct up to 16 MiB of useful cached expanded weights on every call. No undocumented memory compression credited. These are conditional predictions, not measured candidate latency or an impossibility proof.",
+    "decision": "Do not select straightforward persistent BF16 expansion merely because consolidated ownership can fit; it still doubles hot weight traversal."
+  },
+  "paired_fp8_decode_lineage": {
+    "finding": "Exact exponent embedding through FP16/half2 multiplication by 256, followed by FP32 conversion and signed NaN repair, was already implemented and tested in v7. The later scalar FP32 reconstruction is a related instruction variant, not a new mathematical family. Do not reopen paired half2 conversion as an untried architecture.",
+    "proof_scope": "Frozen 65,536-pair numerical pass and negative API direction remain scoped to their original artifact.",
+    "source": ".q3x-work/mtp-shared-verify-20261009/packed-source/src/runtime/mtp_fp8_decode_internal.cuh",
+    "erratum": "docs/metadata/qwen36-27b-mtp-fp8-arithmetic-lineage-erratum-2026-10-14.json"
+  },
+  "single_product_mma": {
+    "finding": "A dedicated probe already tested one nonzero product per MMA output, all other K coordinates zero, with FP32 carry between instructions; this is not an untested alternative to multi-product short chains.",
+    "zero_start_counterexample": {
+      "weights": [
+        "1",
+        "3/512",
+        "-1",
+        "3/512"
+      ],
+      "bf16_inputs": [
+        "1",
+        "2",
+        "2^-23",
+        "2^-16"
+      ],
+      "scalar_fp32": "0x3f818000",
+      "mma_fp32": "0x3f817fff",
+      "scalar_bf16": "0x3f82",
+      "mma_bf16": "0x3f81",
+      "differing_outputs": 128
+    },
+    "scope": "The decoded operands and products are ordinary finite normal values. Restricting nonfinite or subnormal inputs cannot rescue direct substitution. Historical probe is not a new GPU run.",
+    "record": "docs/metadata/qwen36-27b-mtp-single-product-mma-2026-10-10.json",
+    "short_chain_distinction": "v37/v41 instead used zero-start paired 5/6-product chains, exact-lattice guards and original scalar repair. Their actual negative 8K API results cover request-amortized metadata and the direct-register/independent-warp successor. Measured preparation was small relative to repeated executor cost; metadata-only relocation is not selected by that evidence."
+  },
+  "source_sha256": {
+    ".q3x-work/decode-plan-20261021/current-node-analysis.json": "d516dc50c86b0357d3d880f4a82a90819b4b2158988eaaed1c7d571d1b4ce633",
+    ".q3x-work/decode-plan-20261021/fp8-bf16-owner-assessment.json": "02128f632ffeac712175304bc226c15a1d06c26d391dba6fb04271d3891916f1",
+    ".q3x-work/mtp-installed-repeat-20261020/cap2-a/server.log": "ffb090b4967c3b90cc9fd9406ffd06c4adc8edbbc076c33748687877d1645988",
+    ".q3x-work/mtp-installed-repeat-20261020/cap2-b/server.log": "83f9e36530d82187c5f3538168fae53dd9eeb207a7f6bbbdf4f92aa6c0f03b8f",
+    ".q3x-work/mtp-installed-repeat-20261020/cap3-a/server.log": "a9667aa44b80ab880b5bd8e3e48b76830d56bebe3affa8c1bf0fca1507c2303b",
+    ".q3x-work/mtp-installed-repeat-20261020/cap3-b/server.log": "3d406cee5736ecee6e18bced3e07839083bebecf0afb020b7620655ec3066912",
+    ".q3x-work/mtp-shared-verify-20261009/packed-source/src/runtime/mtp_fp8_decode_internal.cuh": "56f9f76b669d1dab827f6c0725840fb62d3ba68d33364c0be16df497d35b0996",
+    ".q3x-work/mtp-single-product-mma-20261010/probe.cu": "3097bfafd927247ebeea8285445523f2ae36225992e1a83aabc3870ea442266f",
+    "docs/metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json": "166952bbbe623e10e04316907a2688968fd12b0f178ab85a71982d408421ff77",
+    "docs/metadata/qwen36-27b-mtp-direct-chain-rejection-2026-10-10.json": "ece5da4ee23e7dda6702390208ba2c81b15704aa4a46db6463bd609ecbd01cd9",
+    "docs/metadata/qwen36-27b-mtp-expanded-qkv-assessment-2026-10-10.json": "1d7e69548a468a8118f842dfcdf39eb502998894001c60ca79ac72dbd209b28d",
+    "docs/metadata/qwen36-27b-mtp-fp8-arithmetic-lineage-erratum-2026-10-14.json": "51443a1ae5309ec4ba60cf1c8d7c9cd2e8ac8d8641591b46ef7742fe0a8b2f01",
+    "docs/metadata/qwen36-27b-mtp-fullk-residency-rejection-2026-10-09.json": "9346104e631a2a56de3f25ecdc859fae0089f7fcc6b219b7c2bc861d354c7836",
+    "docs/metadata/qwen36-27b-mtp-short-chain-executor-rejection-2026-10-10.json": "fff17965b16c1d15477c1bc19aff0799261def0552d90315caba5cd606e06bfa",
+    "docs/metadata/qwen36-27b-mtp-single-product-mma-2026-10-10.json": "f87c76e3ee21ebdd79e46a5c50de547dce1f2849ead369f7c92a12cb5f376eee",
+    "include/q3x/runtime/resident_weights.h": "f30cbbe2069dccbe1829517a3e5a7e7ed98ed8581dd9455810aabf19fde781a4",
+    "src/kernels/reference/projection_dispatch.cpp": "1f110c4dca60a4403c5a728cb63b1ccb07fce492c8c902e891f29eeed166ec76",
+    "src/kernels/sm87/fp8_dequant_cublas_projection.cu": "016d3b1be2c0d399b62bc6fb9c8f5df95783417eedd837485f3bbbc93403e536",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/mtp_verify_internal.cpp": "68a97b213af9e464c2c925504d4ebf445345b69cf60ff13d59e204b504fd19d6",
+    "src/runtime/reference_engine_prefill_authority.cpp": "5178134ad80c7dcdf85f2684f8039c448bf16ef7780fbaecba46ddd9f565655b",
+    "src/runtime/reference_runner.cpp": "e13dc9d1f41fa89070d8df6b566a11b5caec9e62f221c65d194cedd2dfcd0150",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c"
+  },
+  "selected_next_work": "The separately recorded fixed-source NV-factor resource reconciliation remains the only active local implementation. This audit selects no new decoder, BF16 owner or Tensor Core executor.",
+  "runtime_mutations": 0,
+  "gpu_runs": 0,
+  "goal_achieved": false
+}

@@ -1,0 +1,69 @@
+{
+  "schema": "q3x-nv-factor-resource-reconciliation-design-v1",
+  "date": "2026-10-21",
+  "status": "selected_fixed_source_resource_and_real_payload_reconciliation",
+  "decision_unit": "local_mutation",
+  "work_package_id": "WP-DECODE-NV-FACTOR-RESOURCE-20261021",
+  "architecture_candidate_id": "AC-DECODE-NV-FACTOR-v1",
+  "source_parent": "079e1b93bf32ad6828f9ff63835ad0cbbc38c994",
+  "parent_goal": "Unchanged additional25% then50% installed-v127 both-cap short/8K/40K real API Decode with full numerical/output/state/capacity,8GiBreserve and matched2%Prefill guard.",
+  "original_design": "docs/metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json",
+  "original_design_sha256": "a2c4bd37d4ec72557f4f6f9b9b56b21bda31d27cfa494f1d7cb93017002173b2",
+  "preserved_static_closure": "docs/metadata/qwen36-27b-mtp-nv-factor-rejection-2026-10-21.json",
+  "preserved_static_closure_sha256": "88bcda5482c48c3e6be28abd27601691f25eeb6a7fc5291356536e85fa9a6ee0",
+  "correction": "The predecessor correctly records failure of its predeclared zero-spill local screen. That screen was too strong as the sole stop for a complete new dataflow: nonzero compiler spill bytes are neither unsafe launch geometry nor observed performance loss. Retain the failed T0 decision and finite proof, and explicitly select one fixed-source actual-resource/numerical/real-weight continuation. Do not rewrite prior evidence or tune the compiler/kernel to remove spills.",
+  "new_causal_evidence": {
+    "reviewers": "Root and independent subagent inspected source, exact compile flags, ptxas output and SASS; no second compile or device run.",
+    "extra_resource_cap": false,
+    "resource_observation": "M4 Gate/Up: 128 registers, 34,816 shared bytes, 8 stack bytes, 8 static spill-store bytes and 4 static spill-load bytes. Other five consumers have zero reported spills. M4 Down uses 138 registers, so no global 128-register cap explains the result.",
+    "shared_breakdown": {
+      "lift_ring_bytes": 32768,
+      "tables_bytes": 2048
+    },
+    "control_flow": "Entry 0x0190 reads input exceptional flag; 0x01a0 reads scale flag; 0x01e0 branches to exceptional body 0xa080. Spill sites belong to ordinary finite body. STL 0x5e80 and 0x5f80 are mutually exclusive arms joining at 0x5fd0; LDL 0x7e10 restores an accumulator used at FFMA 0x8060/0x8130. Loop counter increments at 0x9340, with 0x9380 backedge to 0x09a0; loop count K>>9=10.",
+    "dynamic_logical_accesses": "Each thread executes one 4-byte store and one 4-byte load per K512 tile: 80 bytes across ten tiles. N17408 / 16 outputs per CTA = 1088 CTAs, 128 threads each, or 11,141,120 logical local-memory bytes per Gate or Up projection. These are instruction-derived accesses, not observed DRAM bytes, stalls or latency.",
+    "prior_lesson": "Earlier static register/spill stops did not establish whole-product slowdown. This closure follows the fixed local package budget only; do not turn zero-spill into a global performance or safety rule.",
+    "prior_records": [
+      "docs/metadata/qwen36-27b-mtp-static-gate-api-rejection-2026-10-10.json",
+      "docs/metadata/qwen36-27b-mtp-gate-register-pair-api-rejection-2026-10-20.json"
+    ]
+  },
+  "fixed_source": {
+    "path": ".q3x-work/decode-plan-20261021/nv-factor-prototype/prototype_kernel.cu",
+    "sha256": "fc8493cf9bca1c285ad2173a086801f36e75a2e4f5b4ff3482224b7a729abd13",
+    "header_sha256": "7c22ac5c21dd25173f806953029fd18b3b88c70e632fced96e928c0f6060e814",
+    "mechanism": "Exactly the selected producer, all-M K512 Gate/Up double ring, packed Down direct lifts, uniform original exceptional branch,128threads/fouroutputs perwarp,unchanged weightformats and originalfourchains/tree. No M-specific geometry, ringwidth, registerlimit or occupancy variant.",
+    "compiler_flags": [
+      "-std=c++17",
+      "-O3",
+      "-arch=sm_87",
+      "--ftz=false",
+      "--prec-div=true",
+      "--prec-sqrt=true",
+      "--fmad=true",
+      "-Xptxas=-v",
+      "-c"
+    ],
+    "local_stack_obligation": "Actual device attributes must agree with the bounded compiled M4 Gate/Up local allocation and34,816Bshared, support intended128-thread launch with at least one resident CTA, and preserve fixed owners/8GiBreserve. Record allM actual resource attributes. Unexpected compiler/resource growth fails before numerical launch; documented M4spill is permitted for this exact implementation only.",
+    "baseline": "Compile unchanged src/runtime/mtp_verify_projection_internal.cu into the same ELF and compare complete outputs. Use exact current packs for bothroutes; no different numerical oracle."
+  },
+  "execution": {
+    "milestone1": "Finish host Device/main,T1 andpayload helper around frozenkernel. Validate full bounds/aliases beforeenqueue; actualGPUresourcequery followed by directedcompleteoutput/nonfinite/Graph tests in one preflighted T1process. Samebinary T1pass then one preflighted T2process; no automatictimingretry.",
+    "T1": "Fixed16patternpanels times GateUp/Down timesM2/3/4 plus all65280finiteBF16liftbits in oneDownM4 case; changinginput finite/nonfinite/finiteGraphs; output/owner/lifttailguards; zeroenqueue invalidargument/aliascases. Freeze exact counts beforebuild. No synthetic timinggate.",
+    "payload": "Original selected all64GateUp pairs+53packedDown,181projections in117 natural layergroups,completecheckpointweight/blockscale/rawtensorscale hashes,current scale6eligibility. Historical/reused activations labelled checkpoint_weight_only. Onegroupresident, nofullmodel ownerduplication.",
+    "timing": "Original fourcomplete traversals B-C,C-B,B-C,C-B;117groups*3M*4pairs=1404events/route;GateUpcostincludesbothprojections;candidateflagclear+producer+consumers insideevents;32MiBscrub beforeeachroute outsideevents. Equalpercallweighting explicit,notAPIMdistribution.",
+    "local_gate": "Unchanged at least10%aggregate latencyreduction,everymirroredpairfavorable,zerocompleteoutputdifferences,safe8GiBreserve/ownership/cleanup. Ifitfails,closethisfixedsource with no furtherdecoder/layout/resource/profiler successor underthispackage.",
+    "variants": 1,
+    "performance_retunes": 0,
+    "correctness_repairs_max": 1,
+    "milestone2_if_local_passes": "Immediate defaultoffcompleteNVfamily composition with MTP/RequestState/Enginecontracts, minimumP65fullstate/logits/draftKV/rejection/EOS/cancel/failure/scratch/Graph admission, thenbothcapshort/8K/40KAPI. Original3%Decode stop and2%Prefill guard unchanged; jointlyreportPrefill/TTFT/Decode/total/acceptance. No prolongedlocalretention.",
+    "goal_completion": "Only conservative pairedindependent realAPI results againstexactinstalledv127 can satisfy25%then50% allbuckets/bothcaps. InstalledqualificationonlyafterpositivewholeAPI. No componentmetric completesgoal."
+  },
+  "resource_policy_scope": "This is one explicitly recorded prospective local-screen correction before any device correctness or timing. It changes no finaltestcontract or safetyownershiprule; zero-spill is not made a global rule. Existing earlier static-gate/API reconciliation precedent is retained in the closure.",
+  "artifact_root": ".q3x-work/decode-plan-20261021/nv-factor-prototype",
+  "gpu_run_artifacts": ".q3x-work/decode-plan-20261021/nv-factor-resource-t1 and nv-factor-resource-t2",
+  "runtime_changed": false,
+  "production_changed": false,
+  "new_API_metrics": false,
+  "goal_achieved": false
+}

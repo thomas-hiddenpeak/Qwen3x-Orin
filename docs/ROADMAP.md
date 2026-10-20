@@ -91,15 +91,30 @@ cancel its runtime/API composition without a resource or layout retune.
 The source and static evidence remain retained, with no performance authority.
 Do not generalize this local gate into a safety rule or an impossibility claim.
 
-The additional 25%/50% product goal remains active. The next bounded question
-is whether the historical FP8 expansion rejection tested actual execution or
-only projected traffic, and whether one authenticated BF16 owner can replace
-the current canonical-plus-private FP8 ownership within the unchanged reserve.
-Audit the complete Prefill, scalar and multi-row consumer/loader lifetimes
-before selecting an implementation. No new model scan or profiler is selected.
-Any successor must declare a fixed real-weight local gate and a bounded full
-API return; broad qualification remains reserved for a positive complete runner.
-Ordinary non-MTP and the delivered MTP artifacts retain their existing metrics.
+The additional 25%/50% product goal remains active. A prospective
+[fixed-source resource reconciliation](metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json)
+now corrects the zero-spill screen's excessive decision authority without
+rewriting that failed result. SASS establishes one four-byte store and load per
+thread per K512 tile, with bounded local storage; it does not establish unsafe
+resources or actual slowdown. Finish the same fixed executor's harness and
+check actual launch resources, complete numerical/Graph behavior, then one
+complete real-weight comparison under the original 10% local gate. No kernel,
+register, feed or geometry retune is selected. One correctness repair remains
+the maximum; a failed actual-resource, numerical or timing gate closes this
+continuation without a further local variant.
+
+If it passes, compose the full selected NV family in the second milestone and
+return immediately to both-cap short/8K/40K API checks. Broad qualification
+remains reserved for a positive complete runner. Ordinary non-MTP and the
+delivered MTP artifacts retain their existing metrics.
+
+The [read-only lineage reconciliation](metadata/qwen36-27b-mtp-decode-lineage-reconciliation-2026-10-21.json)
+also distinguishes the old host-only BF16 expansion screen from actual GPU
+experiments. Consolidating canonical/private owners can preserve payload
+capacity, but current-call traffic estimates remain unfavorable; no BF16
+owner implementation is selected. Packed half2 FP8 reconstruction and sparse
+single-product MMA already have direct historical tests, including a finite
+MMA counterexample. They are not untried successors.
 
 ## 2026-10-21 MTP delivery — complete
 

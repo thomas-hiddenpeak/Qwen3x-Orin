@@ -750,3 +750,16 @@ records the fixed M4 Gate/Up spill-gate failure before GPU execution. Existing
 Current Status and Roadmap cancel that version's composition and preserve the
 finite host proof without inferring a performance loss. The broader Decode
 goal remains active; no runtime, Markdown path or classification changes.
+
+The [NVFP4 resource reconciliation](metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json)
+preserves that static failure and explicitly corrects the local zero-spill
+screen before any device timing. Existing Current Status and Roadmap select
+one unchanged-kernel actual-resource, numerical and real-weight continuation,
+with the original bounded API return and no parameter retune. No runtime,
+installed artifact, Markdown path or classification changes.
+
+The [Decode lineage reconciliation](metadata/qwen36-27b-mtp-decode-lineage-reconciliation-2026-10-21.json)
+pins the host-only BF16 expansion scope, current ownership/traffic assessment,
+and previously tested packed-conversion and single-product MMA lineages.
+Existing Roadmap records their bounded non-selection without new measurements
+or changes to runtime, Markdown paths or classifications.
