@@ -1,0 +1,68 @@
+{
+  "work_package_id": "WP-MTP-INSTALLED-REPEAT-20261020",
+  "parent": "WP-MTP-PACKAGE-20261020",
+  "decision": "Prospective six-process exact installed-artifact performance gate after both installed API/lifecycle panels pass. No parameter scanning or favorable timing retry.",
+  "order": [
+    "nonmtp-a",
+    "cap2-a",
+    "cap3-a",
+    "cap3-b",
+    "cap2-b",
+    "nonmtp-b"
+  ],
+  "artifacts": {
+    "2": {
+      "path": ".q3x-work/install/mtp-package-20261020-cap2/bin/qwen3x-mtp-server-cap2",
+      "sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1"
+    },
+    "3": {
+      "path": ".q3x-work/install/mtp-package-20261020-cap3/bin/qwen3x-mtp-server-cap3",
+      "sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1"
+    },
+    "nonmtp": {
+      "path": ".q3x-work/install/softmax-sync-20261014/bin/qwen3x-eval-server",
+      "sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f"
+    }
+  },
+  "workloads": [
+    {
+      "P": 65,
+      "O": 16
+    },
+    {
+      "P": 8192,
+      "O": 256
+    },
+    {
+      "P": 40000,
+      "O": 256
+    }
+  ],
+  "protocol": "Fresh process, host/device ownership preflight and successful cache drop per cell;60s between8Kand40K. Same pinned exact requests and output/work oracle. Temperature<=85C, fixed GPU min/max/current1300500000Hz,8GiB reserve, complete route/capacity, normal exit. Missing strict evidence invalidates selection without erasing independently valid correctness.",
+  "selection": "For each cap and bucket min(candidate Decode)/max(nonMTP Decode)>=1.5. Report both observations, medians and all joint Prefill/TTFT/Decode/total metrics. Candidate Prefill must not regress>3% against same-cap v122; MTP draft initialization overhead vs nonMTP remains separately visible.",
+  "count_limit": 6,
+  "completion_boundary": "Only the installed performance gate. Full affected capacity, public capability, sustained reuse/fresh restart, and explicit final goal audit still required.",
+  "artifact_root": ".q3x-work/mtp-installed-repeat-20261020",
+  "goal_achieved": false,
+  "early_stop": "After each complete protocol-valid cell, reject and stop remaining cells if an observed conservative min(candidate)/max(native) is already below1.5, or Prefill violates3% guard. Further observations cannot reverse that worst-case failure. Preserve every completed cell; no retries.",
+  "prerequisite": ".q3x-work/mtp-package-20261020/api-terminal.json:success=true",
+  "scripts": {
+    ".q3x-work/mtp-installed-repeat-20261020/audit.py": "bc77a534b34852b8a9ebd6c42fdb6f31f8268b0cd895558521c1f2b24ddf735b",
+    ".q3x-work/mtp-installed-repeat-20261020/run-panel.py": "7d85efc7d4f2daab20188607485e49f5518f4d10e10f55ecc22936dc71d6b634",
+    ".q3x-work/mtp-installed-repeat-20261020/native_audit_reference.py": "ae4cdd3081ced593027652eebebc381ec1c8cbd474722a289aa637184f18adee",
+    ".q3x-work/mtp-installed-repeat-20261020/run-all.py": "348ff5858fd01d489e035c769531389459b45dc51b0e596d1d317b590536f6d7"
+  },
+  "dependencies": {
+    "tools/evaluation/validate_mtp_service.py": "803fff7cb774f7d0c780861da5168c310e1c7fb6cc20a19f670a9bf3595dae2b",
+    "tools/evaluation/qualify_service.py": "87e0b50c459553a82b6003f1f11917cbe6a78c9182b71469b9031fb39973ef62",
+    "tools/evaluation/audit_mtp_install.py": "d350b989bcfcddce7b5a1c4d05207ff331fd2cd1af559aac723a8a4b6b5822e6",
+    ".q3x-work/mtp-installed-repeat-20261020/audit.py": "bc77a534b34852b8a9ebd6c42fdb6f31f8268b0cd895558521c1f2b24ddf735b",
+    ".q3x-work/mtp-installed-repeat-20261020/run-panel.py": "7d85efc7d4f2daab20188607485e49f5518f4d10e10f55ecc22936dc71d6b634",
+    ".q3x-work/mtp-installed-repeat-20261020/native_audit_reference.py": "ae4cdd3081ced593027652eebebc381ec1c8cbd474722a289aa637184f18adee",
+    ".q3x-work/mtp-installed-repeat-20261020/run-all.py": "348ff5858fd01d489e035c769531389459b45dc51b0e596d1d317b590536f6d7"
+  }
+}
