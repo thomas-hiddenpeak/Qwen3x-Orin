@@ -1,0 +1,199 @@
+{
+  "work_package_id": "WP-MTP-INSTALLED-QUALIFICATION-20261020",
+  "design": "docs/metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json",
+  "authority": "Exact installed two-cap capacity and recovery qualification; not independent performance selection",
+  "caps": {
+    "2": {
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.531
+      },
+      "token_comparison": {
+        "full_ids_equal_to_frozen_mtp": true,
+        "cross_cap_equal": null,
+        "requests": 3
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/install/mtp-package-20261020-cap2/bin/qwen3x-mtp-server-cap2",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-installed-qualification-20261020/capacity-cap2/api-key"
+        ],
+        "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+        "service_package": true,
+        "draft_length": 2,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "soak_seconds": 0,
+        "restart_from": null,
+        "prior_soak_sha256": null,
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "7ba63d7ccaaed215f9bba1c01443079c3820b6d6850b44496fe411af3f9dbb3a",
+        "driver_sha256": "803fff7cb774f7d0c780861da5168c310e1c7fb6cc20a19f670a9bf3595dae2b",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "021d17fe42c4e161908e420e663ec9dc314954ec",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "scope": {
+        "panel": "P40000/O4096 then60s idle, P44095/O1 and P44095/O2 rejection then60s idle, P65/O16 recovery; no capability or cancellation replay",
+        "wrapper_sha256": "9ab70d83fa7620508f3a2ce52f407241a2e20437a1f2870a17e144532d323003",
+        "token_oracle_scope": "Historical installed native reference retains text/usage, not output token IDs. Compare complete IDs between the two candidate caps separately; do not claim native token-ID equality from text alone."
+      },
+      "joint_metrics": [
+        {
+          "label": "capacity-40000-4096",
+          "prompt": 40000,
+          "output": 4096,
+          "prefill_s": 93.099559881,
+          "prefill_tps": 429.6475735344835,
+          "ttft_s": 93.13555025798269,
+          "elapsed_s": 409.02243613405153,
+          "decode_tps": 12.963595537468024
+        },
+        {
+          "label": "maximum-prompt",
+          "prompt": 44095,
+          "output": 1,
+          "prefill_s": 104.352559898,
+          "prefill_tps": 422.55791370236545,
+          "ttft_s": 104.38785053801257,
+          "elapsed_s": 104.38956449099351,
+          "decode_tps": null
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.888595475,
+          "prefill_tps": 73.14914584727093,
+          "ttft_s": 0.9070827329996973,
+          "elapsed_s": 1.9469853090122342,
+          "decode_tps": 14.423599487312579
+        }
+      ]
+    },
+    "3": {
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.593
+      },
+      "token_comparison": {
+        "full_ids_equal_to_frozen_mtp": true,
+        "cross_cap_equal": true,
+        "requests": 3
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/install/mtp-package-20261020-cap3/bin/qwen3x-mtp-server-cap3",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-installed-qualification-20261020/capacity-cap3/api-key"
+        ],
+        "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+        "service_package": true,
+        "draft_length": 3,
+        "sealed_candidate": true,
+        "panel": "capability",
+        "soak_seconds": 0,
+        "restart_from": null,
+        "prior_soak_sha256": null,
+        "capability_cases_sha256": "789a128999620f96a01eb90cbddb72d673e648ba24d1619ebd72e9bd5149d07f",
+        "reference_results_sha256": "21635b2ce3d74eeee19ee2241e362d547ff6d8dbfd42a68c2da580528fa9157c",
+        "baseline_results_sha256": "34101a47b2025d3e02ce88fd451ddd897b8fd0b9b668faa98e2ecdd500a07b66",
+        "driver_sha256": "803fff7cb774f7d0c780861da5168c310e1c7fb6cc20a19f670a9bf3595dae2b",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "d193e9d931557100d0fab3a5d95c5fd859dc1afe",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "scope": {
+        "panel": "P40000/O4096 then60s idle, P44095/O1 and P44095/O2 rejection then60s idle, P65/O16 recovery; no capability or cancellation replay",
+        "wrapper_sha256": "9ab70d83fa7620508f3a2ce52f407241a2e20437a1f2870a17e144532d323003",
+        "token_oracle_scope": "Historical installed native reference retains text/usage, not output token IDs. Compare complete IDs between the two candidate caps separately; do not claim native token-ID equality from text alone."
+      },
+      "joint_metrics": [
+        {
+          "label": "capacity-40000-4096",
+          "prompt": 40000,
+          "output": 4096,
+          "prefill_s": 92.72135592100001,
+          "prefill_tps": 431.4000760955287,
+          "ttft_s": 92.75860336702317,
+          "elapsed_s": 408.5461434989702,
+          "decode_tps": 12.967674440508189
+        },
+        {
+          "label": "maximum-prompt",
+          "prompt": 44095,
+          "output": 1,
+          "prefill_s": 104.201919437,
+          "prefill_tps": 423.16878842773747,
+          "ttft_s": 104.23692818603013,
+          "elapsed_s": 104.23864369804505,
+          "decode_tps": null
+        },
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.89046646,
+          "prefill_tps": 72.99545004760763,
+          "ttft_s": 0.9092638009460643,
+          "elapsed_s": 1.8886620439589024,
+          "decode_tps": 15.313489331168551
+        }
+      ]
+    }
+  },
+  "evidence_hashes": {
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/audited-metrics.json": "1efbd03077a6fadd153ae51eb0c04cc6a6705ac8261303931d91af4c2a37f09e",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/cache-preparation.json": "9cdce35c717ce18b66a81a8ef01f87938d6e172a6a9122e6bba7b1aa7cbc3ec0",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/capacity-40000-4096.json": "530895c332cf3342f8a380ab774cfa8a179394a4aaeeb50f8a4fb360beba5446",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/capacity-scope.json": "e6086eaa375b133798d4e3e30df8807b46f5348acfd808c826914bf2f94a284b",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/cleanup.json": "29f854e5023bc6b64de8a005fcf3ccbea5b7edc3cf82022f6876069c96cccdb4",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/clocks.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/full-token-comparison.json": "adee3f72646da48d9d216343a67afb22ff0fede5b8d5ad4e6f17f98291e2ae8c",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/health.json": "a7544d70dcf56f0fc1509a52d4beb92a1c36621d5674fe0f751484a16ed9f2d2",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/identity.json": "a3d1ecd9f0409ddc51caba698f3d0d3298d368177c385c93fbfcc97d7b5ebc78",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/maximum-prompt.json": "25096758391c514cdb9c04520b808d22f33d4b8aa9317c19c02e761e4a43171b",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/p65.json": "9a3ce1f6cd1e6728f0dd7f0e97f13a0507d7d87e9c4b7221331e0da7ae3ed64d",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/preflight-console.log": "202591aab8f52ecfd6b7f1c0f156d903473ac33fdaaf7c03a6b8af5e87bb89b3",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/preflight.json": "fb9c1a44be6af7c726aaac54970ebd135bb3d871bc3ef7d39a035134923af4ab",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/results.json": "08d489ace5f65ee4133e57ad0be4ad75b65ce7ccd3689d3bef6397f709ae458c",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/server.log": "bcd629fdcf814f8b5c3ef6b08171da3b14ee2ea3e8848db7cd66d2716268cd78",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap2/telemetry.log": "28f65099808471db44e0933e55a6d3b31151edf9656cf256bf99d89bb422428c",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/audited-metrics.json": "d2f877f74bc418b44d2696b8bb71d6a5e053640393eb45623e5b510edefde3a0",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/cache-preparation.json": "62c2a2ff73e61df6e7cdb1e937f81b8a97387191b854b726ffc491c1345d9784",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/capacity-40000-4096.json": "7809666d80efc2f1259b6959af28800b348a4586e89e7aef16a9c028c8668189",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/capacity-scope.json": "e6086eaa375b133798d4e3e30df8807b46f5348acfd808c826914bf2f94a284b",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/cleanup.json": "cfdfb947ec0778e0ece1fa8fcbeded4cb37cfb8f9c9040ae48d61bd2ee9e28fd",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/clocks.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/full-token-comparison.json": "d00196b95d029c4cff292f00194c9706a643881c930907b7250f6035b0831c43",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/health.json": "f2bc1483d7c87bd5da1f5ca8fe33c3e9c9d62de4c210b67ca803ad45edd13143",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/identity.json": "3cda69148159c48b7171615c42d97d09bd0373884c3a19908ba6ac3f87a26699",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/maximum-prompt.json": "624fd148b0c424db3481c9945c414abe1d229826fc40e8a71f736e0fbc6bde53",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/p65.json": "969c986330dc8ac35ac07e01267d16755d36c1522ad764f2982949b819255867",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/preflight-console.log": "490a4d45377246143bc177c0a37456c26aa5280d44df4f99d3bc5951e99f6082",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/preflight.json": "ad619675ac052bfc453ccea5b65d29ef004e7aa60b963141f32e95759ca50314",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/results.json": "4e7cf18aa7ae21a973dddcb6572da96dcdbd2e966e2193af8d9327b90f9f41d4",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/server.log": "344437176219fe918bd05f063951bae02b4c6d30f0e83d607f7dc42f9b3cb615",
+    ".q3x-work/mtp-installed-qualification-20261020/capacity-cap3/telemetry.log": "78ba630728c8275930ebc816a702d0f349871254cf9d14c4bd6479ce3d402889"
+  },
+  "result": "Both caps complete P40000/O4096, P44095/O1, P44095/O2 rejection and P65/O16 recovery with normal exit. Complete token IDs match frozen same-cap reference and directly between installed caps.",
+  "limits": [
+    "Native historical token IDs absent; native authority covers full response/usage for capacity requests, while full MTP token IDs compare to frozen capacity records and between caps.",
+    "Prefill includes draft initialization; O1 has no subsequent Decode rate.",
+    "Two-hour sustained reuse, fresh-process restart and final goal audit remain pending."
+  ],
+  "goal_achieved": false,
+  "ordinary_nonmtp_changed": false
+}

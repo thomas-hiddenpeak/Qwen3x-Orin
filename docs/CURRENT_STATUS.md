@@ -117,8 +117,10 @@ Stop performance collection. The [remaining installed delivery panel](metadata/q
 now has [completed both-cap capability](metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json):
 98/98 native responses and pinned reference answers match per cap, with 79
 correct answers and exact full MTP token sequences between caps. Both processes
-exit normally. Capacity, two-hour sustained reuse, fresh restart and the final
-goal audit remain active. The ordinary non-MTP production
+exit normally. [Installed capacity](metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json)
+also passes both caps: P40000/O4096, P44095/O1, over-capacity rejection and
+short recovery, with exact cross-cap full token IDs and normal exit. Two-hour
+sustained reuse, fresh restart and the final goal audit remain active. The ordinary non-MTP production
 route is unchanged. Installed MTP delivery and the full goal are not yet complete.
 
 ### v127 independent-process architecture selection
