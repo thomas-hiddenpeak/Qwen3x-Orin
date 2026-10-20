@@ -713,3 +713,10 @@ Roadmap owns its bounded current-API diagnostic and next composition gate;
 Current Status records the new work without changing delivered metrics or
 qualification. No new runtime mechanism, Markdown path/class or production
 selection is introduced; completed evidence remains frozen.
+
+The [2026-10-21 Decode profile continuation](metadata/qwen36-27b-mtp-decode-profile-continuation-2026-10-21.json)
+preserves the first diagnostic's completed P65 output/work and capture, its
+exact-session NSys ownership-attribution failure before P40000, and clean
+shutdown. Roadmap selects one fresh P40000-only continuation with explicit
+profiler/agent identity binding; the original design and failed outcome remain
+frozen. No Markdown paths/classes, runtime mechanism or production status change.

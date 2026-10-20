@@ -46,14 +46,26 @@ v127 binaries; these rates are neither new observations nor profiler targets.
 
 At unchanged work and non-verifier costs, the installed intervals imply about
 22% and 37% less verifier time for these stages. This is budget arithmetic,
-not a feasibility proof. Begin with one fresh installed cap 3 process and two
-bounded Nsight Systems node captures: P65/O16, then P40000/O256 through the
-ordinary API. Compare full outputs, routes and physical work with the installed
-reference. Apply diagnostic host/device policy, including the above-90C stop;
-85C is not an independent veto. Instrumented timings cannot replace the
-unprofiled baseline or select a performance gain.
+not a feasibility proof. The original diagnostic specified one fresh installed
+cap 3 process and two bounded Nsight Systems node captures: P65/O16, then
+P40000/O256 through the ordinary API. P65 completed with exact full output,
+token IDs and non-timing work. Before P40000, the driver stopped on an NSys
+agent reparented to PID 1 whose session identified that exact profiler root;
+the tree-only audit did not recognize it. This is a driver ownership-attribution
+failure, not a demonstrated foreign workload. Normal exit and zero remaining
+GPU holders are recorded separately from the incomplete diagnostic.
 
-Close that diagnostic after the two captures and analysis. The next action is
+The [bounded continuation](metadata/qwen36-27b-mtp-decode-profile-continuation-2026-10-21.json)
+preserves that failed attempt and short capture, and permits exactly one fresh
+P40000/O256 process/capture with explicit live profiler/agent identity binding.
+Do not repeat P65. Compare complete outputs, routes and physical work with the
+installed reference. Apply the original diagnostic policy, including the
+above-90C stop; 85C is not an independent veto. The long capture's fresh-process
+boundary is explicit. Instrumented timings cannot replace the unprofiled
+baseline or select a performance gain.
+
+Close that diagnostic after the retained short capture, one continuation and
+analysis. The next action is
 one named executor composition with an equivalence ledger, actual phase budget,
 resource contract and bounded implementation/API return, or rejection of a
 materially unsupported mechanism. No new mechanism is active yet. Existing
