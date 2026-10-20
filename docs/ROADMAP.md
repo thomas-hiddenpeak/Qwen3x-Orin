@@ -91,22 +91,28 @@ cancel its runtime/API composition without a resource or layout retune.
 The source and static evidence remain retained, with no performance authority.
 Do not generalize this local gate into a safety rule or an impossibility claim.
 
-The additional 25%/50% product goal remains active. A prospective
+The additional 25%/50% product goal remains active. The prospective
 [fixed-source resource reconciliation](metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json)
 now corrects the zero-spill screen's excessive decision authority without
 rewriting that failed result. SASS establishes one four-byte store and load per
-thread per K512 tile, with bounded local storage; it does not establish unsafe
-resources or actual slowdown. Finish the same fixed executor's harness and
-check actual launch resources, complete numerical/Graph behavior, then one
-complete real-weight comparison under the original 10% local gate. No kernel,
-register, feed or geometry retune is selected. One correctness repair remains
-the maximum; a failed actual-resource, numerical or timing gate closes this
-continuation without a further local variant.
+thread per K512 tile, with bounded local storage; it did not establish unsafe
+resources or actual slowdown. That unchanged executor has now
+[completed actual-resource and GPU validation](metadata/qwen36-27b-mtp-nv-factor-resource-rejection-2026-10-21.json).
+All six resource checks, 97 numerical groups, 24 Graph replays and 127 invalid
+zero-enqueue cases pass. One same-binary real-weight process completes all
+117 groups, M2/M3/M4 and four mirrored traversals, with zero full-output
+differences. Candidate latency is **4.027 times** the incumbent; every pair,
+M group and family is slower. The original 10% reduction gate fails.
 
-If it passes, compose the full selected NV family in the second milestone and
-return immediately to both-cap short/8K/40K API checks. Broad qualification
-remains reserved for a positive complete runner. Ordinary non-MTP and the
-delivered MTP artifacts retain their existing metrics.
+Close this fixed-source continuation and cancel its second-milestone runtime
+composition. No correctness repair was needed; no parameter retune, further
+local variant or profiler is selected. Preserve the proof and failed static
+screen alongside the actual numerical pass and measured rejection. The new
+result does not establish a hardware ceiling or lower the product goal.
+The next architecture must identify a materially different complete dataflow
+against the current whole-API budget and closed lineages before implementation.
+Broad qualification remains reserved for a positive complete runner. Ordinary
+non-MTP and delivered MTP artifacts retain their existing metrics.
 
 The [read-only lineage reconciliation](metadata/qwen36-27b-mtp-decode-lineage-reconciliation-2026-10-21.json)
 also distinguishes the old host-only BF16 expansion screen from actual GPU

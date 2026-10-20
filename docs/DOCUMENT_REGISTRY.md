@@ -763,3 +763,10 @@ pins the host-only BF16 expansion scope, current ownership/traffic assessment,
 and previously tested packed-conversion and single-product MMA lineages.
 Existing Roadmap records their bounded non-selection without new measurements
 or changes to runtime, Markdown paths or classifications.
+
+The [NVFP4 actual-resource rejection](metadata/qwen36-27b-mtp-nv-factor-resource-rejection-2026-10-21.json)
+closes the unchanged-source continuation after successful numerical/Graph and
+resource admission but a negative complete real-weight comparison. Existing
+Current Status and Roadmap cancel its runtime composition, preserving all prior
+evidence and the additional Decode goal. No runtime, installed artifact,
+Markdown path or classification changes.

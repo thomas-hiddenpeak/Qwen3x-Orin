@@ -118,8 +118,14 @@ accumulator inside the K512 loop. No GPU numerical or performance run took
 place. This local resource decision does not establish actual slowdown or
 rule out the product target. A separately recorded
 [fixed-source continuation](metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json)
-will test actual resources and complete costs without retuning that kernel;
-runtime and installed metrics remain unchanged.
+has now [completed without retention](metadata/qwen36-27b-mtp-nv-factor-resource-rejection-2026-10-21.json).
+Actual resources, complete numerical checks and changing-input Graphs pass.
+The same binary's four real-weight traversals take 892.378 ms on the incumbent
+and 3593.475 ms on the candidate: **4.027 times the latency**, with every M
+group and both families slower. All 179,970,048 compared BF16 values match.
+This closes the fixed implementation before runtime composition. M2/M3 also
+regress without the M4 spill, so spills alone do not explain the result.
+These are component sums, not API timings; installed metrics remain unchanged.
 
 ### Installed MTP delivery complete
 

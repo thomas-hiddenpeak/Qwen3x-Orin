@@ -1,0 +1,1028 @@
+{
+  "schema": "q3x-nv-factor-resource-rejection-v1",
+  "date": "2026-10-21",
+  "status": "valid_local_performance_rejection",
+  "work_package_id": "WP-DECODE-NV-FACTOR-RESOURCE-20261021",
+  "architecture_candidate_id": "AC-DECODE-NV-FACTOR-v1",
+  "audit_scope": "Root reviewed frozen implementation and complete receipts; independent T1 audit and separate T2 recomputation cross-check completed retained artifacts. No further GPU run, benchmark, model scan, retry, profiler or source mutation.",
+  "decision": {
+    "local_gate_pass": false,
+    "required_latency_reduction": 0.1,
+    "observed_latency_reduction": -3.0268538083383625,
+    "every_pair_favorable": false,
+    "reason": "Fixed candidate is 4.02685 times incumbent aggregate latency; every mirrored pair, M group and family is slower. Complete compared outputs match. Close this fixed source without runtime composition or retuning.",
+    "prior_static_failure_preserved": true,
+    "static_failure_interpretation": "Original zero-spill local gate failed; actual M4 resources are valid and numerical admission passes. Actual timing now supplies independent negative evidence, without attributing all slowdown to spills.",
+    "remaining_composition": "Cancelled; no default-off runtime integration, further decoder/layout/resource variant or profiler is selected under this closed work package."
+  },
+  "identity": {
+    "source_git": "e78448451a3067ad7ce0ad1f6dedb77f17aab6e6",
+    "binary_sha256": "441b436278e0e903012cd6091022ae541a9a807a835bc781baa7c9e61bb68d8a",
+    "driver_sha256": "a1feab006de14efad58bd5c987c20d5350862e02fe6e5a1117b228d721126bd3",
+    "build_receipt_path": ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/build-receipt-01.json",
+    "build_receipt_sha256": "b3b964002216c49c448690cf96e0b58802306c95867d59dfec8207dc30a66873",
+    "fixed_kernel_sha256": "fc8493cf9bca1c285ad2173a086801f36e75a2e4f5b4ff3482224b7a729abd13",
+    "fixed_header_sha256": "7c22ac5c21dd25173f806953029fd18b3b88c70e632fced96e928c0f6060e814",
+    "baseline_source_sha256": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95",
+    "device_instructions_and_resources_identical_to_frozen_T0": true,
+    "manifest_sha256": "7f71a67c815c1e0cb6d2a8da45c04f36f24026a797e84c740bf1d7f1099b9c36",
+    "payload_plan_sha256": "8763a10aedaa9af38e8dbb9e3a6c9c21b57077d66fdc1747d47307f8073dab11",
+    "payload_authentication_sha256": "048aa53e7e1ffcab4584408c376c83b32d7aa5f5b689cf3e0919ed6570a16086",
+    "reconciliation_design_sha256": "2badb2fc2bf537e29c176fb2f51552a15a13d1fe71a250de712fca334a56dd65",
+    "T1_exact_same_ELF_and_linked_receipt_hashes": true
+  },
+  "T1": {
+    "result": {
+      "schema": "nv-factor-t1-v1",
+      "status": "pass",
+      "complete": true,
+      "evidence_class": "synthetic_correctness_only",
+      "complete_group_cases": 97,
+      "graphs": 6,
+      "changing_input_replays": 24,
+      "invalid_zero_enqueue_cases": 127,
+      "complete_projection_comparisons": 181,
+      "compared_bf16_elements": 7208960,
+      "producer_lift_word_checks": 8249344,
+      "exhaustive_finite_bf16_values": 65280,
+      "complete_output_mismatches": 0,
+      "minimum_device_free_after_allocate_bytes": 61723799552,
+      "limits": "No timing authority. Complete outputs compare to unchanged source-original same-ELF native executor; directed full matrices and exhaustive finite BF16 producer bits do not enumerate every full-matrix combination."
+    },
+    "independent_case_rows": 181,
+    "independent_output_elements": 7208960,
+    "independent_invalid_rows": 127,
+    "invalid_rows_by_kind": {
+      "GateUp": 73,
+      "Down": 54
+    },
+    "pattern_projection_rows": 144,
+    "graph_projection_rows": 36,
+    "exhaustive_lift_projection_rows": 1
+  },
+  "actual_resources": {
+    "complete": true,
+    "status": "pass",
+    "scope": "actual runtime attributes and occupancy; no timing authority",
+    "functions": [
+      {
+        "m": 2,
+        "layout": 1,
+        "registers": 72,
+        "shared_bytes": 18432,
+        "local_bytes": 0,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 7,
+        "binary_version": 87
+      },
+      {
+        "m": 3,
+        "layout": 1,
+        "registers": 105,
+        "shared_bytes": 26624,
+        "local_bytes": 0,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 4,
+        "binary_version": 87
+      },
+      {
+        "m": 4,
+        "layout": 1,
+        "registers": 128,
+        "shared_bytes": 34816,
+        "local_bytes": 8,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 4,
+        "binary_version": 87
+      },
+      {
+        "m": 2,
+        "layout": 2,
+        "registers": 80,
+        "shared_bytes": 2048,
+        "local_bytes": 0,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 6,
+        "binary_version": 87
+      },
+      {
+        "m": 3,
+        "layout": 2,
+        "registers": 121,
+        "shared_bytes": 2048,
+        "local_bytes": 0,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 4,
+        "binary_version": 87
+      },
+      {
+        "m": 4,
+        "layout": 2,
+        "registers": 138,
+        "shared_bytes": 2048,
+        "local_bytes": 0,
+        "max_threads_per_block": 128,
+        "active_128_thread_ctas_per_sm": 3,
+        "binary_version": 87
+      }
+    ]
+  },
+  "T2": {
+    "source": ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/payload/timing.tsv",
+    "aggregate": {
+      "samples_per_route": 1404,
+      "baseline_ms": 892.37791929,
+      "candidate_ms": 3593.47542277,
+      "candidate_over_baseline": 4.0268538083383625,
+      "latency_change_percent": 302.68538083383623,
+      "favorable": false
+    },
+    "pairs": [
+      {
+        "pair": 0,
+        "order": "B-C",
+        "samples_per_route": 351,
+        "baseline_ms": 222.993472076,
+        "candidate_ms": 897.88268735,
+        "candidate_over_baseline": 4.02649763237906,
+        "latency_change_percent": 302.64976323790603,
+        "favorable": false
+      },
+      {
+        "pair": 1,
+        "order": "C-B",
+        "samples_per_route": 351,
+        "baseline_ms": 223.089919709,
+        "candidate_ms": 898.36323174,
+        "candidate_over_baseline": 4.026910910684943,
+        "latency_change_percent": 302.69109106849425,
+        "favorable": false
+      },
+      {
+        "pair": 2,
+        "order": "B-C",
+        "samples_per_route": 351,
+        "baseline_ms": 223.152831432,
+        "candidate_ms": 898.62883213,
+        "candidate_over_baseline": 4.0269658527897,
+        "latency_change_percent": 302.69658527896996,
+        "favorable": false
+      },
+      {
+        "pair": 3,
+        "order": "C-B",
+        "samples_per_route": 351,
+        "baseline_ms": 223.141696073,
+        "candidate_ms": 898.60067155,
+        "candidate_over_baseline": 4.02704060856482,
+        "latency_change_percent": 302.70406085648204,
+        "favorable": false
+      }
+    ],
+    "by_M": [
+      {
+        "m": 2,
+        "samples_per_route": 468,
+        "baseline_ms": 254.177471245,
+        "candidate_ms": 951.66204674,
+        "candidate_over_baseline": 3.7440849579571873,
+        "latency_change_percent": 274.40849579571875,
+        "favorable": false
+      },
+      {
+        "m": 3,
+        "samples_per_route": 468,
+        "baseline_ms": 293.873119685,
+        "candidate_ms": 1206.03577783,
+        "candidate_over_baseline": 4.103933626603002,
+        "latency_change_percent": 310.3933626603002,
+        "favorable": false
+      },
+      {
+        "m": 4,
+        "samples_per_route": 468,
+        "baseline_ms": 344.32732836,
+        "candidate_ms": 1435.7775982,
+        "candidate_over_baseline": 4.169804369111447,
+        "latency_change_percent": 316.98043691114475,
+        "favorable": false
+      }
+    ],
+    "by_family": [
+      {
+        "kind": "gate_up",
+        "samples_per_route": 768,
+        "baseline_ms": 636.074367105,
+        "candidate_ms": 2521.32112033,
+        "candidate_over_baseline": 3.9638778902621503,
+        "latency_change_percent": 296.38778902621505,
+        "favorable": false
+      },
+      {
+        "kind": "down",
+        "samples_per_route": 636,
+        "baseline_ms": 256.303552185,
+        "candidate_ms": 1072.15430244,
+        "candidate_over_baseline": 4.183142579569552,
+        "latency_change_percent": 318.31425795695515,
+        "favorable": false
+      }
+    ],
+    "by_family_M": [
+      {
+        "kind": "gate_up",
+        "m": 2,
+        "samples_per_route": 256,
+        "baseline_ms": 183.509631335,
+        "candidate_ms": 665.47782256,
+        "candidate_over_baseline": 3.62639180144806,
+        "latency_change_percent": 262.639180144806,
+        "favorable": false
+      },
+      {
+        "kind": "gate_up",
+        "m": 3,
+        "samples_per_route": 256,
+        "baseline_ms": 208.785503686,
+        "candidate_ms": 871.61718604,
+        "candidate_over_baseline": 4.174701646675893,
+        "latency_change_percent": 317.4701646675893,
+        "favorable": false
+      },
+      {
+        "kind": "gate_up",
+        "m": 4,
+        "samples_per_route": 256,
+        "baseline_ms": 243.779232084,
+        "candidate_ms": 984.22611173,
+        "candidate_over_baseline": 4.0373665275590875,
+        "latency_change_percent": 303.7366527559088,
+        "favorable": false
+      },
+      {
+        "kind": "down",
+        "m": 2,
+        "samples_per_route": 212,
+        "baseline_ms": 70.66783991,
+        "candidate_ms": 286.18422418,
+        "candidate_over_baseline": 4.049709521961812,
+        "latency_change_percent": 304.97095219618126,
+        "favorable": false
+      },
+      {
+        "kind": "down",
+        "m": 3,
+        "samples_per_route": 212,
+        "baseline_ms": 85.087615999,
+        "candidate_ms": 334.41859179,
+        "candidate_over_baseline": 3.9302851286129616,
+        "latency_change_percent": 293.0285128612962,
+        "favorable": false
+      },
+      {
+        "kind": "down",
+        "m": 4,
+        "samples_per_route": 212,
+        "baseline_ms": 100.548096276,
+        "candidate_ms": 451.55148647,
+        "candidate_over_baseline": 4.490900406811398,
+        "latency_change_percent": 349.0900406811398,
+        "favorable": false
+      }
+    ],
+    "complete_tsv_rows": 1404,
+    "natural_group_M_pair_sequence_verified": true,
+    "every_timing_payload_hash_matches_frozen_manifest": true,
+    "unique_groups": 117,
+    "projection_inventory": 181,
+    "sample_counts_by_family": {
+      "gate_up": 768,
+      "down": 636
+    },
+    "slower_individual_samples": 1404,
+    "slower_group_M_aggregates": 351,
+    "group_M_aggregates": 351,
+    "compared_bf16_values_recomputed": 179970048,
+    "numerical_mismatches": 0,
+    "maximum_TSV_vs_receipt_aggregate_rounding_difference_ms": 1.5999989955162164e-07,
+    "allocated_device_bytes": 243711492,
+    "candidate_event_scope": "flag clear + lift producer + both Gate/Up consumers or one Down consumer",
+    "scrub_bytes_per_route_outside_events": 33554432,
+    "stage_wall_seconds": 151.028214735,
+    "excluded_host_read_hash_seconds": 39.118644212,
+    "excluded_host_pack_check_upload_seconds": 101.360928721,
+    "excluded_correctness_readback_seconds": 4.974519593,
+    "returncode": 3
+  },
+  "environment": {
+    "T1": {
+      "preflight_hard_stops": [],
+      "preflight_qualifiers": [],
+      "sync_and_cache_drop_pass": true,
+      "complete_running_ownership_audits": 4,
+      "foreign_gpu_holders": 0,
+      "final_gpu_holders": 0,
+      "max_temperature_c": 59.343,
+      "clock_samples": 18,
+      "gpu_clock_hz_min": 1300500000,
+      "gpu_clock_hz_max": 1300500000,
+      "over_current_counter_deltas": {
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc1_event_cnt": 0,
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc2_event_cnt": 0,
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc3_event_cnt": 0
+      },
+      "minimum_device_free_bytes": 61723799552,
+      "cleanup": {
+        "outcome": "pass",
+        "child_returncode": 0,
+        "errors": [],
+        "observation_qualifiers": [],
+        "max_temperature_c": 59.343,
+        "elapsed_with_preflight_seconds": 22.580785694997758,
+        "final_zero_gpu_holders": true,
+        "authority": "T1 synthetic numerical/resource admission only; no performance authority."
+      }
+    },
+    "T2": {
+      "preflight_hard_stops": [],
+      "preflight_qualifiers": [],
+      "sync_and_cache_drop_pass": true,
+      "complete_running_ownership_audits": 29,
+      "foreign_gpu_holders": 0,
+      "final_gpu_holders": 0,
+      "max_temperature_c": 60.656,
+      "clock_samples": 150,
+      "gpu_clock_hz_min": 1300500000,
+      "gpu_clock_hz_max": 1300500000,
+      "over_current_counter_deltas": {
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc1_event_cnt": 0,
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc2_event_cnt": 0,
+        "/sys/devices/platform/soctherm-oc-event/hwmon/hwmon4/oc3_event_cnt": 0
+      },
+      "minimum_device_free_bytes": 61195292672,
+      "cleanup": {
+        "outcome": "valid_local_rejection",
+        "child_returncode": 3,
+        "errors": [],
+        "observation_qualifiers": [],
+        "max_temperature_c": 60.656,
+        "elapsed_with_preflight_seconds": 153.54637003294192,
+        "final_zero_gpu_holders": true,
+        "authority": "T2 checkpoint-weight-only local direction for WP-DECODE-NV-FACTOR-RESOURCE-20261021; no whole-API or production authority."
+      }
+    }
+  },
+  "payload_scope": {
+    "groups": 117,
+    "projections": 181,
+    "roles": {
+      "gate": 64,
+      "up": 64,
+      "down": 53
+    },
+    "source_weight_and_scale_bytes_authenticated": 9074442240,
+    "whole_shard_bytes_authenticated": 21921697184,
+    "activation_provenance": {
+      "all_scope": "checkpoint_weight_only; no current-prompt/full-model timing claim",
+      "same_historical_layer_role_projections": 23,
+      "recipe": "Original M3 BF16 bytes followed by row0; M2/M3 prefixes; every M4 is repeated-row checkpoint_weight_only",
+      "unique_stored_inputs": 15
+    },
+    "all64_Down_eligibility_matched": true
+  },
+  "limits": [
+    "One preflighted same-ELF T1 and one preflighted T2 process; four within-process mirrored traversals, not four independent-process API comparisons.",
+    "Checkpoint-weight-only local corpus. Only23 selected projections have matching historical layer/role inputs; remaining inputs reuse an explicitly identified same-role historical activation. Every M4 repeats row0.",
+    "Equal group-call sums across M2/M3/M4; Gate/Up group includes both projections. This is not the production distribution of M or a token/s measurement.",
+    "Timed candidate includes flag clear, activation producer and all consumers; fixed32MiB scrub is outside each route event. Host IO/hash/packing/upload and correctness readback are outside event timing and separately reported.",
+    "Numerical identity covers all compared full outputs, directed special values, changing-input Graphs and finite producer bits; it is not an enumeration of every possible matrix/input combination or full-model admission.",
+    "Standalone one-group device memory reserve does not qualify full-model owner composition, request capacity, Prefill/TTFT/Decode/total, acceptance or public capability.",
+    "No hardware-stall cause is established. In particular M2/M3 also regress without the M4 Gate/Up spill; compiler spill bytes alone cannot explain or bound this whole candidate.",
+    "Original static rejection remains immutable. This separately selected reconciliation establishes safe actual resources and numerical pass, then rejects the fixed executor on real-weight local timing."
+  ],
+  "runtime_changed": false,
+  "production_changed": false,
+  "API_metrics_generated": false,
+  "goal_achieved": false,
+  "parent_goal_preserved": "Additional25% then50% installed-v127 Decode for both caps and all three API buckets, unchanged numerical/output/state/capacity/8GiBreserve and matched2%Prefill guard.",
+  "artifact_sha256": {
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/build-01.log": {
+      "bytes": 15775,
+      "sha256": "7a2573b1465cd881f7af4c3c352a6c310eeb77f3dff79612dd600cfc41011a7c"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/build-receipt-01.json": {
+      "bytes": 15117,
+      "sha256": "b3b964002216c49c448690cf96e0b58802306c95867d59dfec8207dc30a66873"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/frozen_manifest.h": {
+      "bytes": 107,
+      "sha256": "b4687a7b9490cf596926138ffc9c941b9e49fcd336eae6b3fb26da8311b13091"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/prototype": {
+      "bytes": 2098216,
+      "sha256": "441b436278e0e903012cd6091022ae541a9a807a835bc781baa7c9e61bb68d8a"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build-reconciled/prototype.sass": {
+      "bytes": 7403708,
+      "sha256": "000cc5daf46715beb693e3188b03b36e0e446a43c60b51e0e765c5131383db88"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/build_reconciled.py": {
+      "bytes": 6444,
+      "sha256": "c952b51afdf660b5235a256490888b388834fd52fc3ed3d79370ed9df694a0c9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/kernel-build.log": {
+      "bytes": 4120,
+      "sha256": "a3bfd6b536ddb5b9b6d353aefe8eec77e14b8c936e6c4449f6cee9122dbb1404"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/kernel.o": {
+      "bytes": 486904,
+      "sha256": "cbf8d43f95beafd39b362f3d29f0f19507d2b3b7d822a83184a2b11588eb0fbe"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/kernel.sass": {
+      "bytes": 4290623,
+      "sha256": "4b24f520d66d024e444b54bb18f748aa1167264c7c3a7a8f95644d34fc26cbf0"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/kernel_reconciled.cu": {
+      "bytes": 1682,
+      "sha256": "98f2d7144765ca8a5dc55f4e27eb907ac49c61516a934622910b08926b95b5e0"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/authentication.json": {
+      "bytes": 976,
+      "sha256": "048aa53e7e1ffcab4584408c376c83b32d7aa5f5b689cf3e0919ed6570a16086"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/02cb852ad73ef73e1fcf82eab167e5eb46688dedd160983b40f960d54c3bcbb1.bf16": {
+      "bytes": 40960,
+      "sha256": "02cb852ad73ef73e1fcf82eab167e5eb46688dedd160983b40f960d54c3bcbb1"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/185cb5e18c7867c5326fe0c7542650ef8e405c0a483e16e495222fb5ec7609ee.bf16": {
+      "bytes": 139264,
+      "sha256": "185cb5e18c7867c5326fe0c7542650ef8e405c0a483e16e495222fb5ec7609ee"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/3d343c0b5a0eef359e6c61ccb62fe3904f0d763c56455d766b059a095c23db1c.bf16": {
+      "bytes": 40960,
+      "sha256": "3d343c0b5a0eef359e6c61ccb62fe3904f0d763c56455d766b059a095c23db1c"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/4267c2f42dccf3f2bfcbb91de66abf1cf3f37de49b1cee58b6bf2714a40e4662.bf16": {
+      "bytes": 40960,
+      "sha256": "4267c2f42dccf3f2bfcbb91de66abf1cf3f37de49b1cee58b6bf2714a40e4662"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/4553d997bf6e5efe64fc2f91213778511a823b34ee57d1777035bc74f81c7d79.bf16": {
+      "bytes": 139264,
+      "sha256": "4553d997bf6e5efe64fc2f91213778511a823b34ee57d1777035bc74f81c7d79"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/45ed5b99c2e0e01bbe80702cd51b6fae48325400d557d6c72d35846cb9b9234d.bf16": {
+      "bytes": 139264,
+      "sha256": "45ed5b99c2e0e01bbe80702cd51b6fae48325400d557d6c72d35846cb9b9234d"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/4e35b9f7b87b8ef2216858fb717b884441c395c9a720b332dfa3dccbce682e00.bf16": {
+      "bytes": 40960,
+      "sha256": "4e35b9f7b87b8ef2216858fb717b884441c395c9a720b332dfa3dccbce682e00"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/6663625c9804f1c7b815dee0d2d356ffb12fc84d50883bf4b5227af15809059d.bf16": {
+      "bytes": 40960,
+      "sha256": "6663625c9804f1c7b815dee0d2d356ffb12fc84d50883bf4b5227af15809059d"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/6d01877994b31d7f396c936677f7941acd4ff72149ff0f6d62f1c62119b0de79.bf16": {
+      "bytes": 139264,
+      "sha256": "6d01877994b31d7f396c936677f7941acd4ff72149ff0f6d62f1c62119b0de79"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/7317c269de912d3611b7619fdc170679c728b45224bcc6e4645e34840b903e1e.bf16": {
+      "bytes": 40960,
+      "sha256": "7317c269de912d3611b7619fdc170679c728b45224bcc6e4645e34840b903e1e"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/77cbc2a93371d2bdc9a6eb44d1c1e36fe6edb624f05e214fcc17ec682f34f153.bf16": {
+      "bytes": 139264,
+      "sha256": "77cbc2a93371d2bdc9a6eb44d1c1e36fe6edb624f05e214fcc17ec682f34f153"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/7b6cb7d8e21513a1a1f3b1beecb21f425681421262bc186f74c01de9fe9c34cc.bf16": {
+      "bytes": 40960,
+      "sha256": "7b6cb7d8e21513a1a1f3b1beecb21f425681421262bc186f74c01de9fe9c34cc"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/8e8fbb505fa85c62095ea8d1fb264f381f60bad0ba13e4a4c1acc7432acdd49f.bf16": {
+      "bytes": 40960,
+      "sha256": "8e8fbb505fa85c62095ea8d1fb264f381f60bad0ba13e4a4c1acc7432acdd49f"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/90297a5fb4abcea2b6b7c3404555b823158547a9acf6278defa94aeb9efc26f5.bf16": {
+      "bytes": 139264,
+      "sha256": "90297a5fb4abcea2b6b7c3404555b823158547a9acf6278defa94aeb9efc26f5"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/inputs/e103ed7cd1ea629e6277fe3fc41d845f5fd5af256d0b40bedbfddc44d55a2507.bf16": {
+      "bytes": 139264,
+      "sha256": "e103ed7cd1ea629e6277fe3fc41d845f5fd5af256d0b40bedbfddc44d55a2507"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/manifest.tsv": {
+      "bytes": 109970,
+      "sha256": "7f71a67c815c1e0cb6d2a8da45c04f36f24026a797e84c740bf1d7f1099b9c36"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload/payload-plan.json": {
+      "bytes": 908298,
+      "sha256": "8763a10aedaa9af38e8dbb9e3a6c9c21b57077d66fdc1747d47307f8073dab11"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload-plan.json": {
+      "bytes": 908298,
+      "sha256": "8763a10aedaa9af38e8dbb9e3a6c9c21b57077d66fdc1747d47307f8073dab11"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload-preparation.log": {
+      "bytes": 2408,
+      "sha256": "83618fe60a5d77716f5cb5a77f5beb3d0b3f099da312200f1b9c4a92b27ec974"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload-process.json": {
+      "bytes": 424,
+      "sha256": "b23a507dd5ecc8cee069f1b8ff72ae0157c3b3196004b77b0f6fe255d7bc0095"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/prepare_payload.py": {
+      "bytes": 24896,
+      "sha256": "50a8d69ec5fbbf2c523923b9fc3ab00a78274feacdf2ea91452e51904427e7ec"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/prepare_payload_reconciled.py": {
+      "bytes": 26345,
+      "sha256": "1a4435adf589c14af98d010abdb99d622f19920f7e08ab931cba6c17df1d42c5"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/prototype.cu": {
+      "bytes": 26272,
+      "sha256": "289022c1255ec9159606667c78aac0b992b47fab56c15503021a3ba18543a5e6"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/prototype_api.h": {
+      "bytes": 2762,
+      "sha256": "7c22ac5c21dd25173f806953029fd18b3b88c70e632fced96e928c0f6060e814"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/prototype_kernel.cu": {
+      "bytes": 18643,
+      "sha256": "fc8493cf9bca1c285ad2173a086801f36e75a2e4f5b4ff3482224b7a729abd13"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/static-admission.json": {
+      "bytes": 6854,
+      "sha256": "486e188d0914ece6f87f933026a804e96dbafd3ff292b90ac1c2ee55214bb149"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/synthetic.cu": {
+      "bytes": 21766,
+      "sha256": "fac94d944417375c08855b6424e269b391d1e15d13c178504091986814836bce"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-prototype/t1-plan.json": {
+      "bytes": 3295,
+      "sha256": "fed79f2d356a2605dbc27860d959cccf8d95d8daf1ae814b098537fb879c7ca9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/cache-preparation.json": {
+      "bytes": 3431,
+      "sha256": "9ac8a94cf2b6ee95f2cc849180e030604eb501b0b1f523407a469a04ee275a51"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/cleanup-gpu-audit-console.log": {
+      "bytes": 381,
+      "sha256": "79903bfd29d60cece118fa14e80c0b9319795ea09b2afd9e0bcfb0a5703fd924"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/cleanup-gpu-audit.json": {
+      "bytes": 479,
+      "sha256": "367654cb5e60c1eb2c2f313ead831aa4fced3cf62703905bfd7a0da28298c4f1"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/cleanup.json": {
+      "bytes": 310,
+      "sha256": "00ea339b9cd94550317bcbcf5323b7f0eda8a260990b58a61d3713cb39550793"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/clocks-counters.jsonl": {
+      "bytes": 37548,
+      "sha256": "082cb161ccf72da124e7ead6114f72134fb29f12692a03c1c6fc9f1586549af9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/command.json": {
+      "bytes": 215,
+      "sha256": "a14f765ea3f98d3fbed95b0bdeef76cceb3c161c0c27eaae8728e7342b2e196e"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/environment-after.json": {
+      "bytes": 2449,
+      "sha256": "a7edbe4689ec14917583859405620a7c63272623405175e9ae267b48e5de6e9e"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/environment-before.json": {
+      "bytes": 2177,
+      "sha256": "6d84d6cd16ae2851a61fc4f1d3454c00cc96f59eff5eaf055b8c49c4b541c522"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/identity.json": {
+      "bytes": 1577,
+      "sha256": "557ab809a11be4ec14c37db3dd906028cbaa31748eecc0f4146b0f70ffdeecf1"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/local-preflight-decision.json": {
+      "bytes": 754,
+      "sha256": "265b2a7a3d1e0a757ff014784873ef5d3badeae92a6df98b7f3a049e1a52f44d"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/payload/cases.tsv": {
+      "bytes": 20618,
+      "sha256": "6090b03d0c5f2d70fc4a4bcc95afc03c98563991c24f3635bd418b28712234b9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/payload/invalid.tsv": {
+      "bytes": 3460,
+      "sha256": "3aef067ab29b3335df88e6a3d5a35830419094bf2025ee1bdbd7a44ccbc65901"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/payload/resources.json": {
+      "bytes": 1038,
+      "sha256": "cf389def5940a5b17ed07c4272a95ab2ea00a9fb066ad66f8bac5a8fb9bb0aef"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/payload/results.json": {
+      "bytes": 721,
+      "sha256": "21cf0432a110e69f68f890c94124b20df43b3779e38d12341278441f7bf6b810"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/preflight-console.log": {
+      "bytes": 183,
+      "sha256": "4ec13dcb2cfc72d334a7fde1fe2c3e39d34ef6654d192a359d7b2b5ef43bd1ae"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/preflight.json": {
+      "bytes": 20370,
+      "sha256": "e7bf9da1b147f39108867c5b56dfa9dd8178bc390eceb91d47ea5c4a061e38bc"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/process.json": {
+      "bytes": 296,
+      "sha256": "b1e637498957c284a0048b5b408ec661068ffc5a0f05a36691292652d18172e5"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/receipt-validation.json": {
+      "bytes": 292,
+      "sha256": "79af41bed830cd879cebd9f00b70d1e188f83defe9269a25195c154ff762cf00"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-000-gpu-audit-console.log": {
+      "bytes": 776,
+      "sha256": "a375471afb91787bac8eba073dad1717cdace05e3a620f8b5e2327d4e61402c1"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-000-gpu-audit.json": {
+      "bytes": 996,
+      "sha256": "2631b1e1cd8d4948f4f369e8bfad32961db643a369509ef5a67ecad46e314176"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-001-gpu-audit-console.log": {
+      "bytes": 776,
+      "sha256": "371e8240cead68192d4e3003e756025ec2dccf9a7bf8001788dc8e51b215824f"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-001-gpu-audit.json": {
+      "bytes": 996,
+      "sha256": "22e60b53080ff3a9203f4d85f769a07ca55df84c3eadd44c90cb84f4183bda30"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-002-gpu-audit-console.log": {
+      "bytes": 776,
+      "sha256": "f1603a36df541865a1b0786d4f9c891a6c37c98b660992216711ba6cc07c34d7"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-002-gpu-audit.json": {
+      "bytes": 996,
+      "sha256": "db680476fa4d6d89f4694241199761a1a15536e664ec4028b755495aa2fdcea2"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-003-gpu-audit-console.log": {
+      "bytes": 883,
+      "sha256": "e5535f6644edc8e5ab827981570cd947797330d443e3fd0ad56f892e3b5f8559"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/running-003-gpu-audit.json": {
+      "bytes": 1149,
+      "sha256": "b843888bba0d9764b6ec1e367c0a81f276f275063a087e21ec24f2cb68b3c654"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/stdout.log": {
+      "bytes": 26,
+      "sha256": "fb49047205d06c9d19236059082b7ea9dda12aaca61a109d04fac5e9094e69b4"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t1/telemetry.log": {
+      "bytes": 7482,
+      "sha256": "38fa7abb066c237f899c118b3353ef1ff056a3354a820527e04ba1bbc887f38a"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/cache-preparation.json": {
+      "bytes": 3431,
+      "sha256": "952f18edd91ddb9b872010cda4a06ea9fa5907fd507a4f07d96353b053a79bb7"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/cleanup-gpu-audit-console.log": {
+      "bytes": 381,
+      "sha256": "e9d3b929cff221c2ef2f7d907c4e3632b810f40a6ed6c625e1b292a16ee37424"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/cleanup-gpu-audit.json": {
+      "bytes": 479,
+      "sha256": "50c8ac7802b53e00140ac46a2029c0ee9f1cd0b4b5e2f61ea2de3efbbdd5a119"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/cleanup.json": {
+      "bytes": 376,
+      "sha256": "33403049130459532e98db3b45a6f676e8560596cb3bc1f774b818477b948562"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/clocks-counters.jsonl": {
+      "bytes": 312883,
+      "sha256": "e31cb58199915290d04229ff5ab97b53a2cf3bf84179004b80a5ba9dfb3b5d43"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/command.json": {
+      "bytes": 316,
+      "sha256": "8cfeb5d29b8d394f729cb85588a9a1e76366276731354e9282fca447fbf8b2c5"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/environment-after.json": {
+      "bytes": 2447,
+      "sha256": "86bf599344884b52ad1a8e0777e76c50d59aaca670500854c6f0aae8b7dfa504"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/environment-before.json": {
+      "bytes": 2179,
+      "sha256": "34895a5cb616679252c4828551624d5eeb056bca1eca2e0f7d9029f44a59b6f3"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/identity.json": {
+      "bytes": 2240,
+      "sha256": "dde939593da4bd2b62c3158520b3474185bbbf8ba5b9473a7f009c971e5166a4"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/local-preflight-decision.json": {
+      "bytes": 788,
+      "sha256": "44820b2912a678eef2688877882e9333934bd97c3b5c7b744d2b9148d37efd41"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/payload/resources.json": {
+      "bytes": 1038,
+      "sha256": "cf389def5940a5b17ed07c4272a95ab2ea00a9fb066ad66f8bac5a8fb9bb0aef"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/payload/results.json": {
+      "bytes": 1616,
+      "sha256": "88f3fdcf9d61ed3baf919c87c361168c97069cdac1eed4611f7317f18783ec91"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/payload/timing.tsv": {
+      "bytes": 452593,
+      "sha256": "eed7e6e5bb90caf4d05c85e91eff88c2c1a5a5a27c9cc9ef71bc69583c36f7d6"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/preflight-console.log": {
+      "bytes": 183,
+      "sha256": "138f8a9a7b524487f3fe37cfdf22059afd0d43b8b511b97d3ae4839710781ed4"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/preflight.json": {
+      "bytes": 20253,
+      "sha256": "eeb9b46e860be201f49adf70caf843364dea74e06ac247bad3636ab40c138ac6"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/process.json": {
+      "bytes": 296,
+      "sha256": "2ab840b6b1b5477b73d4d629a15b05f63320732690bdd9a187e8879fe5ed21b3"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/receipt-validation.json": {
+      "bytes": 309,
+      "sha256": "41c529f505f287b031b616c06e434898dea0d1d931a468a1b805c6f4ebcc0288"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-000-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "4d03ebadd96d5939af53ad7d1fc0b30befb38744db3fb5a3e768718c7898793b"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-000-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "7e58aff6c77a3157cca97a0e32e779032ff7677f6edda2d83a186d70f71e5123"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-001-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "1c5f52f4ca3ee13ca56025ea3568e359b1c05407818e4a7a0f4693a1243f6503"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-001-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "e3d08be7d23d08dc7b0ff544fdb1c89bd349a4aa6a7f571638680db3f245f03a"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-002-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "f0356450380c2e5e65b19da1c69fa717be2658eb8de108c5fccaf2c332bbc253"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-002-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "81cded409c3a0b2715d8054df48f809b380e28d4517a6de0c2e8a5922e7a72d2"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-003-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "f76067897d93b1530b4ca807e1810704745cf8402bdcaeecc46f73b181ef507e"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-003-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "059ad569335e915bc4d5f59b29616e07b753a8884ddd5aefb4e7c89e260ac006"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-004-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "9a19949218d51127ccf1b9cfccd6935f8fedf63b0cdeb95123f5385d36a45faf"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-004-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "c59cd994fa6496e5146d0b07d1b65e96b06daad3726f4b41195e343bcbcefcc9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-005-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "d5cc2343cf66e2bf79e47afa41112990fc5227ea777c2b0b57b9d642ff079636"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-005-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "c5c2226022b1fd212cdd9def9b71473beebd6da2b23c1c9945583c6683429e1b"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-006-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "ac8e038389a751f90ae754413b6e9fc8452b2d51d72a4771fa71ec8803127936"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-006-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "22cd55eaa4f9d2f55f09d0c24954717629aa3fcb3d801beb990c060891a9f9e5"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-007-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "4b16a31a17348e5fea3eafd8248ec2301eadace5aef362feffb0351ea8698756"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-007-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "2be0926c3de7f852e41ce35844716231d943d050e8ceb8646f791f7d2382aa70"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-008-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "b59a30c542166105e3a7554a7657e219c3d19271f074a5cdacabb9803d4dd073"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-008-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "b493665410fe484d3bb372f4ae75b8a136c860d5a2cd2be401a6c9a6e8727797"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-009-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "2e3e5940907c4d4e466b4a0ea3e3ae167e3a18db09ed51ded4bf4277f6cee2ca"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-009-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "520fadb900dacc09add6fa67ea3eaaad4fa27e3189d9750c9fca582c707fb2a9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-010-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "c5824487bdd8f8f4c08db2df22cec5516d99a723029d6734c1691268881aa060"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-010-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "65c5acf425373cd4308c74831324b45a3205ac59245ef00682455e04012cfa39"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-011-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "724d23acd91aef986b0c8b0ffce5e58bf018754efcc169b835041bb1b613e877"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-011-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "12018aac64882a3b422774bd652fb03a158dd9499a4095b45873ebb22a3a3531"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-012-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "a21ec6355530662ada83baf9e9dfaefb67e4256baf477eec0e82287fd685d871"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-012-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "11d9816558439981ff630169dd16e8c171c4e5871c2bccb5bdcf82a4432cefb1"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-013-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "2f3a03b63849deddf3d4936e6a3b5b45d26557eaba424cdc29b3c2c0f3bffd71"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-013-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "4b618e98a1b35c5cc1f13b346e208a84a435c6ebd14a4e9f1d0f1d0b3a3440ae"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-014-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "09b9a5d40f5f4cfe33ae937b5d10b1accccc5e4a9685eaaf9e8070114322a9e8"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-014-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "c67eb6c90e94c2fce4c0e276712081ba8a361c1832a1e936a00cc07d3549f948"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-015-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "22866f5734f82fc2609774524c79a2a47674e7f1b08b8f2d9486aeabfbe1b9c2"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-015-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "680dc17beeaff344e5703bf1a740448b5b7eb031d258cffb9bb5df156227d3d6"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-016-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "87426c6047af39bafc44a2bb26e97b4d5e0286d281e06f2f892114d3b38bdce3"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-016-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "6be5575081a41f70e93ea06a733c6b1c68ab5978d67b7e6ac4fab45ee4e6e2f2"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-017-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "f1255aded2a9f6b001a021d8602708a879947d0091c662188dbc85fa8d1c5505"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-017-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "a6d043f36e3f6a131d2cc9cb82b48b5f116c73c490f174c333a276ca94ea952c"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-018-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "5765d9c39ea3e2bb4fe55499a7b1b54d24818c7d9b6d96e8b5393f07616b84a9"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-018-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "a559001234a2db3ae7bae5052eb0f1a3cd759f22496f7e163eb4661e3c943766"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-019-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "b589a44df4212429bc4a6bdf51101b61d8b689fb624ed42496b632e9d2649a00"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-019-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "80e0206c41fcd0feffccd1e507c9daf6a029bfeb3be3a500cd570ae68b130a4d"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-020-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "04e60282092f7efb32df6cbd0d3ff2b2dc2a6d06636ff2dd86cec7de3211d356"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-020-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "65ad04b0e2c1df0f8877900a77421c0ba0ee766971bf884dd8fc6931effb1575"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-021-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "7f53c2e4647842d3f535be2670bb458b3972426af9074efe7d82417dcacfaa4a"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-021-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "c5995ede32aab4858e584db4fc15f7195c6edfdffae058b2faad313ec66f4574"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-022-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "e93af295c26accde6634c46099a8e9aa8d14eac2213ee0a24128fd2a6f1b6ad0"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-022-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "ebf7fbde4aebb6ca9ca1c50fb993c5a4b70713bf62442effe6bddc0e9a7e9317"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-023-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "e3dc9e2ccd98faa3f3f5d955cdd5a1d10984860804f03eefe0b30eba7cd363ef"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-023-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "0ee9e37ac86be7ee28022a5f3f9f56df8ff6a173cb492ecc2ad395813aa02199"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-024-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "81561364f90443cab27f05b514873c3ce568b299693aa0acb25e37dbf4e6a63c"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-024-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "4808507eac7b776e8c0df80a3c43683e220f68dcc89367d47e215523eafa665b"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-025-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "a6daa8618d8e7b42587657edb87c6087dbfb1afe1d2a1d184c56895351e5da46"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-025-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "a92eae4a55f1dfffdce4030f3da06290ddc1918f3f27c8aa4a6aca9a6d697f38"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-026-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "ff0ac7868991e397a1e5f20c23d5ded7932dd99dc5e5cd0e3965551a2e34e42f"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-026-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "d564580bba613dec3070c50bf35b7d8f404cea026ad7dc820d39083539cbf2f7"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-027-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "97191fd4b79dbeb220680de01519aadd9ae8f3b8d38c9495554fd4e35b1a807c"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-027-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "04f37c08618fef654ed09e03921f714bd020f38caf0a00fc9b198a8b2bb4de32"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-028-gpu-audit-console.log": {
+      "bytes": 872,
+      "sha256": "17bb65a14a633bb1b48c55b16241856093ba823e9be8391ea8f415df0b94a8a7"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/running-028-gpu-audit.json": {
+      "bytes": 1092,
+      "sha256": "accf3bf492f1fe57d51848c904ed8aebec60c03692d1c0e2334ff99645630f48"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/stdout.log": {
+      "bytes": 2345,
+      "sha256": "bdb0af39c6355689bf1259ee4beb5da19e13e13318968ed7e0afa23328311c63"
+    },
+    ".q3x-work/decode-plan-20261021/nv-factor-resource-t2/telemetry.log": {
+      "bytes": 62362,
+      "sha256": "426f317eaf3af33988024662fa60e4251d75a9756268663ea5813218228f8061"
+    },
+    ".q3x-work/decode-plan-20261021/run-nv-factor.py": {
+      "bytes": 24258,
+      "sha256": "a1feab006de14efad58bd5c987c20d5350862e02fe6e5a1117b228d721126bd3"
+    },
+    "docs/metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json": {
+      "bytes": 28745,
+      "sha256": "a2c4bd37d4ec72557f4f6f9b9b56b21bda31d27cfa494f1d7cb93017002173b2"
+    },
+    "docs/metadata/qwen36-27b-mtp-nv-factor-rejection-2026-10-21.json": {
+      "bytes": 12005,
+      "sha256": "88bcda5482c48c3e6be28abd27601691f25eeb6a7fc5291356536e85fa9a6ee0"
+    },
+    "docs/metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json": {
+      "bytes": 7378,
+      "sha256": "2badb2fc2bf537e29c176fb2f51552a15a13d1fe71a250de712fca334a56dd65"
+    },
+    "src/runtime/mtp_verify_projection_internal.cu": {
+      "bytes": 22552,
+      "sha256": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95"
+    },
+    "tools/evaluation/orin_perf_preflight.py": {
+      "bytes": 37132,
+      "sha256": "41a3d96ba928ed85c702155018e6a0b3e33d80daea918fc2637f8a00ee11fc0d"
+    },
+    "tools/evaluation/qualify_service.py": {
+      "bytes": 23978,
+      "sha256": "87e0b50c459553a82b6003f1f11917cbe6a78c9182b71469b9031fb39973ef62"
+    }
+  },
+  "decision_unit": "local_mutation",
+  "design": "docs/metadata/qwen36-27b-mtp-nv-factor-resource-reconciliation-design-2026-10-21.json",
+  "independent_draft": {
+    "path": ".q3x-work/decode-plan-20261021/nv-factor-resource-closure-draft.json",
+    "sha256": "9e545b8894cd617458574989415689ed457a1f879bbd85322ca8cc63e642d95d"
+  }
+}
