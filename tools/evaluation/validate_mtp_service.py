@@ -139,7 +139,7 @@ def audit(out, records, draft, expected_profile=None, *, require_lifecycle=True)
         rows.append({'label': result['label'], 'prompt': w['prompt_tokens'], 'output': w['completion_tokens'],
                      'prefill_s': w['prefill_ms'] / 1000, 'prefill_tps': w['prompt_tokens'] * 1000 / w['prefill_ms'],
                      'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'],
-                     'decode_tps': m['committed_decode_tokens'] * 1000 / w['decode_ms'] if w['decode_ms'] else None,
+                     'decode_tps': m['committed_decode_tokens'] * 1000 / w['decode_ms'] if m['committed_decode_tokens'] and w['decode_ms'] else None,
                      'mtp': m})
     if require_lifecycle:
         cancelled = [w for w in receipts.values() if w.get('cancelled')]

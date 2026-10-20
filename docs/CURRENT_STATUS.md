@@ -86,6 +86,24 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
+The [cap3 capacity panel](metadata/qwen36-27b-mtp-capacity-cap3-2026-10-20.json)
+passes P40000/O4096, P44095/O1, P44095/O2 rejection and short recovery with normal
+exit. Complete native-reference text/usage match; direct native output-ID
+comparison is unavailable in that historical reference. Cap2 remains pending.
+
+| Cap | P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 3 | 40000 / 4096 | 92.461 | 432.61 | 92.496 | 12.745 | 413.812 |
+| 3 | 44095 / 1 | 104.015 | 423.93 | 104.050 | N/A | 104.052 |
+| 3 | 65 / 16 recovery | 0.888 | 73.19 | 0.907 | 14.976 | 1.908 |
+
+These are one-process capacity observations. Prefill includes draft
+initialization; TTFT/total are external. The long-output Decode rate is63.82%
+above the frozen same-request nonMTP7.779token/s observation, not a repeated
+selection result. O1 has no Decode rate; its original derived0 was corrected
+to null without changing raw receipts or positive-token rates. No production
+switch or full-goal completion follows.
+
 The [EOS-frontier v122 composition](metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json)
 is retained in the non-installable MTP candidate after its
 [native state and initial API checks](metadata/qwen36-27b-mtp-eos-frontier-initial-direction-2026-10-20.json)

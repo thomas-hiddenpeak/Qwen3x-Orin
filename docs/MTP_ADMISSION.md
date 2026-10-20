@@ -34,6 +34,13 @@ once per cap with60-second capacity spacing. Complete responses compare to the
 independently qualified installed0.8.2 reference; historical native output IDs
 are absent, so cross-cap ID equality is reported separately.
 
+The [cap3 process](metadata/qwen36-27b-mtp-capacity-cap3-2026-10-20.json)
+passes both capacity boundaries, rejection, short recovery and normal exit.
+Complete responses equal installed0.8.2; the256-token prefix and recovery IDs
+also match the earlier cap3 artifact. O1 audit reporting now correctly emits
+null for no Decode, with raw receipts preserved. Run cap2 next, then compare
+full IDs across caps; do not repeat the completed cap3 process.
+
 This is delivery validation, not a replacement performance target or a new
 optimization. Cap2 short remains below1.5x. The source review finds no reason
 to reopen rejected combined decoder tables, input layouts or accumulation-chain
