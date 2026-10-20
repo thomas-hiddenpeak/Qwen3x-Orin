@@ -1,0 +1,1208 @@
+{
+  "date": "2026-10-20",
+  "source_commit": "a90d6913477eeec153d04d244254b7de0edcab62",
+  "work_package_id": "WP-MTP-CAP2-NV-PALETTE-ASSESSMENT-20261020",
+  "authority": "Host-only fixed-representation feasibility; no performance selection or numerical qualification",
+  "product_constraint": "Real API cap2/cap3 Decode 1.5x to 3x matched nonMTP; preserve complete target state/logits/output and report Prefill, TTFT, Decode, total.",
+  "originating_budget": {
+    "source": "docs/metadata/qwen36-27b-mtp-cap2-architecture-assessment-2026-10-20.json",
+    "short_gap_ms": 21.25676266666642,
+    "diagnostic_gate_up_ms": 307.106,
+    "diagnostic_source": ".q3x-work/mtp-v113-short-budget-20261020/analysis-corrected.json",
+    "scope": "Historical API-derived gap and instrumented v113 family cost select investigation, not fresh v122 measurements or a bandwidth attribution."
+  },
+  "lineage": "Previously closed palette work covered FP8 bytes, not NVFP4 Gate raw codes. This assesses exactly one three-bit NV code format against existing full Gate histograms, without reopening FP8, codebook, scale-residency or parameter scans.",
+  "result": {
+    "scope": "Reanalysis of authenticated historical complete Gate histograms, not a fresh checkpoint read or GPU measurement",
+    "format": "Per tensor seven most frequent raw FP4 codes, deterministic ties; 3-bit index with code7 escape plus 4-bit original literal. Signed zeros retained. No alternative palette or packet scan.",
+    "source_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "selection_sha256": "8d0e84a21e67ff56d73c41eb26e543c750963b2379657d80279b1a90102522c0",
+    "payload_manifest_sha256": "697a7c3c6261f6312e1d732bb8433bcf3137c4787c6b69d05725c96c1f67456f",
+    "script_sha256": "2549a0eeb1d493714e7dfb7ac91e628ce88f9b3f44f22caf9194b20262e75949",
+    "layers": [
+      {
+        "layer": 0,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          5,
+          13,
+          4,
+          12,
+          10
+        ],
+        "escapes": 42046689,
+        "encoded_bits_lower_bound": 435573636,
+        "entropy": 3.9439228093886234,
+        "source_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+      },
+      {
+        "layer": 1,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          5,
+          13,
+          4,
+          12,
+          2
+        ],
+        "escapes": 42045136,
+        "encoded_bits_lower_bound": 435567424,
+        "entropy": 3.9438476194290595,
+        "source_weight_sha256": "d38192dce5026463e9cb671617537050925a0ec2b5d2f600c3ecb7286910ba89"
+      },
+      {
+        "layer": 10,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          12,
+          13,
+          4,
+          5,
+          10
+        ],
+        "escapes": 42005174,
+        "encoded_bits_lower_bound": 435407576,
+        "entropy": 3.943891234577693,
+        "source_weight_sha256": "a89e64c1dc67ee4456e1ec32305a7bf9a79cc23f78ed73c11394b2837d3a6431"
+      },
+      {
+        "layer": 11,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42050138,
+        "encoded_bits_lower_bound": 435587432,
+        "entropy": 3.944465279857361,
+        "source_weight_sha256": "82e9d739f302a718ff015d6002182ceb69c5238209ce8e64619f6d9b93d6d63d"
+      },
+      {
+        "layer": 12,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          5,
+          13,
+          12,
+          4,
+          2
+        ],
+        "escapes": 42114100,
+        "encoded_bits_lower_bound": 435843280,
+        "entropy": 3.945010401020459,
+        "source_weight_sha256": "206827c2a685a88965a49d5aef874cf350f1854d765b96d754b57498009673be"
+      },
+      {
+        "layer": 13,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          13,
+          4,
+          12,
+          10
+        ],
+        "escapes": 42123480,
+        "encoded_bits_lower_bound": 435880800,
+        "entropy": 3.9452205807746594,
+        "source_weight_sha256": "7b0017db7bd4b9dcc46c24bc4c7a3ac21ad607bec577640c36b5ea03ed476e87"
+      },
+      {
+        "layer": 14,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42047536,
+        "encoded_bits_lower_bound": 435577024,
+        "entropy": 3.9440447715965345,
+        "source_weight_sha256": "16615de028fe8e61bb2d6718228d123e93c7b8f3750e1e183e2b09c3ca24cf8c"
+      },
+      {
+        "layer": 15,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          4,
+          12,
+          5,
+          10
+        ],
+        "escapes": 42106506,
+        "encoded_bits_lower_bound": 435812904,
+        "entropy": 3.945022817861483,
+        "source_weight_sha256": "da629266b0350dec45cfc89f2289fc881a3c39a8e23d8051b885118a8b7d0b1a"
+      },
+      {
+        "layer": 16,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          5,
+          13,
+          4,
+          12,
+          2
+        ],
+        "escapes": 42116822,
+        "encoded_bits_lower_bound": 435854168,
+        "entropy": 3.944956271424715,
+        "source_weight_sha256": "07d8d6453821c6e43486c5af664f6746a78ed617b3ec7f1cdf0e3d1d27d4a14d"
+      },
+      {
+        "layer": 17,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42071855,
+        "encoded_bits_lower_bound": 435674300,
+        "entropy": 3.9448122785884556,
+        "source_weight_sha256": "a114dd4a3e0c87c177229196828f3f8808d113492f86e6ce111771e3782fcbce"
+      },
+      {
+        "layer": 18,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          5,
+          12,
+          13,
+          10
+        ],
+        "escapes": 42046432,
+        "encoded_bits_lower_bound": 435572608,
+        "entropy": 3.944372469092013,
+        "source_weight_sha256": "3f2fcd51157d35584192c3efc53ca048200e2693455b52e1227795a5aecdf7a3"
+      },
+      {
+        "layer": 19,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42062558,
+        "encoded_bits_lower_bound": 435637112,
+        "entropy": 3.9446795869399507,
+        "source_weight_sha256": "469c9cd25760f1da887a9a10a8e5229051c530849e2a8f8d60a8e265e7110fd3"
+      },
+      {
+        "layer": 2,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42131634,
+        "encoded_bits_lower_bound": 435913416,
+        "entropy": 3.9452069261656773,
+        "source_weight_sha256": "9ecf7e162a6e5b6c4d1feee47654a584d7b00138b51d1ed003ce8df0cc77ab9b"
+      },
+      {
+        "layer": 20,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          13,
+          12,
+          10
+        ],
+        "escapes": 42004740,
+        "encoded_bits_lower_bound": 435405840,
+        "entropy": 3.9437937144471267,
+        "source_weight_sha256": "fd8d2ee2db85f8205a7fa6f1e5683fe3fa32c5c611c2fb674a2b92e7b8279342"
+      },
+      {
+        "layer": 21,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          13,
+          12,
+          2
+        ],
+        "escapes": 42014941,
+        "encoded_bits_lower_bound": 435446644,
+        "entropy": 3.943800348818333,
+        "source_weight_sha256": "f204c15593c7df9ae89d927817c68a165815ff4c6cac66ba18f11c8acd949735"
+      },
+      {
+        "layer": 22,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          13,
+          4,
+          12,
+          2
+        ],
+        "escapes": 42057679,
+        "encoded_bits_lower_bound": 435617596,
+        "entropy": 3.9441422242177047,
+        "source_weight_sha256": "0be027466c06f834895274e955a7cf0f5b34abf9a6f691954fdf6a4eac5da998"
+      },
+      {
+        "layer": 23,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42026553,
+        "encoded_bits_lower_bound": 435493092,
+        "entropy": 3.943989064285324,
+        "source_weight_sha256": "5990c85df5857a84ed0fb3667db4e4830ede731d07345ac57ecafe80b9e53ed6"
+      },
+      {
+        "layer": 24,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42102067,
+        "encoded_bits_lower_bound": 435795148,
+        "entropy": 3.945218968208271,
+        "source_weight_sha256": "b18090be9bb95b810418e7362dc583fcc037c53b9cb13d7fabee592927dfd546"
+      },
+      {
+        "layer": 3,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42102748,
+        "encoded_bits_lower_bound": 435797872,
+        "entropy": 3.945137256978905,
+        "source_weight_sha256": "2931d4a2ee444ef867990b505b45e08597c38d2fe53f65f02696afacb24ee039"
+      },
+      {
+        "layer": 4,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42117774,
+        "encoded_bits_lower_bound": 435857976,
+        "entropy": 3.94520257122964,
+        "source_weight_sha256": "5cf5b68156d23964e04c5b5f5054a2a7079aff44dae88c3be3c6a3b5e61cd90d"
+      },
+      {
+        "layer": 5,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42099699,
+        "encoded_bits_lower_bound": 435785676,
+        "entropy": 3.9447363666206603,
+        "source_weight_sha256": "3f48514c9c84f4490f7fc2129444f682b59f36ef81b5cb669a65a41edd42e575"
+      },
+      {
+        "layer": 6,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          12,
+          5,
+          4,
+          10
+        ],
+        "escapes": 42019581,
+        "encoded_bits_lower_bound": 435465204,
+        "entropy": 3.944131211411368,
+        "source_weight_sha256": "ff7e35307178abafe07378a282dd29bd369ad203cc91c7da827c52b474b35669"
+      },
+      {
+        "layer": 7,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42035534,
+        "encoded_bits_lower_bound": 435529016,
+        "entropy": 3.944003511954535,
+        "source_weight_sha256": "f0920b8dd893e0e4248665cb9fb77d3b8e43bdc1c34a50d3e75e9bea167c6788"
+      },
+      {
+        "layer": 8,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          12,
+          4,
+          13,
+          5,
+          10
+        ],
+        "escapes": 42011683,
+        "encoded_bits_lower_bound": 435433612,
+        "entropy": 3.9442336844646895,
+        "source_weight_sha256": "6a15351d4ef6178088c64701533c57dea199bc5c7dda203e519a72a25c3689c4"
+      },
+      {
+        "layer": 9,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42133417,
+        "encoded_bits_lower_bound": 435920548,
+        "entropy": 3.94537352460513,
+        "source_weight_sha256": "3efc2179e47e6a3611e09f725fba25309e0011fa95482af3cd75b9d51bc9518d"
+      },
+      {
+        "layer": 25,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42069766,
+        "encoded_bits_lower_bound": 435665944,
+        "entropy": 3.944582145001365,
+        "source_weight_sha256": "dd74bb78085ae14de1201acc521ce96943a560f78025697ced953e66d26d90e2"
+      },
+      {
+        "layer": 26,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42103261,
+        "encoded_bits_lower_bound": 435799924,
+        "entropy": 3.945299732797042,
+        "source_weight_sha256": "4683c79248cc86cb0c64f7e6f96487f1280d9fd42c4878651f2a286b397add68"
+      },
+      {
+        "layer": 27,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42108845,
+        "encoded_bits_lower_bound": 435822260,
+        "entropy": 3.9453034676697665,
+        "source_weight_sha256": "33b4b9675a620b34ee926358762997ef96886ca69b2618a3009c58b23efbec73"
+      },
+      {
+        "layer": 28,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          12,
+          5,
+          13,
+          10
+        ],
+        "escapes": 42058197,
+        "encoded_bits_lower_bound": 435619668,
+        "entropy": 3.944799240552418,
+        "source_weight_sha256": "e4fcb5d33a9c8d2b8f2ee72a142f00853e819228e3d1d0491de2a2ba77b427ec"
+      },
+      {
+        "layer": 29,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          13,
+          4,
+          12,
+          2
+        ],
+        "escapes": 42086722,
+        "encoded_bits_lower_bound": 435733768,
+        "entropy": 3.944617113303214,
+        "source_weight_sha256": "06c43056706308391c1e8be9a7db1393c88a4854023f70e43240f1dafa0adac4"
+      },
+      {
+        "layer": 30,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42101201,
+        "encoded_bits_lower_bound": 435791684,
+        "entropy": 3.9454532420306716,
+        "source_weight_sha256": "882c1b14b4a4e3e278aedfdb9d995ee64f19cc2ac8fb93743e2e730cff759282"
+      },
+      {
+        "layer": 31,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          13,
+          5,
+          10
+        ],
+        "escapes": 42099977,
+        "encoded_bits_lower_bound": 435786788,
+        "entropy": 3.9455333485960646,
+        "source_weight_sha256": "5071181954f686adcd15aba34b30ee88acd9e82daf049742423b011634eb4a4e"
+      },
+      {
+        "layer": 32,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          2,
+          10,
+          5
+        ],
+        "escapes": 42084721,
+        "encoded_bits_lower_bound": 435725764,
+        "entropy": 3.9455161580035067,
+        "source_weight_sha256": "20e6b2c7ad59e716b1805260668683255793c05096f44fda3050b4f3f990e50a"
+      },
+      {
+        "layer": 33,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          2,
+          10,
+          5
+        ],
+        "escapes": 42046422,
+        "encoded_bits_lower_bound": 435572568,
+        "entropy": 3.945349027928287,
+        "source_weight_sha256": "51cbce14a35356e6b4fc3db564548dceac0f964730dbe9135bb0687ffc1592b4"
+      },
+      {
+        "layer": 34,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          2,
+          10,
+          4,
+          12,
+          5
+        ],
+        "escapes": 42050991,
+        "encoded_bits_lower_bound": 435590844,
+        "entropy": 3.9459909632913948,
+        "source_weight_sha256": "0cf0a825892310b812fd2c65a957c70ce11b85b459c7ea587dac6d20a6d80c54"
+      },
+      {
+        "layer": 35,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42115350,
+        "encoded_bits_lower_bound": 435848280,
+        "entropy": 3.945558751393597,
+        "source_weight_sha256": "6b2386fa882ee518d110f6234e945d733be858aea926da5ae44f9b4ed7ae6a3d"
+      },
+      {
+        "layer": 36,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42110173,
+        "encoded_bits_lower_bound": 435827572,
+        "entropy": 3.945439733791788,
+        "source_weight_sha256": "7fb8052380be66749c62781b4683f2aa9c58e9be82e3ae6bad30f0f15ebd09a6"
+      },
+      {
+        "layer": 37,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42014287,
+        "encoded_bits_lower_bound": 435444028,
+        "entropy": 3.944064201777965,
+        "source_weight_sha256": "3076b7657ac27c765e32e8eb200b062fb2e8e248035a36bd53629de8d1732327"
+      },
+      {
+        "layer": 38,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42087559,
+        "encoded_bits_lower_bound": 435737116,
+        "entropy": 3.9451029026018865,
+        "source_weight_sha256": "1e6d902cad689dc7b5eb05705350f601b34527c4e05b91de68ba4934629bb48c"
+      },
+      {
+        "layer": 39,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42054811,
+        "encoded_bits_lower_bound": 435606124,
+        "entropy": 3.9445591531455197,
+        "source_weight_sha256": "b0fc46bda00da4f6f1fbb1c08125e3435adcd90e4d4667c88b29db09f2969255"
+      },
+      {
+        "layer": 40,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42027119,
+        "encoded_bits_lower_bound": 435495356,
+        "entropy": 3.9442550838114228,
+        "source_weight_sha256": "682fb0ac7dbd7d3ee123035058567e269674c70740001dbca0b511b273fea8f8"
+      },
+      {
+        "layer": 41,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42001302,
+        "encoded_bits_lower_bound": 435392088,
+        "entropy": 3.94426655581899,
+        "source_weight_sha256": "5acef278d676405977498e43e89d7199697174d50e8afd3fefeb9b3067afd00f"
+      },
+      {
+        "layer": 42,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42096166,
+        "encoded_bits_lower_bound": 435771544,
+        "entropy": 3.945508792620034,
+        "source_weight_sha256": "5ec3b09c5f121b3d13ca0a7ba7ed41c606994c7398f56cd60ad5a4b1a0ac8cc8"
+      },
+      {
+        "layer": 43,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42071024,
+        "encoded_bits_lower_bound": 435670976,
+        "entropy": 3.9450556779066113,
+        "source_weight_sha256": "8429a14c53aa634d2a20bd3ff56a35635c3ceffbf5063b58f30572f1fed00de3"
+      },
+      {
+        "layer": 44,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          13,
+          4,
+          12,
+          2
+        ],
+        "escapes": 42072344,
+        "encoded_bits_lower_bound": 435676256,
+        "entropy": 3.9446980416053217,
+        "source_weight_sha256": "c67bff3ed1f83f1012005edc880fb6e359e0310eeee985dc8fbb635df73aa516"
+      },
+      {
+        "layer": 45,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42025691,
+        "encoded_bits_lower_bound": 435489644,
+        "entropy": 3.944348841853837,
+        "source_weight_sha256": "08cf4825f9e1ed12e1d27528d9a7399804d52179196e76f118bea7631c1861ec"
+      },
+      {
+        "layer": 46,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42104313,
+        "encoded_bits_lower_bound": 435804132,
+        "entropy": 3.9454530961965095,
+        "source_weight_sha256": "8e4f5390e7384edc3133dbe187b2f9e3b4ee577e17ff397558a15fc0ddfddb7a"
+      },
+      {
+        "layer": 47,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          10
+        ],
+        "escapes": 42100649,
+        "encoded_bits_lower_bound": 435789476,
+        "entropy": 3.945116188732393,
+        "source_weight_sha256": "35578f9d477467ebc0b4fd0652fc653be0f5e039071edd1efa6ef2c1e7202f76"
+      },
+      {
+        "layer": 48,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          12,
+          5,
+          2,
+          13
+        ],
+        "escapes": 42070520,
+        "encoded_bits_lower_bound": 435668960,
+        "entropy": 3.9455360152979204,
+        "source_weight_sha256": "d2011b4964dcfa8d2318ccb88583e42d0ade77a3e98e0ea29fd341804b565d4d"
+      },
+      {
+        "layer": 49,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          2,
+          13
+        ],
+        "escapes": 42089971,
+        "encoded_bits_lower_bound": 435746764,
+        "entropy": 3.9456057338410333,
+        "source_weight_sha256": "4e8773dbd223af2a137791d283c359bd7b3f8ef0492ac08e050e698511720439"
+      },
+      {
+        "layer": 50,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          2,
+          10,
+          5
+        ],
+        "escapes": 41999050,
+        "encoded_bits_lower_bound": 435383080,
+        "entropy": 3.9457651489835435,
+        "source_weight_sha256": "4e248a6a00abc7518d8ab3984423ae4e705092a8b7de169176eda34566abcbc7"
+      },
+      {
+        "layer": 51,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          2,
+          10,
+          5
+        ],
+        "escapes": 42050372,
+        "encoded_bits_lower_bound": 435588368,
+        "entropy": 3.9452056384030305,
+        "source_weight_sha256": "eeb797755e52b70f0880971dbeb465456b6dda2077f7ca331de7abad33b4c48d"
+      },
+      {
+        "layer": 52,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42095859,
+        "encoded_bits_lower_bound": 435770316,
+        "entropy": 3.9454729131715784,
+        "source_weight_sha256": "0d1f63d285c840bf41d04e74bd2d697d965696e650f10d15fd9f2ce82d3ee11b"
+      },
+      {
+        "layer": 53,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42081907,
+        "encoded_bits_lower_bound": 435714508,
+        "entropy": 3.945391552936669,
+        "source_weight_sha256": "ff4926508b2ebca3521e5bc2f830f9962266e1f6eab061d01ad2bba52eed2c81"
+      },
+      {
+        "layer": 54,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42107813,
+        "encoded_bits_lower_bound": 435818132,
+        "entropy": 3.945342855132421,
+        "source_weight_sha256": "255d30a119e72246568f3a84029fe4de77b7b31ca121994c97545cf8b7e72006"
+      },
+      {
+        "layer": 55,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42099946,
+        "encoded_bits_lower_bound": 435786664,
+        "entropy": 3.9451092220857853,
+        "source_weight_sha256": "faf2a37a112e49025ea1c5fe3d846f2a7dad78cac92f6cea5416c1267ddf2eb6"
+      },
+      {
+        "layer": 56,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          5,
+          4,
+          13,
+          12,
+          2
+        ],
+        "escapes": 42116099,
+        "encoded_bits_lower_bound": 435851276,
+        "entropy": 3.945162896469491,
+        "source_weight_sha256": "94beea8253c55ca357ed3a197e2eedf123cc8e2ce7f20472ca482d9b125be75e"
+      },
+      {
+        "layer": 57,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          12,
+          4,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42030360,
+        "encoded_bits_lower_bound": 435508320,
+        "entropy": 3.944225373952054,
+        "source_weight_sha256": "ed401797def62aba68a41d333294a6bf1bce7ad8d158bc88f12af109c6249313"
+      },
+      {
+        "layer": 58,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42100443,
+        "encoded_bits_lower_bound": 435788652,
+        "entropy": 3.945029758663818,
+        "source_weight_sha256": "4f1be581f10d22d3d65946dabec2591d4e999a428802e422f43dbb51b4713ae5"
+      },
+      {
+        "layer": 59,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          12,
+          13,
+          4,
+          5,
+          10
+        ],
+        "escapes": 42081738,
+        "encoded_bits_lower_bound": 435713832,
+        "entropy": 3.9449667093187597,
+        "source_weight_sha256": "a8eaee8bfbdc30ff459a83a38a9bd114662c9bb04bebb84255ca2783802e66f4"
+      },
+      {
+        "layer": 60,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          12,
+          4,
+          5,
+          10
+        ],
+        "escapes": 42102429,
+        "encoded_bits_lower_bound": 435796596,
+        "entropy": 3.9452522341868805,
+        "source_weight_sha256": "a6ed12a0547d47b2e49f71146c9d8885d4e2a2500314ae5542ea6ebf81d9091f"
+      },
+      {
+        "layer": 61,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          13,
+          5,
+          12,
+          4,
+          10
+        ],
+        "escapes": 42075732,
+        "encoded_bits_lower_bound": 435689808,
+        "entropy": 3.944763145308448,
+        "source_weight_sha256": "e78f39bd992baf073f0fbd4dc01f30f463bac71ff41a7feeb29059dd37a36f38"
+      },
+      {
+        "layer": 62,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          9,
+          1,
+          4,
+          5,
+          12,
+          13,
+          2
+        ],
+        "escapes": 42096327,
+        "encoded_bits_lower_bound": 435772188,
+        "entropy": 3.9452771543898226,
+        "source_weight_sha256": "97dc634638e2e00894ec3e1f4085249fd5474980c6117466f3283760494b8280"
+      },
+      {
+        "layer": 63,
+        "values": 89128960,
+        "raw_bytes": 44564480,
+        "common_codes": [
+          1,
+          9,
+          4,
+          12,
+          5,
+          13,
+          2
+        ],
+        "escapes": 42069800,
+        "encoded_bits_lower_bound": 435666080,
+        "entropy": 3.9450395531128843,
+        "source_weight_sha256": "cbce6e8bfd2e0aa7ad2aa7ac0e8f08feec727510319edc39cbfa4691b7fd6cc4"
+      }
+    ],
+    "raw_gate_bytes": 2852126720,
+    "encoded_gate_bits_lower_bound": 27883375252,
+    "gate_expansion_fraction": 0.2220431448782192,
+    "escape_fraction": 0.47204314487821913,
+    "weighted_entropy": 3.944878638431908,
+    "gate_up_weight_saving_upper_bound": 0.013978427560890405,
+    "gate_up_with_unchanged_scales_saving_upper_bound": 0.012425268943013656,
+    "assumptions": "Up has identical dimensions and is granted zero escapes. All metadata costs are omitted. Bounds apply only to this fixed representation; no time or hardware bound.",
+    "decision": "Reject fixed three-bit palette/escape representation before GPU implementation. Gate alone expands; even optimistically perfect Up cannot provide material whole-family byte savings. Do not scan palette widths.",
+    "gpu_execution": false,
+    "runtime_changed": false,
+    "goal_achieved": false
+  },
+  "decision": "Close this fixed representation before owner/decoder or GPU implementation. Even granting Up zero exceptions and omitting all metadata, Gate/Up plus unchanged block scales saves at most 1.243% bytes. Gate alone expands 22.204%. This does not justify added exception decoding to close the short phase budget.",
+  "limits": [
+    "No Up histogram was measured; the zero-exception assumption is an optimistic algebraic bound for the fixed format, not an observed Up distribution.",
+    "Entropy is a descriptive marginal statistic, not a universal compression or hardware limit.",
+    "Byte reduction is not proportional latency proof. No speedup, runtime ceiling or goal impossibility is claimed.",
+    "A future direction must identify a different dominant computation/dataflow; no palette-width, threshold or packet-size scan is selected."
+  ],
+  "api_composition_boundary": "Had the fixed format justified implementation, complete original-code roundtrip and exact scalar target-state admission would precede immediate cap2 P65/O16 API return; no uncomposed runtime prerequisite is retained.",
+  "artifacts": {
+    "result": ".q3x-work/mtp-nv-palette-assessment-20261020/result.json",
+    "result_sha256": "6aee7778fd6dc8e983cdf2285f051c31bda0fed6f63e8b2922c302ebdf990713",
+    "script": ".q3x-work/mtp-nv-palette-assessment-20261020/assess.py",
+    "script_sha256": "2549a0eeb1d493714e7dfb7ac91e628ce88f9b3f44f22caf9194b20262e75949"
+  },
+  "retained_api_metrics_source": "docs/metadata/qwen36-27b-mtp-eos-frontier-regression-2026-10-20.json",
+  "runtime_changed": false,
+  "production_changed": false,
+  "gpu_processes_launched": 0,
+  "goal_achieved": false
+}
