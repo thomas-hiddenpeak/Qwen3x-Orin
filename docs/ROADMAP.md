@@ -122,6 +122,18 @@ owner implementation is selected. Packed half2 FP8 reconstruction and sparse
 single-product MMA already have direct historical tests, including a finite
 MMA counterexample. They are not untried successors.
 
+The [single-owner NV palette assessment](metadata/qwen36-27b-mtp-nv-palette-assessment-2026-10-21.json)
+uses retained metadata to prove all 64 Gate matrices can represent exact
+block-scaled BF16 weights with one-byte dictionary indices. Up remains
+unresolved; 20 of 53 packed Down matrices fit a conservative interval screen.
+Replacing canonical and private owners could save resident payload, but the
+straightforward code stream increases hot weight traffic. Under the explicitly
+conditional one-pass nominal-bandwidth screen, all Gate/Up code bytes alone
+take 55.71 ms per round versus the current 40K diagnostic's 50.94 ms family
+interval. This is not a measured candidate or hardware bound. Retain the
+representation insight without selecting another prototype or payload scan;
+capacity savings alone do not establish Decode value.
+
 ## 2026-10-21 MTP delivery — complete
 
 The [final requirement audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)

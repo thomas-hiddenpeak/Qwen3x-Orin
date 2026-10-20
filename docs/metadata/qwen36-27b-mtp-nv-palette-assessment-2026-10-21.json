@@ -1,0 +1,340 @@
+{
+  "schema": "q3x-read-only-nv-palette-assessment-v1",
+  "date": "2026-10-21",
+  "status": "read_only_assessment_complete_not_selected",
+  "active_local_work_package": null,
+  "selected_executor": null,
+  "gpu_execution": false,
+  "new_checkpoint_payload_scan": false,
+  "source_commit_context": "1d60c62; assessment sources independently hashed below",
+  "product_constraint": {
+    "denominator": "Installed v127, same cap 2/3 at P65/O16, P8192/O256 and P40000/O256",
+    "additional_decode_throughput_targets": [
+      0.25,
+      0.5
+    ],
+    "maximum_matched_prefill_latency_regression": 0.02,
+    "minimum_device_reserve_bytes": 8589934592,
+    "numerical_state_output_capacity_contract": "Unchanged; this record has no promotion or runtime authority."
+  },
+  "hypothesis": "Startup-owned lossless one-byte indices into a per-projection dictionary of exact raw block-scaled BF16 weights; one code owner replaces both canonical NVFP4 and private verifier sidecars, serving Prefill, ordinary M1 and verifier M2..4. Tensor scale remains separate and applied at the original boundary.",
+  "novelty": {
+    "combined_codebook_v23_profile_v26": "Existing rejected route uses the original packed q4 and E4M3 scale bytes, forms s*16+q in the consumer and loads a global 4096-entry 16-KiB FP32 table. This hypothesis instead changes the authenticated resident representation and all consumers; it eliminates separate scale-address/decode work but increases streaming weight bytes.",
+    "register_codebook_v44_profile_v47": "Existing rejected PRMT magnitude decode keeps separate scale bytes and paired BF16 multiplication; no immutable per-weight product index owner.",
+    "pair_layout_v18": "Existing rejected startup layout permutes original q4/scale records and retains canonical M1 weights. No compact product alphabet or canonical-owner replacement.",
+    "limitation": "Representational novelty is established, not useful execution time. No new decoder, subgroup or tile scan is selected."
+  },
+  "exactness_contract": {
+    "definition": "D[j] = bits_BF16(E2M1(q[n,k]) * E4M3(s[n,floor(k/16)])); C[n,k] = j. The final weight_scale_2 is not included in D. For finite operands the product is exactly BF16 and equal to current fma.rn.bf16x2(q,s,-0).",
+    "signed_zero": "Dictionary identity is raw BF16 bits, keeping +0 and -0 separate. Product sign is q_sign XOR s_sign; current negative-zero addend preserves that sign. Converting D[j] to FP32 must be exact.",
+    "finite_significand_bound": "After removing powers of two, finite E2M1 has odd significand at most 3 and finite E4M3 at most 15. Their product has at most 6 significant bits (45); the finite nonzero exponent range is safely normal in BF16. Integer bit construction below is exact.",
+    "accumulation": "The consumer must keep the current K-lane assignment, four FP32 FMA chains, ordered lane/warp tree, +0 boundaries, final tensor-scale operation and BF16 publication. Exact replacement weight bits make every FMA identical for every accumulator/input, including nonfinite inputs; no multiplication reassociation is introduced.",
+    "nonfinite_scales": "Current selected 181 projection records are marked finite. This does not prove a generic NaN dictionary encoding or full API admission. Nonfinite checkpoint scales require exact native BF16x2 bit-policy admission or fail-closed unsupported representation; keeping a hidden full original owner is not allowed in the memory arithmetic.",
+    "prefill_boundary": "A complete owner replacement must preserve the existing Prefill dequantized BF16 operands and reduction path. A changed consumer layout may need bounded conversion scratch. No Prefill implementation or timing is supplied."
+  },
+  "cardinality": {
+    "metadata_only": true,
+    "checkpoint_files_opened": 0,
+    "method": "For Gate: form a conservative Cartesian superset of every observed scale code from the frozen complete scale histogram × all 16 q codes. No joint payload scan is needed to prove fit. For Down: use every integer scale code in the frozen min..max interval × all 16 q codes; this is a looser superset.",
+    "integer_recipe": [
+      "q2 = [0,1,2,3,4,6,8,12][q & 7]; E=(s>>3)&15; F=s&7; reject (s&127)==127.",
+      "n = q2 * (F if E==0 else 8+F); p=(-9 if E==0 else E-10)-1; sign=((q>>3) XOR (s>>7))<<15.",
+      "If n==0, result=sign. Otherwise remove factors of two from n and increase p by the same count; b=bit_length(n), exponent=b-1+p.",
+      "bits=sign | ((exponent+127)<<7) | ((n-2**(b-1))<<(8-b)); assert b<=8 and -126<=exponent<=127. Count distinct 16-bit results; hash sorted little-endian results."
+    ],
+    "source_binding": "All 64 Gate weight and scale hashes match the newly authenticated frozen NV payload plan. Full histograms sum to the recorded weight/scale lengths.",
+    "gate": {
+      "matrices": 64,
+      "proven_uint8": 64,
+      "minimum_conservative_count": 194,
+      "maximum_conservative_count": 246,
+      "conservative_domain_fits_uint7": 0,
+      "actual_joint_cardinality_measured": false,
+      "domain_counts_by_layer": [
+        234,
+        224,
+        224,
+        208,
+        212,
+        202,
+        230,
+        214,
+        210,
+        204,
+        220,
+        214,
+        214,
+        208,
+        198,
+        204,
+        204,
+        220,
+        228,
+        218,
+        216,
+        214,
+        222,
+        194,
+        196,
+        202,
+        208,
+        208,
+        214,
+        204,
+        210,
+        210,
+        226,
+        226,
+        244,
+        234,
+        234,
+        220,
+        236,
+        216,
+        222,
+        220,
+        234,
+        220,
+        224,
+        212,
+        222,
+        218,
+        238,
+        242,
+        244,
+        240,
+        232,
+        242,
+        246,
+        238,
+        234,
+        236,
+        242,
+        238,
+        236,
+        244,
+        240,
+        242
+      ]
+    },
+    "up": {
+      "matrices": 64,
+      "status": "unknown",
+      "reason": "Existing inspected plan records full scale hashes and finite flags, but no Up histogram/range. No further search or payload scan was performed."
+    },
+    "down": {
+      "selected_packed_matrices": 53,
+      "proven_uint8_by_interval": 20,
+      "remaining_selected_packed_cardinality": "unknown; interval superset above 256 is not proof that actual products exceed 256",
+      "unselected_11_canonical_down": "not assessed for replacement; a 1-byte owner without a private copy would increase their existing single-owner bytes"
+    },
+    "all_181_feasibility": "Not established. Gate-only proof must not be generalized to Up or unresolved Down. Bounded group dictionaries are a separate unassessed representation, not an implicit escape hatch."
+  },
+  "memory": {
+    "weights_per_matrix": 89128960,
+    "canonical_q4_plus_scale8_bytes_per_matrix": 50135040,
+    "gate_up_private_bytes_per_matrix": 50135040,
+    "packed_down_private_bytes_per_matrix": 48742400,
+    "counts": {
+      "proven_gate_only": {
+        "matrix_count": 64,
+        "existing_canonical_plus_private_bytes": 6417285120,
+        "replacement_code_bytes": 5704253440,
+        "maximum_bf16_dictionary_bytes": 32768,
+        "replacement_total_bytes": 5704286208,
+        "net_persistent_saving_bytes": 712998912
+      },
+      "conditional_all_gate_up": {
+        "matrix_count": 128,
+        "existing_canonical_plus_private_bytes": 12834570240,
+        "replacement_code_bytes": 11408506880,
+        "maximum_bf16_dictionary_bytes": 65536,
+        "replacement_total_bytes": 11408572416,
+        "net_persistent_saving_bytes": 1425997824
+      },
+      "conditional_53_packed_down": {
+        "matrix_count": 53,
+        "existing_canonical_plus_private_bytes": 5240504320,
+        "replacement_code_bytes": 4723834880,
+        "maximum_bf16_dictionary_bytes": 27136,
+        "replacement_total_bytes": 4723862016,
+        "net_persistent_saving_bytes": 516642304
+      },
+      "conditional_128_gate_up_plus_53_down": {
+        "matrix_count": 181,
+        "existing_canonical_plus_private_bytes": 18075074560,
+        "replacement_code_bytes": 16132341760,
+        "maximum_bf16_dictionary_bytes": 92672,
+        "replacement_total_bytes": 16132434432,
+        "net_persistent_saving_bytes": 1942640128
+      }
+    },
+    "admission": "These are payload arithmetic only. The canonical device allocation is monolithic: savings require resident-loader replanning and typed owner dispatch for every consumer, not cudaFree of holes. At most one bounded host packing buffer may be streamed; transient device original-plus-new full matrices, dictionary layout, startup peak, Graph lifetime and >=8-GiB reserve remain unadmitted. No duplicate full owner is included."
+  },
+  "traffic": {
+    "nominal_bandwidth_bytes_per_second": 204800000000,
+    "interpretation": "Conditional one-pass no-compression/no-cross-call-residency screen, not measured DRAM traffic, measured hardware peak or an impossibility proof. It grants all nominal bandwidth to code bytes and excludes activation/output/dictionary/compute cost.",
+    "cache_treatment": "No full-L2-per-projection credit is assumed. Reusing that amount at every matrix transition is unestablished; overlapping source data and other kernels can evict it. Cache-residency or bandwidth-compression changes would need independent evidence before altering this screen.",
+    "groups": [
+      {
+        "scope": "conditional_all_gate_up",
+        "matrix_count_per_round": 128,
+        "current_private_bytes_per_round": 6417285120,
+        "code_bytes_per_round": 11408506880,
+        "hot_payload_expansion_ratio": 1.7777777777777777,
+        "cases": {
+          "p65": {
+            "rounds": 6,
+            "calls": 768,
+            "measured_current_family_seconds": 0.31707584,
+            "measured_current_ms_per_round": 52.84597333333333,
+            "one_code_read_per_weight_bytes_per_round": 11408506880,
+            "nominal_204_8_GB_s_no_cache_ms_per_round": 55.705600000000004,
+            "one_pass_total_code_bytes": 68451041280,
+            "nominal_no_cache_total_seconds": 0.3342336
+          },
+          "p40000": {
+            "rounds": 105,
+            "calls": 13440,
+            "measured_current_family_seconds": 5.348290368,
+            "measured_current_ms_per_round": 50.93609874285714,
+            "one_code_read_per_weight_bytes_per_round": 11408506880,
+            "nominal_204_8_GB_s_no_cache_ms_per_round": 55.705600000000004,
+            "one_pass_total_code_bytes": 1197893222400,
+            "nominal_no_cache_total_seconds": 5.849088
+          }
+        }
+      },
+      {
+        "scope": "conditional_53_packed_down",
+        "matrix_count_per_round": 53,
+        "current_private_bytes_per_round": 2583347200,
+        "code_bytes_per_round": 4723834880,
+        "hot_payload_expansion_ratio": 1.8285714285714285,
+        "cases": {
+          "p65": {
+            "rounds": 6,
+            "calls": 318,
+            "measured_current_family_seconds": 0.132738432,
+            "measured_current_ms_per_round": 22.123071999999997,
+            "one_code_read_per_weight_bytes_per_round": 4723834880,
+            "nominal_204_8_GB_s_no_cache_ms_per_round": 23.0656,
+            "one_pass_total_code_bytes": 28343009280,
+            "nominal_no_cache_total_seconds": 0.1383936
+          },
+          "p40000": {
+            "rounds": 105,
+            "calls": 5565,
+            "measured_current_family_seconds": 2.217199392,
+            "measured_current_ms_per_round": 21.116184685714284,
+            "one_code_read_per_weight_bytes_per_round": 4723834880,
+            "nominal_204_8_GB_s_no_cache_ms_per_round": 23.0656,
+            "one_pass_total_code_bytes": 496002662400,
+            "nominal_no_cache_total_seconds": 2.421888
+          }
+        }
+      }
+    ],
+    "observation": "All-128 Gate/Up code payload alone needs 55.7056 ms/round at nominal bandwidth versus current measured 50.9361 ms/round in the long diagnostic. The 53 packed Down code payload alone needs 23.0656 ms versus current 21.1162 ms. This is unfavorable before dictionary lookup, original FMAs and publication; capacity-neutral replacement does not fix the hot-traffic increase."
+  },
+  "whole_api_budget": {
+    "profile_scope": "Installed cap3 diagnostic windows omit first draft/entry work and are not whole-API throughput. Short has five M3 and one M4 rounds; long has ten M2 and 95 M3 rounds. Same full weights are traversed once per projection call regardless of M.",
+    "cases": [
+      {
+        "label": "p65",
+        "window_seconds": 0.988456,
+        "projection_seconds": 0.833876096,
+        "attention_seconds": 0.002027264,
+        "outside_kernel_copy_memset_union_seconds": 0.016462944,
+        "all_gate_up_plus_packed_down_seconds": 0.449814272,
+        "conditional_nv_latency_cut_for_window_plus25": 0.439495170131018,
+        "conditional_nv_latency_cut_for_window_plus50": 0.7324919502183632
+      },
+      {
+        "label": "p40000",
+        "window_seconds": 21.624139008,
+        "projection_seconds": 13.777985312,
+        "attention_seconds": 4.852000489,
+        "outside_kernel_copy_memset_union_seconds": 0.309086455,
+        "all_gate_up_plus_packed_down_seconds": 7.56548976,
+        "conditional_nv_latency_cut_for_window_plus25": 0.5716520593902701,
+        "conditional_nv_latency_cut_for_window_plus50": 0.9527534323171167
+      }
+    ],
+    "consequence": "No predicted gain is defensible. Long Attention alone cannot meet the all-bucket requirement; eliminating short Attention would move this short window by only about 0.21%. No remaining concrete executor is selected by this assessment."
+  },
+  "decision": {
+    "retain": "Novel single-owner representation insight and Gate finite-domain proof only.",
+    "do_not_select": "No local build, new payload scan, GPU prototype, runtime integration or API campaign is selected by this assessment.",
+    "reason": "Only Gate cardinality is broadly proven. More importantly the straightforward one-byte streaming route has unfavorable conditional traffic against current measured family budgets, even with decoder work removed. No independent mechanism to remove that extra traffic is established.",
+    "target_status": "Additional +25%/+50% targets remain active and unachieved; this local assessment neither lowers them nor claims impossibility."
+  },
+  "sources": [
+    {
+      "path": ".q3x-work/mtp-nv-feed-audit-20261014/selection.json",
+      "sha256": "8d0e84a21e67ff56d73c41eb26e543c750963b2379657d80279b1a90102522c0"
+    },
+    {
+      "path": ".q3x-work/decode-plan-20261021/nv-factor-prototype/payload-plan.json",
+      "sha256": "8763a10aedaa9af38e8dbb9e3a6c9c21b57077d66fdc1747d47307f8073dab11"
+    },
+    {
+      "path": ".q3x-work/decode-plan-20261021/current-node-analysis.json",
+      "sha256": "d516dc50c86b0357d3d880f4a82a90819b4b2158988eaaed1c7d571d1b4ce633"
+    },
+    {
+      "path": "src/runtime/mtp_verify_projection_internal.cu",
+      "sha256": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95"
+    },
+    {
+      "path": "include/q3x/runtime/model_weights.h",
+      "sha256": "5e54039f5f3b0ca213574676bb25427c9c79bc41c62636292f1249eaafee49c4"
+    },
+    {
+      "path": "src/runtime/mtp_device_internal.cpp",
+      "sha256": "af16ac8eb40024757e7d270a868940235b27b91c1974911eb489ece1e219f20f"
+    },
+    {
+      "path": "src/runtime/resident_weights.cpp",
+      "sha256": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-combined-codebook-design-2026-10-10.json",
+      "sha256": "e3b134fe3d2c9dfb2d9fff393e6f7dfd386d6a8e9073b66a4953569925d06385"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-combined-codebook-rejection-2026-10-10.json",
+      "sha256": "bfb2d00c1038aceccc81106a6f5a942f607e79f04c52d7b85d3233afffd498e2"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-register-codebook-design-2026-10-10.json",
+      "sha256": "65d1b6bcc672b5d4f478c4591a88c030f356ad8efaa8e04848ce1dbb84ddd4e1"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-register-codebook-rejection-2026-10-10.json",
+      "sha256": "e9e91439085d3b701818b5de681b1376c04064387543502432282da56575b71d"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-pair-layout-design-2026-10-10.json",
+      "sha256": "e385cf46a30858c2476ec0a89640934d08b32783b0d64b15750fa240521652be"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-pair-layout-rejection-2026-10-10.json",
+      "sha256": "8fe9aeb2fa2d90335f2f4241e62e6776cbf9e030411454255da28c47157e12b0"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-decode-lineage-reconciliation-2026-10-21.json",
+      "sha256": "a0b0fcb4c3d598b210086bbd28e233dfe60985590ea1a51ef6a38c39d86a721c"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-mtp-nv-factor-resource-rejection-2026-10-21.json",
+      "sha256": "bfae814d5d5a751d9577e0ee94c0683ce1487ab70465656f43a8d9b1f6d278d2"
+    }
+  ],
+  "retained_full_assessment": {
+    "path": ".q3x-work/decode-plan-20261021/nv-palette-assessment.json",
+    "sha256": "e3be96dcb77f7d0655d86de23b0badce6438f63bf1d84b638703360a63d4f420"
+  },
+  "implementation_selected": false,
+  "audit": "Root independently verified every listed source hash, all64 Gate exact integer product domains and their digests, and traffic arithmetic; no GPU or new checkpoint scan."
+}

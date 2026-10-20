@@ -770,3 +770,8 @@ resource admission but a negative complete real-weight comparison. Existing
 Current Status and Roadmap cancel its runtime composition, preserving all prior
 evidence and the additional Decode goal. No runtime, installed artifact,
 Markdown path or classification changes.
+
+The [NV palette assessment](metadata/qwen36-27b-mtp-nv-palette-assessment-2026-10-21.json)
+preserves a metadata-only exact representation proof and conditional traffic
+screen without selecting an implementation. Existing Roadmap records its
+bounded scope; no runtime, Markdown path or classification changes.
