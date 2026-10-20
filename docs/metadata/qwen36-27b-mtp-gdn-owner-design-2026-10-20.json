@@ -1,0 +1,39 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-20261020",
+  "architecture_candidate_id": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "source_parent": "09b7824c23cbcb48a1fc2cadaf8b9a12839e321d",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "Matched real API Decode gain 50%-200% for caps2/3, exact target semantics, joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "v122_short_gap_ms": 18.401223666666738,
+    "closed_v126_short_gap_ms": 11.045868666666593,
+    "historical_v113_15_complete_commit_copies_ms": 12.39072,
+    "scope": "Existing real API diagnostic; includes Conv and is not an estimate of additive or unprofiled savings. GDN accounts for75497472 of78446592 bytes per copy. Need composed API to determine benefit."
+  },
+  "mechanism": "One coupled candidate: startup FP8 ownership/input layouts previously admitted in v126, plus complete GDN prefix ownership. Multirow first row reads selected prior GDN through48 device pointer slots; remaining rows retain direct fixed immutable prefix slots. Commit selects completed GDN storage through typed state/runner views instead of copying75.5MB. Conv, hidden, full logits, target/draft KV and observer synchronization remain complete. No pointer-bank Graph multiplication.",
+  "equivalence": "Every original recurrence, BF16 state round, FP32 output accumulation, norm/gate and projection remains unchanged. Pointer indirection changes the source address only. Exact input/output alias is already supported; prior selected GDN can alias a destination because each layer consumes its entry state before later rows overwrite it, and abort poisons uncertain state.",
+  "lineage": "v126 is reopened only as a dependency of this bounded full-publication architecture, never retained alone. First-prefix-only and VMM remapping remain closed. This candidate changes logical GDN ownership rather than preserving a fixed virtual address or merely optimizing memcpy.",
+  "ownership_contract_to_implement": [
+    "Only build-isolated noninstallable whole-core MTP permits selected GDN storage inside request-owned dead family workspace. Ordinary production RequestState ABI and route stay unchanged.",
+    "Typed GDN views must identify selected complete storage and actual arena offset; all consumers, including scalar tail and full-state oracle, must observe it. Raw allocation plus original plan offset is physical backing, not the selected MTP GDN view.",
+    "Before each observer, complete Conv, selected GDN, live KV, normalized hidden, full logits and logical positions match scalar. Immutable prefix slots remain unchanged during commit; next transaction may reuse them after previous transaction retirement.",
+    "All request-entry/reset, poison recovery, destruction and construction-failure paths must restore fixed physical view ownership safely. Prefill cannot overwrite live selected GDN. Public non-MTP borrowed-view semantics remain unchanged.",
+    "Keep a separate immutable entry hidden; no entry hidden alias with an overwritten GDN prefix. No request allocation or CPU node-update loop."
+  ],
+  "milestones": [
+    "1: Build and T1 complete state/output/alias/guards and changing-pointer Graph admission for source-private indirect GDN entry. No performance claim.",
+    "2: Integrate complete typed-state/runner/reset/observer ownership and startup input dependency; native P65 full-state/logit/draftKV, EOS/cancel/failure and reset admission.",
+    "3: Immediate sealed cap2 P65/O16 API; exact output/work and Decode>=14.389333336846462tps, Prefill no>3% regression. Failure archives all unused integration. Passing unlocks8K/40K bothcaps and affected lifecycle/resource qualification, then independent selection."
+  ],
+  "bounds": {
+    "architecture_variants": 1,
+    "correctness_repairs": 2,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "dependency_expiry": "Indirect entry may remain only through the next two integration/API milestones; no independent tuning or indefinite retention.",
+  "artifact_root": ".q3x-work/mtp-gdn-owner-20261020",
+  "runtime_selected": false,
+  "production_changed": false,
+  "goal_achieved": false
+}

@@ -2,6 +2,9 @@
 #include "q3x/runtime/decode_ops.h"
 
 #include "gdn_m16_register_state.h"
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+#include "runtime/mtp_gdn_state_internal.h"
+#endif
 
 #include <cuda_runtime.h>
 
@@ -1630,7 +1633,11 @@ __global__ void gated_delta_net_update_warp_eight_row_lane_striped_kernel(
 // value head, so the following headwise normalization needs only a block
 // barrier. The intermediate is first rounded to and stored as BF16 in output,
 // then read back exactly as the ordered two-kernel reference does.
-template <bool kUseWarpTailReduction>
+template <bool kUseWarpTailReduction
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+          , bool kIndirectState = false
+#endif
+          >
 __global__ void
 gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
     const std::uint16_t* const conv_qkv,
@@ -1645,6 +1652,14 @@ gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
     const std::uint16_t* const silu_gate,
     const float norm_epsilon,
     std::uint16_t* const output) {
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+  // The pointer slot is immutable for this complete launch/Graph replay.
+  const std::uint16_t* const selected_state = kIndirectState
+      ? *reinterpret_cast<const std::uint16_t* const*>(state_input)
+      : state_input;
+#else
+  const std::uint16_t* const selected_state = state_input;
+#endif
   constexpr unsigned int kWarpSize = 32U;
   constexpr unsigned int kWarpsPerBlock = 8U;
   constexpr unsigned int kRowsPerWarpBatch = 8U;
@@ -1754,7 +1769,7 @@ gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
             static_cast<std::size_t>(row) * kGdnHeadDimension +
             key_dimension;
         warp_scratch[scratch_offset] =
-            alpha * decode_bf16_device(state_input[state_offset]);
+            alpha * decode_bf16_device(selected_state[state_offset]);
       }
     }
     __syncwarp(kFullWarpMask);
@@ -2367,6 +2382,47 @@ int launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
       norm_epsilon, output, cuda_stream);
   return status;
 }
+
+#if defined(Q3X_ENABLE_MTP_GDN_OWNER)
+namespace mtp_detail {
+int launch_mtp_gdn_selected_state(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* a_log,
+    const std::uint16_t* dt_bias,
+    const std::uint16_t* const* state_handle,
+    std::uint16_t* state_output, const std::uint16_t* norm_weight,
+    const std::uint16_t* silu_gate, std::uint16_t* output,
+    void* stream) noexcept {
+  if (!state_handle || reinterpret_cast<std::uintptr_t>(state_handle) %
+          alignof(const std::uint16_t*) != 0U)
+    return static_cast<int>(cudaErrorInvalidValue);
+  // Validate all directly visible operands using the supported in-place
+  // state case. The transaction separately proves the device handle value.
+  bool exact = false;
+  const int status = validate_gdn_plain_norm_silu_gate_composite(
+      conv_qkv, a, b, a_log, dt_bias, state_output, state_output,
+      1.e-6F, norm_weight, silu_gate, kGdnValueHeadCount,
+      kGdnHeadDimension, 1.e-6F, output, {}, &exact);
+  if (status != static_cast<int>(cudaSuccess) || !exact)
+    return status != static_cast<int>(cudaSuccess) ? status :
+        static_cast<int>(cudaErrorInvalidValue);
+  const void* pointers[] = {conv_qkv, a, b, a_log, dt_bias, state_output,
+                           norm_weight, silu_gate, output};
+  const std::size_t sizes[] = {10240U*2U, 48U*2U, 48U*2U, 48U*2U, 48U*2U,
+                              48U*128U*128U*2U, 128U*2U, 6144U*2U, 6144U*2U};
+  for (unsigned i = 0; i < 9; ++i)
+    if (ranges_overlap(state_handle, sizeof(*state_handle), pointers[i], sizes[i]))
+      return static_cast<int>(cudaErrorInvalidValue);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<true, true>
+      <<<48U, 256U, 0U, static_cast<cudaStream_t>(stream)>>>(
+          conv_qkv, a, b, a_log, dt_bias,
+          reinterpret_cast<const std::uint16_t*>(state_handle), state_output,
+          1.e-6F, norm_weight, silu_gate, 1.e-6F, output);
+  return static_cast<int>(cudaGetLastError());
+}
+}  // namespace mtp_detail
+#endif
 
 int query_gated_delta_net_update_warp_eight_row_lane_striped_resources_test_cuda(
     int* const registers_per_thread,

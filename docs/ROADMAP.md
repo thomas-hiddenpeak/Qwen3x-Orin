@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-20 complete GDN owner composition — bounded implementation
+
+The [v127 design](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json)
+selects complete GDN prefix ownership coupled with the previously admitted
+startup FP8 input owner. This is a materially different composition from the
+closed first-prefix-only assessment and fixed-VA remapping. First admit a
+source-private indirect GDN input with unchanged arithmetic and Graph replay;
+then compose all typed-state, scalar-tail, observer, reset and failure consumers
+before the immediate short cap 2 API return. No production or speed claim
+follows from the prerequisite. The design bounds it to two further milestones.
+
+The [indirect-input prerequisite](metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json)
+now passes twelve complete state/output comparisons, nine changing-pointer
+Graph replays, four exact-alias cases, invalid zero-enqueue and guard checks,
+and bounded memcheck with zero errors. This closes milestone 1 only. The next
+work is complete ownership integration plus native admission, followed by the
+already-declared immediate composed API gate; no further isolated measurement.
+
+Current runtime remains v122 until integration. Existing physical canonical
+state contracts remain in force: the new selected-storage exception must be
+implemented and documented atomically before native/API execution. The complete
+API gate remains 14.389333336846462 Decode token/s with exact state/output and
+paired Prefill, TTFT and total; no additive gain is inferred from old timings.
+
 ## 2026-10-20 startup FP8 input composition — closed below API floor
 
 The [startup ownership composition](metadata/qwen36-27b-mtp-startup-input-design-2026-10-20.json)

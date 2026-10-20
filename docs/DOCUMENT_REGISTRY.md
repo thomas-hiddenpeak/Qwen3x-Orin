@@ -622,3 +622,11 @@ reconciliation and API rejection. Prior static-stop evidence remains frozen;
 no Markdown paths or classifications change.
 
 The [startup FP8 input closure](metadata/qwen36-27b-mtp-startup-input-rejection-2026-10-20.json) records exact native admission and insufficient short API direction; runtime and temporary Engine contract are removed. Existing MTP/Roadmap documents preserve the decision; no Markdown paths or classes change.
+
+The [complete GDN owner design](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json)
+selects one bounded prerequisite/integration/API composition in existing MTP
+and Roadmap documents. No Markdown paths or classifications change.
+
+The [indirect GDN prerequisite](metadata/qwen36-27b-mtp-gdn-owner-prerequisite-2026-10-20.json)
+closes bounded T0/T1 admission and advances the same two-milestone composition
+deadline. Existing document paths/classes and production status are unchanged.

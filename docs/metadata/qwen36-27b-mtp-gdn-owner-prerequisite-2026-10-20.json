@@ -1,0 +1,74 @@
+{
+  "work_package_id": "WP-MTP-GDN-OWNER-20261020",
+  "architecture_candidate_id": "AC-MTP-GDN-OWNER-INPUT-v127",
+  "design": "qwen36-27b-mtp-gdn-owner-design-2026-10-20.json",
+  "authority": "T0/T1 dependency-only; no model execution, performance, API, ownership integration or production qualification",
+  "source_parent": "09b7824c23cbcb48a1fc2cadaf8b9a12839e321d",
+  "implementation": "Private compile-guarded indirect state-handle specialization shares the exact existing GDN arithmetic. Existing public launch signature and ordinary route remain unchanged. Source-private entry is not enabled by current CMake/default builds.",
+  "validation": {
+    "complete_state_output_cases": 12,
+    "changing_pointer_graph_replays": 9,
+    "exact_input_output_alias_cases": 4,
+    "invalid_zero_enqueue_cases": 3,
+    "complete_state_elements_per_case": 786432,
+    "complete_output_elements_per_case": 6144,
+    "guards": "pass",
+    "memory_check": "compute-sanitizer memcheck, same complete panel, 0 errors",
+    "normal_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "memcheck_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "temperature_scope": "Both tests finish before a sampled temperature; null is not a zero-temperature observation. Preflight and normal exit retained.",
+    "oracle": "Current direct scalar GDN launch, same finite inputs, bitwise complete state/output. No independent real-model oracle is claimed."
+  },
+  "failed_attempts": [
+    "Initial standalone link omitted libq3x_core.a and failed; the prematurely started wrapper completed preflight then failed before executing a missing test binary. Repaired link includes the required core library.",
+    "Non-root compute-sanitizer reported GPU debugging disabled and error99; its run is not sanitizer qualification. Repeated once with the established sudo -n sanitizer environment, complete panel passed with0 errors."
+  ],
+  "reproduction": {
+    "kernel": "/usr/local/cuda/bin/nvcc -std=c++17 -O3 -arch=sm_87 -DQ3X_ENABLE_MTP_GDN_OWNER=1 -Iinclude -Isrc -c src/kernels/reference/gdn_decode.cu -o .q3x-work/mtp-gdn-owner-20261020/gdn-owner.o",
+    "test": "/usr/local/cuda/bin/nvcc -std=c++17 -O3 -arch=sm_87 -DQ3X_ENABLE_MTP_GDN_OWNER=1 -Iinclude -Isrc tests/mtp_gdn_state_owner_test.cu .q3x-work/mtp-gdn-owner-20261020/gdn-owner.o .q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_kernels.a .q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_core.a -o .q3x-work/mtp-gdn-owner-20261020/consumer-test",
+    "run": "preflight-protected run-synthetic.py synthetic-r1 and run-sanitizer.py memcheck-root memcheck under artifact root"
+  },
+  "remaining": [
+    "Complete typed-state, scalar-tail, reset/abort/destruction ownership implementation and changed MTP-only contract. Existing fixed canonical-state contract still applies until that atomic integration.",
+    "Compose frozen startup-input implementation as dependency; native full-state/logit/draftKV/EOS/cancel/failure checks.",
+    "Immediate sealed cap2 short API gate>=14.389333336846462tps with paired Prefill/TTFT/Decode/total; then long/bothcap qualification only if it passes."
+  ],
+  "expiry": "Next two declared integration/API milestones; no isolated kernel tuning or unbounded prerequisite retention.",
+  "runtime_selected": false,
+  "production_changed": false,
+  "goal_achieved": false,
+  "sha256": {
+    "src/kernels/reference/gdn_decode.cu": "c7f98bbec9645eb51cdd31a5ed7926338f911b277ae33b13de58cc997d069e51",
+    "src/runtime/mtp_gdn_state_internal.h": "04026e6329f8c31fa5dc33fa89ba07d32507017443d76aa1f3bfb5f4718be863",
+    "tests/mtp_gdn_state_owner_test.cu": "86cb2d73bc3b08ecd302aaaefa3de3f48b5a82a7cd8c2b352e1bb76f205c2800",
+    ".q3x-work/mtp-gdn-owner-20261020/consumer-test": "a74c208e4ff553844a4b5e8c1fb595d35b84a624086a06f9e3f542b76a13c48e",
+    ".q3x-work/mtp-gdn-owner-20261020/gdn-owner.o": "7f796026673f8411e9699952574ec15911cab6b5deac239ba7ac9a42a82b3af2",
+    ".q3x-work/mtp-gdn-owner-20261020/synthetic-r1/run.log": "7a75a070e46ff9dac830a45b8f02cadb265ae1ad59ac7a66be693101784fd229",
+    ".q3x-work/mtp-gdn-owner-20261020/synthetic-r1/identity.json": "f7ca04116fa0058847f5c53e19075425720e4f49027e453e85f9078e65a5edc0",
+    ".q3x-work/mtp-gdn-owner-20261020/synthetic-r1/preflight.json": "87a83c5b9431ff39fe774849da67380da96149412e3722108565d568ec36db06",
+    ".q3x-work/mtp-gdn-owner-20261020/synthetic-r1/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck/run.log": "a163222522970f2452a954aefaed9cd45ad308be9c0e81696ebcceedd461ce4d",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck/cleanup.json": "ea0de0815e2a40da374aec8407bd9d38987bed2fed6f8e2b4a90644adbf8fd44",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck-root/run.log": "a7523b1e4d17edbe6ed0211b289eceef4859192ab4da270af435b44cd728a359",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck-root/identity.json": "5cbc59646415a10fb12e7779687c55a5fce5a310dc9d70b6d8469b72dbefff7e",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck-root/preflight.json": "1e9bbb20c4ce3f5a648fdc609f000b0f79fa96fa645bf79d8e8e0840c078c032",
+    ".q3x-work/mtp-gdn-owner-20261020/memcheck-root/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-gdn-owner-20261020/run-synthetic.py": "3bdf2c171a8bc056abeea29cf89e4b31bc58a5ef583e144153b6f7b252bf183d",
+    ".q3x-work/mtp-gdn-owner-20261020/run-sanitizer.py": "bb64911fc5d6daa073cea1c7cde23886218fadffe22d7bb3e3ac44ad30286ba2",
+    ".q3x-work/mtp-gdn-owner-20261020/build-kernel.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-gdn-owner-20261020/build-test.log": "24576aa9f2f1ffa3fb8d56abcd36f9a0378f8dca4d0e0d3253983a6893402f9c",
+    ".q3x-work/mtp-gdn-owner-20261020/build-test-r1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "linked_library_sha256": {
+    ".q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_kernels.a": "c403fd87b03441c4900db837a1204fcc926db4b2b36da9401f902e1f42864386",
+    ".q3x-work/build/orin-whole-core-exact-decode-admission/libq3x_core.a": "f4de4a20d9f2adc23bf226327f43a9cfb8040ba21f812c7743d00c17585a7a79"
+  }
+}
