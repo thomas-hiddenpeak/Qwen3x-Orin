@@ -111,6 +111,11 @@ version's planned NVFP4 composition before runtime integration. No new API
 speed, Prefill regression or production change follows from this component
 experiment; the additional Decode goal remains open.
 
+The selected [NVFP4 operand-factorization successor](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
+has a passing exhaustive host proof over finite operands. It has no CUDA,
+exceptional-route or performance qualification yet. Roadmap owns its fixed
+prototype and bounded return to the real API.
+
 ### Installed MTP delivery complete
 
 The [final delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)

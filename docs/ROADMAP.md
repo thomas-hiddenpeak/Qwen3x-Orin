@@ -81,15 +81,29 @@ The predeclared minimum 10% reduction gate fails. Cancel its Gate/Up and
 No runtime integration, layout scan or additional profiler is selected for
 this version. Its proposed full-model owner/resource plan remains unadmitted.
 
-The additional 25%/50% product goal remains active. Next select a materially
-different dataflow after checking the closed lineages and current whole-runner
-budget; lower register count or fewer activation addresses alone did not make
-this executor faster. Existing multi-row weight reuse, K512 input staging,
-FP8 preswizzle and rejected Gate/Up or PV variants are not new designs.
-Any successor needs a bounded composition point and an immediate return to
-both-cap short/8K/40K API checks after minimum affected correctness admission.
-Reserve broad qualification for a positive complete runner. Ordinary non-MTP
-and the delivered MTP artifacts retain their existing status and metrics.
+The additional 25%/50% product goal remains active. The
+[exact NVFP4 activation-factorization successor](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
+now selects one bounded native prototype. It moves the E2M1 factor 3 to shared
+FP32 input lifts while preserving each original exact FMA product and reduction
+tree. The host finite-domain screen passes all 265,297,920 weight/scale/input
+combinations, including signed zeros; CUDA execution and exceptional routing
+remain unqualified. This changes operand preparation rather than continuing the
+closed output-lane layout. Existing weight formats and owners stay current.
+
+Implement one fixed K512 lifted Gate/Up feed and direct lifted packed-Down
+feed, including producer/flag costs. The local comparison covers all 64 Gate/Up
+pairs and 53 packed Down roles, M2/M3/M4, in four mirrored traversals. Require
+at least 10% aggregate local reduction with every pair favorable, no output
+differences and safe resources. A failure closes this version; a pass must
+compose within the second milestone and return immediately to both-cap
+short/8K/40K API checks after minimum affected correctness admission. At most
+one correctness repair and no layout, grid or decoder scan are selected.
+
+This family occupies about 35% of the long diagnostic window; a modest local
+gain cannot be presented as the complete 25%/50% result. Keep the full product
+goals and require actual upward value. Reserve broad qualification for a
+positive complete runner. Ordinary non-MTP and the delivered MTP artifacts
+retain their existing status and metrics.
 
 ## 2026-10-21 MTP delivery — complete
 

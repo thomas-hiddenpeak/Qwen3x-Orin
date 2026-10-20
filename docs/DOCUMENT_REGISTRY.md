@@ -738,3 +738,9 @@ closes its fixed local work package after exact numerical/Graph admission and
 a valid negative real-weight comparison. Existing Current Status and Roadmap
 cancel that version's NVFP4 composition while retaining the additional Decode
 goal. No runtime, installed artifact, Markdown path or classification changes.
+
+The [NVFP4 activation-factorization design](metadata/qwen36-27b-mtp-nv-factor-design-2026-10-21.json)
+records an exhaustive finite-domain host proof and activates one bounded native
+prototype under the existing Decode goal. Existing Current Status and Roadmap
+distinguish that proof from pending exceptional/device/API qualification.
+No runtime, installed artifact, Markdown path or classification changes.

@@ -1,0 +1,234 @@
+{
+  "schema": "q3x-nv-activation-factorization-design-v1",
+  "status": "selected_bounded_native_prototype_after_finite_domain_host_pass",
+  "activation_authority": "Activate one workspace-only fixed CUDA prototype and local real-payload gate under this bounded work package. GPU execution requires T0/bounds/resource and directed numerical admission plus the ordinary host/device preflight. No runtime integration before local pass, no production/default change, no inferred API gain.",
+  "parent_goal": "Additional 25%, then 50%, real-API Decode throughput over installed v127, independently for caps 2/3 and P65/O16, P8192/O256, P40000/O256. Exact numerical/state/output/capacity contracts, 8 GiB retained-free reserve and 2% matched Prefill latency guard remain fixed.",
+  "candidate_name": "Exact activation-side factorization of NVFP4 verifier operands",
+  "mechanism": "Move the odd factor 3 in E2M1 magnitudes into a bounded activation producer shared by all output channels and by Gate/Up. Consumers retain current K-lane ownership, packed weights/scales, ordered FP32 FMA chains and reduction tree. This is an exact operand factorization, not a new reduction, approximate publication, weight expansion, output-lane revision, persistent-grid variant or codebook-layout scan.",
+  "scope_if_later_selected": {
+    "changed": "128 Gate/Up projections and the existing 53 packed Down roles, M2/M3/M4. Gate and Up share one activation producer; Down has a separate producer after existing BF16 SiLU/multiply publication.",
+    "unchanged": "All FP8, 11 canonical Down roles, vocabulary, M1/scalar oracle/tail, ordinary non-MTP, Prefill, draft model, Attention, GDN, transaction and acceptance policy. No promotion or performance promise follows from this proposal."
+  },
+  "closed_output_lane_observation": {
+    "result": ".q3x-work/decode-plan-20261021/output-lane-t2/payload/results.json",
+    "baseline_ms": 450.200511951,
+    "candidate_ms": 531.574463651,
+    "latency_change_fraction": 0.180750464603,
+    "complete_output_mismatches": 0,
+    "decision": "Reject output-lane v1 and its unimplemented NV composition. Do not tune its ownership, subgroup, layout or launch geometry.",
+    "observed": "All four mirrored pairs and every M bucket regress; N1024 latency increases 69.89%, while N6144/10240/12288 increase 18.24%/15.13%/13.09%. No register spills appear in the compiled candidate.",
+    "causal_hypotheses_only": "Longer per-thread serial leaf work, binary-carry dependencies/control, 1.6x weight-load instruction count and a second roots/merge launch can explain a loss despite fewer registers. This is not a measured stall or DRAM-traffic attribution."
+  },
+  "finite_precision_ledger": {
+    "original": "Let c=E2M1(q), s=E4M3FN(block_scale), x=BF16(input), a the original FP32 chain accumulator. Current paired BF16 FMA with a negative-zero addend produces w=c*s exactly for finite c,s, including signed zero. The step is FMA32_RN(w,x,a). Tensor weight_scale_2 remains after the complete original reduction, followed by unchanged BF16 rounding.",
+    "producer": "For finite BF16 x, publish u=__fmul_rn(x,0.25f) and v=__fmul_rn(x,0.75f), both FP32. Use multiplication, not fma(...,+0), to preserve -0. Never round either lift to BF16. Original BF16 input remains live and immutable for exceptional-domain execution.",
+    "coefficient_table": [
+      {
+        "magnitude_code": 0,
+        "c_magnitude": 0,
+        "operand": "u",
+        "scale": "copysign(0.0f,s)"
+      },
+      {
+        "magnitude_code": 1,
+        "c_magnitude": 0.5,
+        "operand": "u",
+        "scale": "2*s"
+      },
+      {
+        "magnitude_code": 2,
+        "c_magnitude": 1,
+        "operand": "u",
+        "scale": "4*s"
+      },
+      {
+        "magnitude_code": 3,
+        "c_magnitude": 1.5,
+        "operand": "v",
+        "scale": "2*s"
+      },
+      {
+        "magnitude_code": 4,
+        "c_magnitude": 2,
+        "operand": "u",
+        "scale": "8*s"
+      },
+      {
+        "magnitude_code": 5,
+        "c_magnitude": 3,
+        "operand": "v",
+        "scale": "4*s"
+      },
+      {
+        "magnitude_code": 6,
+        "c_magnitude": 4,
+        "operand": "u",
+        "scale": "16*s"
+      },
+      {
+        "magnitude_code": 7,
+        "c_magnitude": 6,
+        "operand": "v",
+        "scale": "8*s"
+      }
+    ],
+    "sign": "Native prototype will apply the E2M1 sign by exact FP32 XOR to transformed scale, retaining block-scale sign including zero. This matches the exhaustive host screen and has the same exact finite product as sign-on-lift.",
+    "consumer": "For each unchanged original term execute FMA32_RN(signed_transformed_scale, selected_lift, a). Preserve tile/phase/half/c order, four accumulators, leaf merge, warp tree, final tensor scale and BF16 publication.",
+    "weight_exactness": "Finite E2M1 has at most two significant binary bits; finite E4M3FN has at most four. Their product needs at most six significant bits, fits BF16 exactly, and its nonzero magnitude lies in [2^-10,2688]. Thus the current private BF16 scaled-weight publication adds no rounding error in the finite domain.",
+    "lift_exactness": "Finite BF16 x has at most eight significant binary bits. u=x/4 has the same significand; v=3*x/4 has at most ten. The smallest nonzero u is 2^-135, safely above FP32 2^-149; the largest |v| is 0.75 times the largest finite BF16 value, below FP32 overflow. Every u/v is exactly representable in FP32, including FP32 subnormals. --ftz=false is mandatory.",
+    "scale_exactness": "For nonzero magnitude codes, transformed scales multiply finite E4M3FN s by powers of two in {2,4,8,16}. They remain exactly representable FP32, with nonzero magnitude in [2^-8,7168], far from FP32 overflow/underflow. Signed-zero scales remain signed zero. No tensor-scale factor crosses the reduction.",
+    "fma_equivalence": "For every finite x and finite s, transformed_scale*signed_selected_lift equals (c*s)*x as an exact real product, with the same product sign when zero. Both expressions supply that identical exact product and the identical FP32 accumulator to one correctly rounded FP32 FMA. Therefore the FMA result is identical for every accumulator value; comparison of separately rounded FP32 products alone would be insufficient. Induct over original terms and then retain the identical reduction/publication expression.",
+    "exceptional_domain": "If any BF16 activation in the projection is nonfinite, or any block-scale code in that immutable projection is E4M3FN NaN, execute the existing decoder and original FMA operands for the whole projection inside the same prebound executor. Producer-generated u/v are not consumed in that branch. Preserve current signed quiet-NaN construction and BF16 rounding. There is no after-error fallback, host synchronization, lossy domain acceptance or changed output contract.",
+    "exception_selection": "A bounded activation producer publishes a nonfinite flag before consumers on the same stream. The immutable projection-scale exceptional flag is derived during the existing authenticated startup pack/check traversal, which already visits every relevant scale; do not add a fresh full checkpoint scan. Combine these flags uniformly at consumer entry. The original finite/nonfinite block decoder remains available; no consumer uses a new-layout pointer in an old-format field.",
+    "proof_status": "Finite-domain host exhaustive screen passes as recorded here. Nonfinite routing, native compiler/device behavior and full-state qualification remain pending."
+  },
+  "host_counterexample_search_plan": {
+    "authority": "Host-only prerequisite if root selects it. No model load, checkpoint scan or CUDA context.",
+    "implementation": "One optimized C++ executable, bounded arrays of predecoded raw representations and explicit bit_cast/memcpy. Python may orchestrate/report, but must not execute 268 million interpreted iterations. One fixed pass, no variant/parameter search.",
+    "enumeration": "Cover all 16 E2M1 codes x 256 E4M3FN codes x 65,536 BF16 bit patterns: 268,435,456 tuples. Classify 265,297,920 finite-domain tuples and 3,137,536 exceptional-domain tuples. Independently reconstruct original exact scaled BF16 weight and lifted FP32 operands.",
+    "exact_oracle": "For finite tuples compare the two exact FP64 product bit patterns, including +/-0, without first rounding products to FP32. Each product has at most fourteen significant bits and exponent safely inside FP64, so FP64 multiplication is exact here. Independently verify each original w and every u/v and transformed scale is represented exactly by its declared BF16/FP32 bit pattern. Integer significand/exponent arithmetic provides a second invariant check for the lift and coefficient table.",
+    "accumulator_argument": "The exact-product identity plus unchanged FMA rounding and accumulator proves all 2^32 FP32 accumulator patterns; do not claim that a small accumulator sample exhausts them. A supplemental directed fmaf check covers cancellation, halfway boundaries, +/-0, subnormal, overflow, infinities and NaN accumulator payloads, with original exceptional operands retained.",
+    "nonfinite_assertion": "Every tuple outside the finite domain must select the original decoder/operand sequence. Verify raw signed zero and signed NaN code handling as control-flow obligations; no equivalence assertion may silently treat all NaNs as equal.",
+    "stop": "Any counterexample closes this exact transform or consumes one explicit correctness repair if root has activated a bounded successor. Do not soften comparison, restrict real inputs opportunistically or replace the original baseline.",
+    "status": "Original proposed broader search retained for scope; completed finite-domain screen is recorded separately in host_feasibility. No claim of nonfinite control-flow execution."
+  },
+  "ownership_and_lifetime": {
+    "weights": "Retain existing canonical and packed Gate/Up/Down weight owners and exact inventories; add no expanded weights or scale arrays. At most one immutable exceptional-scale flag per selected projection, derived during its current packing/check traversal.",
+    "activation_owner": "Borrow a checked subspan of target views.fp32_scratch only for the MLP producer/consumer interval. The source BF16 input, Gate/Up BF16 outputs, SiLU publication, Down output and transaction snapshots remain disjoint.",
+    "gate_up": "After the existing post-Attention residual/norm finishes, produce one u/v pair over Mx5120. Both Gate and Up consume it before any reuse. Existing BF16 Gate/Up outputs and SiLU/multiply remain unchanged.",
+    "down": "After SiLU/multiply publishes Mx17408 BF16 input, overwrite the retired Gate/Up lifts with Down u/v; packed Down consumes them before the next residual/norm or scratch user. The 11 unmodified canonical Down roles need no lift.",
+    "alias_audit": "fp32_scratch aliases GQA probability storage. Attention and its final readers must retire before MLP writes; later A/B, vocabulary/argmax and control-result consumers may reuse only after the last lifted consumer. Check both enqueue_gdn_block and enqueue_multirow paths plus their captured graphs. No overlap with original inputs, live prefixes, selected GDN state, hidden or logits.",
+    "gate_up_max_lift_bytes": 163840,
+    "down_max_lift_bytes": 557056,
+    "flag_alignment_allowance_bytes": 256,
+    "required_borrow_extent_bytes": 557312,
+    "incremental_request_allocation_bytes_if_borrow_valid": 0,
+    "immutable_metadata_allowance_bytes": 256,
+    "resource_admission": "Verify actual typed scratch capacity >=557,312 bytes, alignment and non-overlap; never infer fit merely from a nominal 1 MiB floor. Check the full-capacity installed-candidate retained-free memory remains >=8,589,934,592 bytes after all owners and graphs, including metadata. No managed memory, silent smaller capacity or extra multi-GB owner is permitted.",
+    "graphs_and_failure": "Allocate/bind metadata and borrow spans before capture; pointer bindings remain stable. Producer flag and lifted data are stream-ordered graph outputs. No request-time allocation, host readback or node updates. Failure drains/poisons before owner release; reset/Prefill and destruction require retirement of all lifted readers. M1 stays on current canonical path."
+  },
+  "source_instruction_tradeoff": {
+    "current_per_weight_pair": "One shared values[packed_byte] lookup, one exact BF16x2 scaled-weight FMA, two BF16-to-FP32 expansions; decoded weights then serve all M rows. Scale lookup is amortized over original blocks. This existing M-row reuse must remain explicit.",
+    "proposed_removed": "The E2M1 pair-value lookup and paired scaled-weight multiplication leave the finite consumer. The input factor 3 is computed once per activation and reused over N, with the same producer shared by Gate/Up.",
+    "proposed_added": "A producer writes two FP32 arrays; each consumer loads/selects u or v for each q and row, decodes the power-of-two factor and sign, and forms the transformed scale. Original FP32 FMA count is unchanged. Naively loading both lifts costs 8 activation bytes per element versus the current 2 BF16 bytes (4x), though activation reuse/cache may help; this is not a DRAM-saving claim.",
+    "risks": [
+      "Current native BF16x2 weight decode is already compact and shared across M; added per-row selections can outweigh removed decode work.",
+      "Larger activation feeds can reduce cache locality or require more shared memory; do not assume a current K512 ring can expand without reducing occupancy.",
+      "Producer and exceptional-flag overhead are part of complete local projection-group timing and API Decode.",
+      "No static instruction-count reduction, occupancy advantage or speedup has yet been established."
+    ],
+    "no_scan": "If later selected, choose one producer/consumer feed from the proof and resource budget before timing. Do not turn this into a ring-width, LUT, tile, storage-width, subgroup or launch-geometry scan."
+  },
+  "budget_and_bounded_return": {
+    "current_long_diagnostic_window_seconds": 21.624139008,
+    "gate_up_plus_packed_down_seconds": 7.56548976,
+    "selected_fraction": 0.3498631671393296,
+    "isolated_fraction_required_latency_cut_for_25pct_window_speedup": 0.5716520593902701,
+    "isolated_fraction_required_latency_cut_for_50pct_window_speedup": 0.9527534323171166,
+    "interpretation": "These are diagnostic-window arithmetic, not full-Decode targets or a speedup forecast. A 10% NV-family cut alone would be only about 3.6% window speedup. No argument currently supports this transform supplying the full 25% or 50% goal; keep those goals and seek actual upward value rather than inventing a forecast.",
+    "possible_first_milestone_if_activated": "Activated with fixed feed and bounded two-milestone composition in selected_native_mechanism and bounded_execution.",
+    "prospective_local_gate_for_root_review": "Activated with the fixed corpus/order and threshold in bounded_execution; still no performance result.",
+    "immediate_api_return_if_local_passes": "Compose the entire selected NV family in one default-off candidate, complete minimum affected P65 M1..4 prefix/full-logit/draft-KV and rejection/EOS/cancel/failure admission plus scratch/owner/Graph checks, then immediately run the real short/8K/40K API panel for both caps. Report Prefill, TTFT, committed Decode and total. A negative composition is removed; no extra profile or repeated qualification rescues it.",
+    "release_boundary": "Only the complete runner can select retained value. Stage completion still requires independent matched comparisons against installed v127 in every cap/bucket, the original 2% Prefill guard and all resource/numerical/API constraints."
+  },
+  "novelty_against_closed_lineages": {
+    "v23_combined_codebook": "v23 replaced weight decoding with a 4096-product immutable table. This proposal moves a common exact multiplicative factor to activation preparation; it does not revive that table.",
+    "v31_v40_output_lane": "Those changed chain/thread ownership; output-lane v1 serializes original leaves. This proposal retains original ownership and chain/tree topology.",
+    "v42_current": "Current paired BF16 scaling is the incumbent being compared, not a new idea. It remains the exceptional-domain implementation.",
+    "v44_v88_v89": "Register, replicated/sign-separated weight codebooks and arithmetic FP8 reconstruction remain closed. No replacement weight codebook or FP8 conversion family is proposed.",
+    "scale_residency": "The rejected startup-expanded Gate/Up scales changed immutable scale representation. This proposal has no expanded scale owner and preserves every existing packed scale byte.",
+    "expanded_qkv": "The rejected BF16 QKV expansion doubles large weight traffic. Here all weight bytes/layouts stay current; only a bounded input-side scratch is produced.",
+    "v37_v41_certificates": "No Tensor Core reduction, rounding-cell certificate or repair of approximate output is introduced. Equivalence follows from identical exact product at every original FMA."
+  },
+  "proven_source_use": "The already pinned local vLLM Marlin dequant and consumer source supplies the principle of separating immutable weight representation, operand preparation and M-row reuse; it does not implement or prove this transform. The factorization is derived here from the exact E2M1/BF16/E4M3 operand domain. No third-party code is copied and no dependency is added.",
+  "source_sha256": {
+    "src/runtime/mtp_verify_projection_internal.cu": "f52f41ea7dc351ec05fd9d9cc39cc37a95622defe8e4bdbd7454fa3d4e546e95",
+    "src/runtime/mtp_verify_internal.cpp": "68a97b213af9e464c2c925504d4ebf445345b69cf60ff13d59e204b504fd19d6",
+    "src/runtime/mtp_device_internal.cpp": "af16ac8eb40024757e7d270a868940235b27b91c1974911eb489ece1e219f20f",
+    "src/runtime/request_state.cpp": "f491d5a27a96f0cd85bebede1a4954dd9fbabb6d3b23b71d532aa1260d987fa9",
+    "include/q3x/runtime/request_state.h": "e6da00253e9269b8f8a71e2cf7fcb25c52c0c244ea91082c52a910f94cb1c19a",
+    "docs/MODEL_WEIGHT_BINDING.md": "b4faf7e76471fa2cce1f3752b2f8f2bb6e2fe4cc350b5a12d5cdc20f696a6d54",
+    "docs/REQUEST_STATE.md": "adda56d07c79dc22b1e91a897e26b8c7fa51ea1a987cdd7162985355872046c6",
+    "docs/metadata/qwen36-27b-mtp-decode-node-budget-2026-10-21.json": "166952bbbe623e10e04316907a2688968fd12b0f178ab85a71982d408421ff77",
+    "docs/metadata/qwen36-27b-mtp-output-lane-design-2026-10-21.json": "c10bb2571ce0a24259fb52b076fa4cb8f475e9648e0ecccbaa45b3fefdbb24b7",
+    "docs/metadata/qwen36-27b-mtp-combined-codebook-rejection-2026-10-10.json": "bfb2d00c1038aceccc81106a6f5a942f607e79f04c52d7b85d3233afffd498e2",
+    "docs/metadata/qwen36-27b-mtp-chain-partition-rejection-2026-10-10.json": "37d8132406098b7c416dff60dbf5b7d51bb2d5363275daf60b25cc77f1ef74c5",
+    "docs/metadata/qwen36-27b-mtp-gate-chain-share-rejection-2026-10-10.json": "308da22e070c03ac4ec4720851a79a4188c6b4fd0e34cea2bae67271e889eba8",
+    "docs/metadata/qwen36-27b-mtp-paired-weight-decode-direction-2026-10-10.json": "64e813404a44367a04e0483d9539e6333135b2d1ad78de43606a30fe3e2e710e",
+    "docs/metadata/qwen36-27b-mtp-register-codebook-rejection-2026-10-10.json": "e9e91439085d3b701818b5de681b1376c04064387543502432282da56575b71d",
+    "docs/metadata/qwen36-27b-mtp-nv-signed-codebooks-rejection-2026-10-14.json": "2f40b21b4a45fe9cb2e356e9708cbb9355a6b9251a6dcdb7b392968d9ca27d21",
+    "docs/metadata/qwen36-27b-mtp-fp8-arithmetic-decode-rejection-2026-10-14.json": "d60611849a2a8c70b69b4e5e50505a589987883bebb55cb2f62661a9ee163086",
+    "docs/metadata/qwen36-27b-mtp-gate-scale-residency-rejection-2026-10-20.json": "d00c04b8aa8637eedaac9cdc36b23502410c2950e507982c288245334f0ab4a0",
+    "docs/metadata/qwen36-27b-mtp-expanded-qkv-assessment-2026-10-10.json": "1d7e69548a468a8118f842dfcdf39eb502998894001c60ca79ac72dbd209b28d",
+    ".q3x-work/tmp-archive-20260809/qwen36-vllm-eval/csrc/libtorch_stable/quantization/marlin/dequant.h": "39c4640d2de39374ef5d96e7fa27701a675922113c3f5b05d45369321090e728",
+    ".q3x-work/tmp-archive-20260809/qwen36-vllm-eval/csrc/libtorch_stable/quantization/marlin/marlin_template.h": "be1300672e0072b4d93826139c1869efe407238b30f7fbddad1271f82235bc37",
+    ".q3x-work/decode-plan-20261021/output-lane-t2/payload/results.json": "c0df0e1366dd9829b6ba2f35c628eb7e1dec1780110474baf19ab6c69fd3cd63",
+    ".q3x-work/decode-plan-20261021/output-lane-prototype/prototype.sass": "dae5dcedf5e8edae8595be882df21071797f4747bb335643931f9a22706bd7b7"
+  },
+  "gpu_runs": 0,
+  "runtime_mutations": 0,
+  "goal_achieved": false,
+  "date": "2026-10-21",
+  "decision_unit": "local_mutation",
+  "work_package_id": "WP-DECODE-NV-FACTOR-20261021",
+  "architecture_candidate_id": "AC-DECODE-NV-FACTOR-v1",
+  "parent_design": "docs/metadata/qwen36-27b-mtp-decode-next-design-2026-10-21.json",
+  "predecessor_rejection": "docs/metadata/qwen36-27b-mtp-output-lane-rejection-2026-10-21.json",
+  "proposal_origin": {
+    "path": ".q3x-work/decode-plan-20261021/nv-activation-factorization-proposal.json",
+    "sha256": "8e544261b5a830a80bc4aaaee3a4c5dca0372b38bb340e1a7dc76552189ca752",
+    "note": "Original unselected proposal is frozen; this successor records root review, host result and selected bounds."
+  },
+  "host_feasibility": {
+    "status": "finite_domain_pass",
+    "authority": "Mathematical prerequisite only; no compiled CUDA, nonfinite routing, full-model numerical or performance authority.",
+    "result": {
+      "status": "pass",
+      "finite_bf16_lift_cases": 65280,
+      "finite_weight_scale_pairs": 4064,
+      "exact_products_compared": 265297920,
+      "signed_zero_products_compared": 34997136,
+      "gpu_execution": false,
+      "performance_authority": false
+    },
+    "source_sha256": {
+      ".q3x-work/decode-plan-20261021/nv-factor-host/check": "8bf663a8113e9ae4d7f07d5b42a2936d66eaac2b40f3cb628425304354e970a2",
+      ".q3x-work/decode-plan-20261021/nv-factor-host/check.cpp": "868bb4e59deafdfea991dd74b90769d0487bea06891e69551b2659d4bc5bd6bc",
+      ".q3x-work/decode-plan-20261021/nv-factor-host/result.json": "83e89bdfa79e70aae1d7c082eec6059e83f12b8a6afbf32e4b3387dcffcc8f84"
+    },
+    "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "compile_command": [
+      "g++",
+      "-std=c++20",
+      "-O3",
+      "-fno-fast-math",
+      "-ffp-contract=off",
+      ".q3x-work/decode-plan-20261021/nv-factor-host/check.cpp",
+      "-o",
+      ".q3x-work/decode-plan-20261021/nv-factor-host/check"
+    ],
+    "formula_variant": "Host screen moves the E2M1 sign to transformed scale. This has the same exact finite product as the proposal sign-on-lift, including signed zeros. Native prototype will fix sign-on-scale so the implementation matches the exhaustive host screen.",
+    "proof": "All finite original c*s products are exactly BF16-representable; all 65,280 finite BF16 inputs yield exact FP32 x/4 and 3*x/4. Binary64 products remain exact (at most 15 significand bits, exponents safely inside binary64). All 265,297,920 complete finite combinations match bitwise, including both zero signs. The identical exact product and accumulator supply the original correctly rounded FP32 FMA; preserve every original FMA and reduction thereafter.",
+    "review": "Independent agent checked coefficient table, fp8 finite decode, original BF16x2 negative-zero addend, product exactness and sign equivalence against current source. This is review of the host proof, not an independent device run.",
+    "pending": "The 3,137,536 tuples involving nonfinite input or scale are not exercised by this finite screen. They must select the identical original decoder and FMA operand sequence. That control flow, CUDA subnormal handling and full-output/Graph behavior remain T1 obligations."
+  },
+  "selected_native_mechanism": {
+    "shape_scope": "Current 128 Gate/Up roles N17408 K5120 and 53 packed Down roles N5120 K17408, M2/M3/M4. Retain current 128-thread K-lane ownership and four-output/warp grid. No output-lane descendant.",
+    "producer": "One fixed 256-thread linear producer writes interleaved FP32 [M,K,2] u/v. Same-stream 4-byte flag clear precedes it; producer atomically ORs the flag only on nonfinite activation. Count clear and producer in complete group timing. No host readback.",
+    "gate_feed": "One fixed double-buffered K512 ring stages both FP32 lifts for all M rows; Gate and Up share the same global lifted input. Maximum M4 shared lift storage is 2*4*512*8=32768 bytes. No ring-width/full-K or M-specific layout scan. Original exceptional path may reuse the retired shared storage under a uniform branch and must retain its original operands and arithmetic.",
+    "down_feed": "Retain current packed weight and scale6 address traversal. Load interleaved FP32 u/v directly, reusing each input pair over the existing four outputs; no new Down shared staging or ring scan.",
+    "scale_and_sign": "Retain exact current scale decode; form the coefficient-table power-of-two scale exactly, preserving zero explicitly before exponent adjustment. Apply E2M1 sign by exact FP32 sign-bit XOR to transformed scale, matching host screen. Select u/v, then execute the same original ordered fmaf into the same four chains.",
+    "exception_branch": "One prebound executor uniformly selects identical original scaled-weight/FMA logic when activation flag or immutable scale flag is set. It must not evaluate the transformed branch for nonfinite operands. No dynamic host dispatcher, after-error fallback or numerical waiver.",
+    "weights": "No new weight/scale format and no full-model extra weight owner. Both local routes borrow the exact same authenticated current packs.",
+    "pre_GPU": "Build, static resource, bounds/alias checks and source-exact old comparator in same ELF. Declare fixed allocation maximum and enforce >=8 GiB free before/after allocation. Reject spills or impossible static shared allocation before GPU; do not retune ownership to hide them."
+  },
+  "bounded_execution": {
+    "milestone1": "Implement this one fixed local producer/consumer executor in ignored workspace. Check complete M2/M3/M4 outputs, directed cancellation/zero/subnormal/extreme/nonfinite values, guards/aliases/invalid-zero-enqueue, and changing-input CUDA Graphs. Then run the fixed complete real-weight paired group comparison including flag clear/producer. At most one correctness repair, no timing variants.",
+    "real_payload": "All 64 complete Gate/Up groups and all existing 53 packed Down groups in natural layer order; each M2/M3/M4. Authenticate complete weight, scale and tensor-scale payloads plus existing packed eligibility. Freeze source/manifest and activation recipes before timing. Historical or role/shape-reused activation is checkpoint_weight_only; no invented current-prompt capture. Hold one group at a time, not duplicate full model owners.",
+    "local_order": "Four complete corpus traversals, route orders B-C,C-B,B-C,C-B, 117 groups * 3 M * 4 pairs = 1404 samples per route. Gate/Up sample includes both complete projections; Down sample includes complete projection. One event sample per group/M/route/pair, fixed 32 MiB scrub outside events. Startup packing excluded and reported separately; candidate clear/producer/consumers all inside events.",
+    "local_gate": "Aggregate candidate time <=0.90 times same-ELF incumbent, each mirrored pair favorable, zero complete-output differences, clean device ownership/cleanup, safe reserve. This is local prerequisite selection only. Negative gate closes the version without NV integration, layout/decoder scans or extra profiler.",
+    "milestone2": "If local passes, update MTP/Request State/Engine scratch and metadata lifetime contracts atomically with one default-off complete selected-family integration. After minimum affected complete P65 state/logit/draft-KV and transaction/Graph/resource admission, return immediately to real short/8K/40K API for both caps. No indefinite uncomposed retention.",
+    "API_selection": "Preserve complete IDs, response/usage/finish, physical work and states; report Prefill, TTFT, committed Decode, total and acceptance. Stop if any bucket Decode regresses >3% or Prefill exceeds matched 1.02x baseline. Whole-runner fitness selects retention; local gain alone has no installed authority.",
+    "goal_selection": "The original additional25% then50% goals remain relative to exact installed v127 both-cap workloads. An intermediate positive composition does not complete either target unless the frozen conservative independent-process selection passes all buckets. Affected installation qualification follows a positive whole API result only."
+  }
+}
