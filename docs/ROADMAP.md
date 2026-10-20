@@ -77,7 +77,10 @@ Stop integration and performance collection. The [completed six-process installe
 passes both caps and all buckets without retries. Execute the already-declared
 [eight-process remaining delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json):
 both-cap public capability, full capacity, two-hour sustained reuse and fresh
-restart. These are explicit completion gates, not a new optimization campaign.
+restart. [Installed capability](metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json)
+now passes both caps and exact cross-cap output IDs; stop capability collection
+and continue the existing capacity/reliability sequence. These are explicit
+completion gates, not a new optimization campaign.
 Do not transfer the frozen candidate's timing or v122 sustained result to a new ELF.
 
 ## 2026-10-20 startup FP8 input composition — closed below API floor

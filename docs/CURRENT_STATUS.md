@@ -114,8 +114,11 @@ same-cap references; native historical IDs remain unavailable. All six
 processes pass cache, ownership, fixed-clock, reserve and normal-exit checks.
 
 Stop performance collection. The [remaining installed delivery panel](metadata/qwen36-27b-mtp-installed-qualification-design-2026-10-20.json)
-is active: both-cap capability, capacity, two-hour sustained reuse and fresh
-restart, followed by the final goal audit. The ordinary non-MTP production
+now has [completed both-cap capability](metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json):
+98/98 native responses and pinned reference answers match per cap, with 79
+correct answers and exact full MTP token sequences between caps. Both processes
+exit normally. Capacity, two-hour sustained reuse, fresh restart and the final
+goal audit remain active. The ordinary non-MTP production
 route is unchanged. Installed MTP delivery and the full goal are not yet complete.
 
 ### v127 independent-process architecture selection

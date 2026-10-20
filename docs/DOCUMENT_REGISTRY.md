@@ -683,3 +683,7 @@ gate and bounded remaining delivery protocol. No Markdown paths or classes chang
 The [installed MTP performance completion](metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json)
 closes the six-process gate and advances existing Current Status/Roadmap to
 the declared remaining delivery panel. No Markdown paths or classes change.
+
+The [installed MTP capability completion](metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json)
+closes both fixed-cap 98-case panels and updates existing Current Status/Roadmap
+to capacity and reliability. No Markdown paths or classes change.
