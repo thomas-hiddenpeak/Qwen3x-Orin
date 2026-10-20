@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-GATE-REGISTER-PAIR-API-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v124",
+  "source_parent": "7f0920af292722a43e4fdf4a5832d6690a891100",
+  "design": "docs/metadata/qwen36-27b-mtp-gate-register-pair-api-design-2026-10-20.json",
+  "status": "closed_at_short_api_floor",
+  "authority": "T0/T1 and bounded real-model complete state admission plus one sealed cap2 API direction observation; not independent selection or release qualification",
+  "static_gate_reconciliation": {
+    "predecessor": "docs/metadata/qwen36-27b-mtp-gate-register-pair-rejection-2026-10-20.json",
+    "finding": "The exact unchanged prototype passes actual device resource admission: M2 127registers/4CTAs, M3 167registers/3CTAs, zero local memory and compiler spills. The earlier160-register heuristic did not identify a different CTA-residency level. Whole-API evidence now closes the design, rather than that heuristic.",
+    "prototype_sha256": "c866007b3c3d37beb169da672c4ded796b859946aa7cd20d4855f2b2059c2cff",
+    "kernel_changed_after_static_stop": false
+  },
+  "numerical": {
+    "synthetic": "Eight complete M2/M3 GateUp+SiLU scenarios including nonfinite/signed-zero values; guards and24Graph replays exact; invalid launches rejected.",
+    "synchronization": "Bounded root synccheck M3 complete output and three Graph replays:0errors. No racecheck run in this package.",
+    "native_prompt_tokens": 65,
+    "complete_scalar_prefixes": 10,
+    "transaction_checks": 17,
+    "eos_state_checks": 26,
+    "failure_recoveries": 26,
+    "scope": "Full target Conv/GDN/liveKV/hidden/logits and target-conditioned draft KV are bitwise equal to scalar replay in bounded harness; no new global mathematical or capability qualification.",
+    "native_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.281
+    }
+  },
+  "api": {
+    "profile": "q3x.sm87.candidate.mtp-eos-frontier-register-pair-cap2.v124",
+    "binary_sha256": "8a200b2ba913da4571d396c6b9497ecc34b7a933f3858b9b2096f56387584307",
+    "candidate": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8917460899999999,
+      "prefill_tps": 72.89070367552719,
+      "ttft_s": 0.9106072320137173,
+      "elapsed_s": 1.9790850799763575,
+      "decode_tps": 14.036144550691926,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 9926885376,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposal_policy": "eos-frontier-v122",
+        "eos_frontier_stops": 0,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "budget_policy": "output-tail-v119",
+        "requested_budget_histogram": [
+          0,
+          0,
+          7,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 1911557120,
+        "draft_initialization_ms": 5.421003,
+        "draft_ms": 87.57653,
+        "verify_ms": 963.2439330000001,
+        "reconcile_ms": 17.475304,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "incumbent_v122": {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.887871368,
+      "prefill_tps": 73.20880292200165,
+      "ttft_s": 0.9062576320720837,
+      "elapsed_s": 1.9670174421044067,
+      "decode_tps": 14.13973742754571,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-full-graph-v112",
+        "draft_length": 2,
+        "startup_free_bytes": 10297180160,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposal_policy": "eos-frontier-v122",
+        "eos_frontier_stops": 0,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "budget_policy": "output-tail-v119",
+        "requested_budget_histogram": [
+          0,
+          0,
+          7,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_head": "nvfp4-block16-dp4a-v1",
+        "draft_integer_head_steps": 12,
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "scalar_verify_rows": 1,
+        "direct_gdn_state_rows": 864,
+        "full_graph_rounds": 6,
+        "full_graph_rows": 18,
+        "graph_qk_updates": 0,
+        "seed_kv_reuses": 6,
+        "tail_kv_batches": 4,
+        "tail_kv_rows": 8,
+        "state_copy_bytes_elided": 1911557120,
+        "draft_initialization_ms": 5.584236,
+        "draft_ms": 86.282445,
+        "verify_ms": 956.822949,
+        "reconcile_ms": 17.377066,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "decode_change_fraction": -0.007326364961485976,
+    "verify_ms_change": 6.4209840000000895,
+    "nonmtp_conservative_tps": 9.59288889123,
+    "required_decode_tps": 14.389333336845,
+    "response_and_all_output_ids_equal": true,
+    "acceptance_and_physical_work_equal": true,
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 66.593
+    },
+    "preflight_gpu_holders": [],
+    "cache_drop_rc": 0
+  },
+  "decision": "Remove same-thread GateUp owner/kernel, prepare/launch wrapper, both verifier integrations and candidate identity. The short API floor fails; do not run8K/40K/cap3, extra profiling, parameter scans or qualification-only work for this version.",
+  "limitations": [
+    "One-process direction relative to historical same-request v122; no statistically qualified regression or specific hardware-stall cause.",
+    "Prefill code is unchanged; its timing variation is not attributed to fusion.",
+    "Generic driver identity panel says capability because an existing callback was reused; the frozen wrapper actually executes onlyP65/O16 and stops. No98-question or lifecycle qualification is claimed.",
+    "The original nonMTP0.8.2 production binary was not changed. Full50%-200%goal remains unmet."
+  ],
+  "restoration": {
+    "runtime_files": "Four mutated source/profile/auditor files match HEAD byte-for-byte",
+    "sealed_cap2_sha256": "17e1f77ba4dd0fe37c943f8babcd3c78191f281f0d899f2041d82c65cae8df9f",
+    "oracle_sha256": "d7b55fef69a05cc40326b70268874f7f311af7f55df2a5f9f94c10cc690e3e6a",
+    "source_manifest": {
+      ".q3x-work/mtp-gate-register-pair-20261020/source/oracle": "f910c491dfba78781f987cef5d6d487982c37831d46a116d7ac93bacc4a60894",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/candidate.patch": "a0287e4ec2d18ec77c20ed04a60c807545cd7471b286c3307d3e44a7bdabb3b8",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/final-candidate.patch": "a0287e4ec2d18ec77c20ed04a60c807545cd7471b286c3307d3e44a7bdabb3b8",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/include/q3x/server/evaluation_server.h": "18d104e64f7f6c664ec428b1755ed6029c635b3553ce5704cc918c0cac288ff9",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/src/runtime/mtp_verify_projection_internal.cu": "0eaceb4ee357cbf9f2fa24a36fdf8becd7ebb1388c1b370e2fffdc84b5981cce",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/src/runtime/mtp_verify_internal.cpp": "5468a4fe7e4fc69d352ef489fedbae3d8aaa186fec4f4a0361fcb4791fb6b3c6",
+      ".q3x-work/mtp-gate-register-pair-20261020/source/tools/evaluation/validate_mtp_service.py": "317f7badfb7f3c21959d2a5a8ffb564d8073acd7b4ca114e6808331d6a89e1c0"
+    }
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-gate-register-pair-20261020/artifact-manifest.json",
+    "sha256": "871a8bc095574da432808022792395e89f6c07283f0a6aafb16a721b27d3d578"
+  },
+  "runtime_changed": false,
+  "production_changed": false,
+  "goal_achieved": false
+}

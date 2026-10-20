@@ -614,3 +614,9 @@ MTP documents; cap 3 remains active. No Markdown paths or classes change.
 The [two-cap sustained and restart completion](metadata/qwen36-27b-mtp-sustained-complete-2026-10-20.json)
 closes bounded MTP reliability validation and returns the existing roadmap to
 cap 2 short-performance closure. No Markdown paths or classes change.
+
+The [same-thread Gate/Up API successor](metadata/qwen36-27b-mtp-gate-register-pair-api-design-2026-10-20.json)
+closes after exact native admission and negative short API direction, with
+v122 source restored. Existing MTP SDD and Roadmap record the actual-resource
+reconciliation and API rejection. Prior static-stop evidence remains frozen;
+no Markdown paths or classifications change.

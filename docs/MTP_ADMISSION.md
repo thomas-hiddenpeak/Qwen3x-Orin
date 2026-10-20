@@ -25,6 +25,26 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-20 same-thread Gate/Up composition — closed at short API floor
+
+The [bounded API successor](metadata/qwen36-27b-mtp-gate-register-pair-api-design-2026-10-20.json)
+now has a [complete short API rejection](metadata/qwen36-27b-mtp-gate-register-pair-api-rejection-2026-10-20.json).
+The unchanged prototype passes actual four/three-CTA resource admission,
+complete projection/Graph/synchronization checks and bounded real-model
+scalar state/logit/draft-KV transactions. This corrects the planning inference
+from the earlier 160-register heuristic without rewriting its frozen result.
+
+Cap 2 P65/O16 Decode is 14.036 token/s, below the predeclared 14.389 floor
+and the frozen v122 observation of 14.140. Prefill is 0.89175s / 72.89 token/s,
+external TTFT 0.91061s and total 1.97909s. Output IDs, acceptance and physical
+work remain exact. This is one-process direction, not a statistical regression
+or a hardware-stall attribution. The short stop ends before long/cap 3 checks.
+
+All integration and unused prerequisites are removed; v122 source and frozen
+binaries are restored. No register/geometry/stage scan or qualification-only
+continuation follows. The full goal and cap 2 short deficit remain open;
+ordinary non-MTP production is unchanged.
+
 ## 2026-10-20 MTP sustained service — complete; short-cap2 performance next
 
 The [completed two-cap sustained and restart record](metadata/qwen36-27b-mtp-sustained-complete-2026-10-20.json)

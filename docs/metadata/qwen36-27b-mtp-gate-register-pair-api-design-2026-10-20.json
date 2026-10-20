@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-GATE-REGISTER-PAIR-API-20261020",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v124",
+  "source_parent": "7f0920a",
+  "decision_unit": "architecture_candidate",
+  "predecessor": "docs/metadata/qwen36-27b-mtp-gate-register-pair-rejection-2026-10-20.json",
+  "correction": "The predecessor correctly applied its explicit160-register gate, but that gate did not correspond to a change in admitted CTA residency: at128threads and256-register warp allocation,160 consumes20480 registers/CTA and167 rounds to168, consuming21504; both admit3CTAs in65536registers. This local heuristic must not globally select or reject the whole runner. Preserve the rejection as historical; evaluate the exact unchanged kernel against actual resource safety and API fitness. No assertion that167 is faster or equally fast.",
+  "unchanged_prototype_sha256": "c866007b3c3d37beb169da672c4ded796b859946aa7cd20d4855f2b2059c2cff",
+  "implementation_boundary": "Use the exact fixed M2/M3 same-thread Gate/Up kernel from v123. Only a validated launch wrapper and existing verifier call-site integration may be added. No register limit, launch geometry, stage, codebook, scheduling or accumulator repair/scan.",
+  "product_constraint": "Cap2 short Decode>=1.5x matched nonMTP, unchanged cap3 long/short and numerical/output/capacity contracts, Prefill/TTFT/Decode/total jointly reported. Ordinary nonMTP remains unchanged.",
+  "downward_budget": {
+    "short_gap_ms": 21.25676266666642,
+    "gate_up_instrumented_ms": 307.106,
+    "native_short_conservative_tps": 9.59288889123,
+    "scope": "Historical predeclared comparator; no guaranteed savings"
+  },
+  "resource_admission": "Actual cudaFuncGetAttributes/cudaOccupancyMaxActiveBlocksPerMultiprocessor with128threads and intended shared carveout: M2>=4CTAs, M3>=3CTAs, zero local/stack/spill bytes, existing6144/8192sharedbytes. No extra memory or inventory. Device query failing this stops unchanged kernel.",
+  "validation_order": [
+    "Fixed complete original Gate+Up+SiLU output/guard/special-value/Graph checks and bounded synchronization validation.",
+    "P65 complete scalar target-state/logits/prefix/transaction/recovery oracle.",
+    "Immediate sealed cap2 P65/O16 API. Require floor1.5*9.59288889123token/s and exact output/work; failure closes before long/cap3/lifecycle.",
+    "Only positive short direction unlocks8K/40K/cap3 regression and later independent selection."
+  ],
+  "bound": "One unchanged kernel composition; at most one correctness-only integration repair. No local timing/profiling or parameter sweep. No performance or production claim until actual API evidence.",
+  "artifact_root": ".q3x-work/mtp-gate-register-pair-20261020",
+  "production_changed": false
+}
