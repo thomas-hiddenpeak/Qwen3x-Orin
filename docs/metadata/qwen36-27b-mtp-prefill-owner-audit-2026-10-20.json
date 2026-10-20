@@ -1,0 +1,93 @@
+{
+  "date": "2026-10-20",
+  "work_package_id": "WP-MTP-PREFILL-OWNER-AUDIT-20261020",
+  "source_commit": "217a4280b012e85cbef152c8a7868fb248f1fa91",
+  "authority": "Read-only source reachability and byte-accounting assessment; no new build, GPU run, numerical qualification, or performance result",
+  "product_constraint": "Both configured caps 2/3 must reach the full matched 50%-200% Decode objective with exact target semantics and paired Prefill/TTFT/Decode/total reporting.",
+  "current_cap2_budget": {
+    "native_faster_p65_tps": 9.592888891230976,
+    "required_decode_tps": 14.389333336846462,
+    "decode_ms": 1060.840067,
+    "required_decode_ms": 1042.4388433333334,
+    "gap_ms": 18.401223666666738,
+    "unclassified_ms": 0.35760700000014367,
+    "reconcile_plus_unclassified_ms": 17.734673000000143,
+    "gap_even_if_both_intervals_zero_ms": 0.6665506666665806
+  },
+  "current_cap2_joint_metrics": {
+    "label": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.887871368,
+    "prefill_tps": 73.20880292200165,
+    "ttft_s": 0.9062576320720837,
+    "elapsed_s": 1.9670174421044067,
+    "decode_tps": 14.13973742754571
+  },
+  "findings": [
+    {
+      "source": "include/q3x/runtime/whole_core_request_geometry.h:42; src/runtime/reference_runner.cpp:5123,6317,6370",
+      "finding": "The service admits P1..44095. Whole-core identity requires a valid whole-core runner contract; a mismatched contract fails before execution, rather than falling back to segmented Prefill."
+    },
+    {
+      "source": "src/runtime/reference_runner.cpp:5400,6729,6876",
+      "finding": "Every actual panel, including a partial final panel, follows whole-core fill/core/drain/MLP. The whole-core layer branch ends in continue. The operator-panel and compatibility-segment paths below it are unreachable for a valid whole-core invocation."
+    },
+    {
+      "source": "src/runtime/reference_runner.cpp:2152,5555,5565,5638,6024",
+      "finding": "All pinned FP8 fill/drain roles have K5120 or K6144. Their helper launches canonical-weight dequantization/CUTLASS with request workspace and returns its status. It never reaches the later Marlin compute branch for these shapes, including short/tail panels."
+    },
+    {
+      "source": "src/runtime/reference_engine.cpp:3440,5508; include/q3x/runtime/model_weights.h:48",
+      "finding": "Startup nevertheless allocates and prepares all208 FP8 Marlin weights/scales under the current whole-core selection."
+    },
+    {
+      "source": "src/runtime/reference_engine_prefill_authority.cpp:98,819,2867,3943; src/runtime/reference_runner.cpp:2165",
+      "finding": "These assets remain live contract dependencies: inventory checks, launch guards and bound/matching receipts require Marlin pointers. They are compute-unused in the audited path, not yet safely removable under the existing contract."
+    },
+    {
+      "source": "src/runtime/reference_runner.cpp:2118,9238,9250",
+      "finding": "NVFP4 Down still consumes its Marlin assets; those are outside the reclaim proposal. Legacy/projection-reset/parity/direct-runner paths retain their separate contracts."
+    },
+    {
+      "source": "src/runtime/mtp_verify_projection_internal.cu:67,83,100,408",
+      "finding": "The current M2..4 verifier has an existing AoSoA4-preswizzled consumer with one vector weight demand load and one next-block weight prefetch instead of four scalar loads/prefetches, plus no runtime XOR swizzle. Four-chain arithmetic and reductions are shared. Fewer instructions are not an established API gain."
+    }
+  ],
+  "capacity_arithmetic": {
+    "old_fp8_marlin_weight_bytes": 7214202880,
+    "old_fp8_marlin_scale_bytes": 2686976,
+    "hypothetical_startup_mtp_input_layout_count": 144,
+    "hypothetical_startup_mtp_input_layout_bytes": 5200936960,
+    "hypothetical_net_resident_reduction_bytes": 2015952896,
+    "scope": "Retained payload arithmetic only; startup peak, preparation scratch, CUDA allocator behavior and actual free reserve must be validated in an implemented candidate."
+  },
+  "lineage": {
+    "predecessor": "docs/metadata/qwen36-27b-mtp-phase-fp8-layout-rejection-2026-10-10.json",
+    "preserved_negative": "v24 retained original Decode inventory but borrowed family scratch and packed once per request (~159ms). Whole8K/40K verifier timing was effectively unchanged. Merely moving this preparation outside Decode does not prove benefit. v19 inventory exchange is also closed.",
+    "possible_material_difference": "Explicit canonical-only Prefill asset contract plus engine-lifetime input layout, retaining all existing Decode assets and current native-prefetch/live-reduction consumer. No per-request packing or family-arena borrowing. This is a candidate hypothesis, not an activated or qualified implementation."
+  },
+  "next_action": "Prepare one coupled canonical-source ownership/receipt and startup-input-layout architecture, with all source-only contract consumers accounted for before allocation removal. Bound return to sealed cap2 P65/O16 after minimum exact state admission; require14.389333336846462tps, preserve exact work/output and report Prefill/TTFT/Decode/total. If short fails, close without layout/geometry scan. Passing short unlocks both-cap8K/40K and affected ownership/lifecycle qualification.",
+  "open_obligations": [
+    "Read applicable engine/runner/model/state contracts before implementation and declare a new route/asset identity.",
+    "Bind canonical weight/scales and actual request scratch in both receipt construction and matching; do not alias canonical pointers as Marlin.",
+    "Isolate candidate changes from ordinary non-MTP and historical consumers; preserve complete O/Gate/Down Decode inventory and8GiB reserve.",
+    "Authenticate every startup layout against its original tensor; verify all four input shapes and complete scalar target prefixes, logits and draftKV.",
+    "Actual API result must establish benefit; this assessment claims no saved milliseconds or goal completion."
+  ],
+  "source_sha256": {
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/reference_engine.cpp": "7a0854be0beadb7a1bb3016df24abd3f1b0d4352dd89d00ea3254c1cb5aaee33",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_verify_projection_internal.cu": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "include/q3x/runtime/model_weights.h": "5e54039f5f3b0ca213574676bb25427c9c79bc41c62636292f1249eaafee49c4",
+    "include/q3x/runtime/whole_core_request_geometry.h": "ea05bb98fa6f168b3c802963721e986559cc6082a781ca975c4f49eff056f262",
+    "include/q3x/server/evaluation_server.h": "871409bf6aa89aa4d139e848b623c0200de72e421895f80c59eed5e661f50be2",
+    "docs/metadata/qwen36-27b-mtp-phase-fp8-layout-rejection-2026-10-10.json": "351b3701ade132d9d9c0427bff775066660c326e793aeb7448ca5b9f36904ddf",
+    "docs/metadata/qwen36-27b-mtp-v122-state-budget-2026-10-20.json": "e9d9213e93d2aeba826ccc1ae552036c1db03b0d69f89c581dc61646d08d933c",
+    ".q3x-work/mtp-prefill-owner-audit-20261020/record.py": "09100d5be2564c22d6ad2fb2729715eec23c493e77e2c5d8d186bb1d7ddb7b3c"
+  },
+  "production_changed": false,
+  "runtime_changed": false,
+  "goal_achieved": false
+}
