@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-10-14
+  last_reviewed: 2026-10-21
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -46,32 +46,40 @@ output tokens; the maximum 44,095-token prompt permits one output token.
 Requests exceeding the capacity are rejected, never silently truncated.
 
 Sampling, tool calls, media, custom stop sequences, batching, MTP and Prefix/KV
-reuse are outside the current service contract. OpenAI compatibility covers
+reuse are outside the ordinary non-MTP service contract. The independent MTP
+package below adds target-verified speculative generation. OpenAI compatibility covers
 the supported endpoints and parameters, not the entire OpenAI API. See the
 [API procedure](docs/EVALSCOPE_EVALUATION.md) for exact request semantics.
 
 ## Measured performance
 
-Selected results from the **2026-09-28 numerical-route qualification (0.8.0)**:
+The **2026-10-20 exact installed comparison** uses two fresh processes per
+configuration and the same requests. Values below are medians; the conservative
+Decode gain uses the slower MTP observation divided by the faster non-MTP one.
 
-| Prompt / output tokens | Prefill tokens/s | First-token latency (s) | Decode tokens/s |
-| --- | ---: | ---: | ---: |
-| 1,089 / 16 | 403.23 | 2.719 | 9.588 |
-| 8,192 / 256 | 486.84 | 16.849 | 9.218 |
-| 40,000 / 256 | 434.92 | 92.007 | 7.864 |
-| 40,000 / 4,096 | 434.35 | 92.126 | 7.792 |
+| Prompt / output | Configuration | Prefill s / tokens/s | TTFT s | Decode tokens/s | Total s | Conservative gain |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | Non-MTP | 0.888 / 73.17 | 0.907 | 9.582 | 2.472 | — |
+| 65 / 16 | MTP cap 2 | 0.894 / 72.74 | 0.912 | 14.408 | 1.953 | +50.28% |
+| 65 / 16 | MTP cap 3 | 0.899 / 72.30 | 0.918 | 15.264 | 1.900 | +59.13% |
+| 8192 / 256 | Non-MTP | 16.781 / 488.17 | 16.803 | 9.215 | 44.480 | — |
+| 8192 / 256 | MTP cap 2 | 17.325 / 472.84 | 17.347 | 15.946 | 33.339 | +73.02% |
+| 8192 / 256 | MTP cap 3 | 17.348 / 472.22 | 17.370 | 15.930 | 33.378 | +72.79% |
+| 40000 / 256 | Non-MTP | 90.064 / 444.13 | 90.099 | 7.863 | 122.533 | — |
+| 40000 / 256 | MTP cap 2 | 92.667 / 431.65 | 92.702 | 12.018 | 113.921 | +52.57% |
+| 40000 / 256 | MTP cap 3 | 92.698 / 431.51 | 92.733 | 12.009 | 113.968 | +52.53% |
 
-The first three rows average two installed processes; the full-output row is
-a separate capacity run. These are batch-one real API results with no
-Prefix/KV reuse or MTP, an exclusive GPU at 1300.5 MHz, and recorded host/cache
-preparation. Prefill is the engine's pure interval; first-token latency is
-measured externally; Decode excludes the first token produced by Prefill.
-Startup/model loading is outside these request intervals. The
-[complete results and protocol](docs/CURRENT_STATUS.md#paired-prefill-and-decode-performance)
-own the numbers and their scope; they are not a speed guarantee for another
-host or workload.
+These are batch-one API results with no Prefix/KV reuse, an exclusive GPU at
+1300.5 MHz and recorded host/cache preparation. Prefill uses the engine interval
+and includes MTP draft initialization; TTFT and total are external. Decode
+excludes the first token produced by Prefill. Startup/model loading is outside
+these intervals. MTP increases Prefill time but reduces total time here.
+Cap 2's short-context gain has only a 0.28 percentage-point margin above 50%.
+Neither 200% gain nor a universal prompt guarantee is established.
+[Current Status](docs/CURRENT_STATUS.md#installed-mtp-delivery-complete)
+owns the measurements, exact artifact identities and qualification limits.
 
-**40K Decode has not reached the interim 8.55 tokens/s target.** The service
+**Non-MTP 40K Decode has not reached the interim 8.55 tokens/s target.** The service
 also does not yet support 60K/130K contexts or meet the long-term 2s/4s
 first-token targets. Its bounded production eligibility is distinct from full
 product release qualification (`release_qualified=false`).
@@ -163,11 +171,13 @@ in a trusted reverse proxy when exposing the service beyond the host.
 ## Independent MTP package
 
 MTP is an opt-in executable-only package, separate from the ordinary non-MTP
-service above. Its v127 architecture passed the fixed short/8K/40K API selection
-for caps 2 and 3; **exact installed-artifact qualification is still in progress**.
-[Current Status](docs/CURRENT_STATUS.md#v127-independent-process-architecture-selection)
-owns the joint Prefill/Decode results and limits. This is not a universal
-speed guarantee or permission to replace the running ordinary service.
+service above. **Exact installed delivery checks are complete for caps 2 and 3**:
+real API correctness, fixed-workload performance, existing capacity, 98-case
+capability, two-hour reuse per cap and fresh-process recovery. The
+[delivery audit](docs/metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
+binds the qualified binaries built from clean source `65e13db`; rebuilding a
+new artifact requires the affected checks. The ordinary default remains non-MTP;
+no running service or systemd unit has been switched.
 
 Build one fixed cap (replace `cap3` with `cap2` for the other package):
 

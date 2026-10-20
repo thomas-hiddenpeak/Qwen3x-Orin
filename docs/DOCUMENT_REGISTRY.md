@@ -67,7 +67,7 @@ authority only for its exact recorded protocol.
 | `docs/DESIGN.md` | `subsystem_design_index` | active | Compatibility entry point and map of detailed subsystem contracts; subordinate to `docs/SDD.md`. |
 | `docs/PREFILL_ARCHITECTURE_RESET.md` | `subsystem_sdd` | active | Prefill input/output, state, ownership, synchronization, failure, handoff, and architecture-candidate contract; owns no delivery order or mechanism rule. |
 | `docs/MTP_ADMISSION.md` | `subsystem_sdd` | active | Isolated greedy MTP draft/verification and transaction contract; configured drafts 2/3, bounded API composition, no default-route authority. |
-| `docs/ROADMAP.md` | `active_plan` | active | SSOT for current dependency order, milestones, and exit criteria; includes completed sealed MTP public capability checks and completed bounded MTP sustained-service and fresh-process recovery validation after completed two-cap capacity validation and retained EOS-frontier composition after complete bounded native/API regression, completed cap 2/3 build/API composition and remaining short cap 2 performance closure, closed Gate/Up scale residency and closed balanced cap 2 tail and retained output-tail cap 3 composition with completed independent-process validation and remaining cap 2 short-budget closure, closed complete private draft Graph composition and closed budgeted-branch API composition after exact native/Graph admission and bounded coverage and closed canonical-singleton and compensated private-MLP API directions and retained private integer-vocabulary API composition, retained complete-verifier Graph with bounded reverse-order API validation and remaining MTP budget closure, plus retained GDN graph, Gate/Up shape and private draft matrix composition, with preceding closed directions; not an experiment ledger. |
+| `docs/ROADMAP.md` | `active_plan` | active | SSOT for delivery dependencies and exit criteria; completed fixed-cap MTP installation/qualification, historical closed architecture lineages and separate future work. |
 | `docs/SDD.md` | `system_sdd` | active | SSOT for the externally callable runner design from API and target workloads inward to kernels/deployment. |
 | `docs/decisions/0001-end-state-first-leakage.md` | `accepted_adr` | active | Accepted decision recording end-state-first/leakage as the system design and evolution model; subordinate only to normative policy. |
 | `docs/decisions/0002-prefill-attention-vllm-numerical-alignment.md` | `accepted_adr` | active | Accepted decision aligning prefill full-attention to the vLLM/FlashInfer BF16-probability numerical class with split-P tensor route; owner instruction 2026-09-21. |
@@ -698,3 +698,10 @@ close the remaining GPU delivery panel and document the historical mutable
 archive reproduction limit. Current Status and Roadmap advance to final
 requirement reconciliation and documentation selection. No Markdown paths,
 classifications or ordinary production defaults change.
+
+The [2026-10-21 final MTP delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
+selects both exact installed fixed-cap artifacts for the bounded service scope.
+README now reports the current joint installed comparison; Current Status owns
+qualification and Roadmap closes the milestone while identifying old pending
+statements as historical. No Markdown paths/classes or ordinary non-MTP default
+change; full future-product release qualification remains separate.

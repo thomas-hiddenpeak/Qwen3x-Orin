@@ -1,0 +1,364 @@
+{
+  "date": "2026-10-21",
+  "objective": "Implement and validate MTP 50%\u2013200% Decode improvement on the real API against same-workload non-MTP, fixed draft caps2/3, numerical/output correctness and joint phase metrics.",
+  "decision": "Select the exact independently installed MTP packages for the completed bounded service milestone. Ordinary non-MTP remains the default.",
+  "scope": "Predeclared short P65/O16, P8192/O256 and P40000/O256 performance buckets on pinned Qwen3.6-27B-NVFP4/SM87; existing capacity contract. No universal speed guarantee or full future-product release claim.",
+  "requirements": [
+    {
+      "requirement": "Real API MTP with fixed draft caps 2 and 3",
+      "result": "pass",
+      "proof": "Both clean-source BUILD_TESTING=OFF installed executable-only packages exercised ordinary completion/chat generation, with exact profile, route and cap receipts.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-package-api-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "50%\u2013200% Decode improvement versus same-workload non-MTP",
+      "result": "pass",
+      "proof": "All six cap/bucket comparisons exceed the lower target of 1.5x using min(MTP)/max(non-MTP), six independent processes without retries. Observed conservative gain is 50.2832%\u201373.0234%; 200% is not achieved or promised.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json"
+      ]
+    },
+    {
+      "requirement": "Joint Prefill, TTFT, Decode and complete-request reporting",
+      "result": "pass",
+      "proof": "Every performance row binds pure Prefill including draft initialization, external TTFT/total and committed Decode; same-cap Prefill guard passes. Report MTP extra Prefill rather than concealing it.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Numerical correctness and assessment of the reference baseline",
+      "result": "pass",
+      "proof": "Independent FP32 GDN and FP64 Attention qualify the corrected native numerical class; legacy BF16 is not model truth. Complete same-input target state/logits/draft-KV and prefix/failure checks qualify v127; packaging source bridge changes identity only. Approximate private draft computation does not replace target verification.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-whole-core-service-production-2026-09-28.json",
+        "docs/metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Output/API and public capability preservation",
+      "result": "pass",
+      "proof": "Full native response/text/usage/finish contracts match; full MTP IDs match frozen same-cap and cross-cap references. Both caps match all 98 pinned native/external answers, 79 correct. Native historical IDs are absent, so direct native-ID equality is not claimed.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-package-api-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Existing capacity, rejection, cancellation and recovery",
+      "result": "pass",
+      "proof": "Both installed caps pass P40000/O4096, P44095/O1, rejection of P44095/O2, short recovery, stream/nonstream, authentication and Prefill/Decode cancellation recovery.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-package-api-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json"
+      ]
+    },
+    {
+      "requirement": "Ownership, resource bound and sustained service",
+      "result": "pass",
+      "proof": "Seven native ownership/fault cases plus two installed two-hour runs and fresh-process restart pass; complete route checks preserve >=8GiB reserve. Fatal recovery is process restart.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Sealed deliverable, licenses, no cuBLASLt or exported ABI collision",
+      "result": "pass",
+      "proof": "Both host audits pass executable-only manifests, fixed caps, no admission interface/vendor API dependencies, license installation and optional supervisor template. Clean source65e13db artifacts are pinned independently of provisional dirty test installs.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-package-host-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Environment and reproducibility",
+      "result": "pass",
+      "proof": "Six-process installed selection retains cache preparation, CPU/GPU ownership, fixed clock, temperatures, reserve and normal exits. 4419 retained raw-file hashes verified; two rebuilt historical archives explicitly classified, original linked test preserved.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json",
+        "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Non-MTP scope and rollback",
+      "result": "pass",
+      "proof": "Ordinary 0.8.2 executable hash remains unchanged. Independent install prefixes permit restoring the existing non-MTP launch; no system service is enabled or switched.",
+      "evidence": [
+        "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json"
+      ]
+    },
+    {
+      "requirement": "Current delivery documentation and final validation",
+      "result": "pass",
+      "proof": "README carries all nine joint performance rows and independent package usage; Current Status binds exact artifacts and qualification; Roadmap closes the milestone and marks previous pending stages historical. Document control passes86paths/1764links/0errors; all7 document-control unit tests pass; git diff --check passes.",
+      "evidence": [
+        "README.md",
+        "docs/CURRENT_STATUS.md",
+        "docs/ROADMAP.md",
+        "docs/DOCUMENT_REGISTRY.md"
+      ]
+    }
+  ],
+  "installed": {
+    "2": {
+      "passed": true,
+      "cap": 2,
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap2.v1",
+      "binary_sha256": "74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "source_dirty": false,
+      "scope": "Installed host identity/ABI/dependency audit; no numerical or performance claim"
+    },
+    "3": {
+      "passed": true,
+      "cap": 3,
+      "profile": "q3x.sm87.service.mtp-gdn-owner-input-cap3.v1",
+      "binary_sha256": "c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac",
+      "source_commit": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+      "source_dirty": false,
+      "scope": "Installed host identity/ABI/dependency audit; no numerical or performance claim"
+    }
+  },
+  "performance_selection": [
+    {
+      "cap": 2,
+      "label": "p65",
+      "candidate_decode_tps": [
+        14.414008225065514,
+        14.401183717392644
+      ],
+      "nonmtp_decode_tps": [
+        9.582696887605916,
+        9.581769085309574
+      ],
+      "conservative_speedup": 1.5028320196602347,
+      "median_speedup": 1.5035739573010654,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 0.8936484004999998,
+          "prefill_tps": 72.73554114493955,
+          "ttft_s": 0.9122382485074922,
+          "decode_tps": 14.407595971229078,
+          "elapsed_s": 1.9532606700086035
+        },
+        "nonmtp": {
+          "prefill_s": 0.8883899800000001,
+          "prefill_tps": 73.16607729146725,
+          "ttft_s": 0.906920341483783,
+          "decode_tps": 9.582232986457745,
+          "elapsed_s": 2.4723695695283823
+        }
+      }
+    },
+    {
+      "cap": 2,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        15.94740694582075,
+        15.943937362717206
+      ],
+      "nonmtp_decode_tps": [
+        9.214901570217064,
+        9.214317802311204
+      ],
+      "conservative_speedup": 1.730234147508277,
+      "median_speedup": 1.7304772201082574,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 17.325139088500002,
+          "prefill_tps": 472.83895073372275,
+          "ttft_s": 17.34726835746551,
+          "decode_tps": 15.945672154268978,
+          "elapsed_s": 33.33937005593907
+        },
+        "nonmtp": {
+          "prefill_s": 16.7811284335,
+          "prefill_tps": 488.1674182728275,
+          "ttft_s": 16.80304117448395,
+          "decode_tps": 9.214609686264133,
+          "elapsed_s": 44.47960453550331
+        }
+      }
+    },
+    {
+      "cap": 2,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        12.038565583938077,
+        11.998099731366068
+      ],
+      "nonmtp_decode_tps": [
+        7.8617999788373485,
+        7.8639892620104535
+      ],
+      "conservative_speedup": 1.5257014387502756,
+      "median_speedup": 1.5284870569719202,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap2": {
+          "prefill_s": 92.6666256735,
+          "prefill_tps": 431.65491399747816,
+          "ttft_s": 92.70171717752237,
+          "decode_tps": 12.018332657652072,
+          "elapsed_s": 113.92097407655092
+        },
+        "nonmtp": {
+          "prefill_s": 90.064293031,
+          "prefill_tps": 444.1271947769491,
+          "ttft_s": 90.0992809360614,
+          "decode_tps": 7.862894620423901,
+          "elapsed_s": 122.53305198904127
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p65",
+      "candidate_decode_tps": [
+        15.248495877946795,
+        15.279514421921116
+      ],
+      "nonmtp_decode_tps": [
+        9.582696887605916,
+        9.581769085309574
+      ],
+      "conservative_speedup": 1.5912530738261081,
+      "median_speedup": 1.5929486552357963,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 0.8990879850000002,
+          "prefill_tps": 72.2969289165832,
+          "ttft_s": 0.9178652230184525,
+          "decode_tps": 15.264005149933954,
+          "elapsed_s": 1.900488308048807
+        },
+        "nonmtp": {
+          "prefill_s": 0.8883899800000001,
+          "prefill_tps": 73.16607729146725,
+          "ttft_s": 0.906920341483783,
+          "decode_tps": 9.582232986457745,
+          "elapsed_s": 2.4723695695283823
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p8192",
+      "candidate_decode_tps": [
+        15.938062244033397,
+        15.922496460471185
+      ],
+      "nonmtp_decode_tps": [
+        9.214901570217064,
+        9.214317802311204
+      ],
+      "conservative_speedup": 1.727907383398792,
+      "median_speedup": 1.728806742188869,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 17.347863038,
+          "prefill_tps": 472.2198869156477,
+          "ttft_s": 17.370258673967328,
+          "decode_tps": 15.930279352252292,
+          "elapsed_s": 33.37777309847297
+        },
+        "nonmtp": {
+          "prefill_s": 16.7811284335,
+          "prefill_tps": 488.1674182728275,
+          "ttft_s": 16.80304117448395,
+          "decode_tps": 9.214609686264133,
+          "elapsed_s": 44.47960453550331
+        }
+      }
+    },
+    {
+      "cap": 3,
+      "label": "p40000",
+      "candidate_decode_tps": [
+        12.023522344397625,
+        11.99495201786279
+      ],
+      "nonmtp_decode_tps": [
+        7.8617999788373485,
+        7.8639892620104535
+      ],
+      "conservative_speedup": 1.5253011694469485,
+      "median_speedup": 1.5273302976662262,
+      "prefill_regression_pass": true,
+      "joint_medians": {
+        "cap3": {
+          "prefill_s": 92.69785968049999,
+          "prefill_tps": 431.50948676135965,
+          "ttft_s": 92.73302691749996,
+          "decode_tps": 12.009237181130207,
+          "elapsed_s": 113.96831718349131
+        },
+        "nonmtp": {
+          "prefill_s": 90.064293031,
+          "prefill_tps": 444.1271947769491,
+          "ttft_s": 90.0992809360614,
+          "decode_tps": 7.862894620423901,
+          "elapsed_s": 122.53305198904127
+        }
+      }
+    }
+  ],
+  "evidence_sha256": {
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-integration-2026-10-20.json": "c291c6d962ed9f0c5b6b1224d9bb98f6b00e39a1e7de51310ffedc4ce2d3578d",
+    "docs/metadata/qwen36-27b-mtp-gdn-owner-lifecycle-complete-2026-10-20.json": "b36da5c73eef5aefc760572427d0ee8dce14ff0f0b9048d3c1a9265f82fd37f5",
+    "docs/metadata/qwen36-27b-mtp-installed-capability-2026-10-20.json": "992782575a069f46d76fabaaad1452ddf5a01e8a270d7bb8df9afb2ef755eef8",
+    "docs/metadata/qwen36-27b-mtp-installed-capacity-2026-10-20.json": "8f74f6512abc95ed055afeaeef6f5fe18b1137b8490fd78caa02015dd63138c4",
+    "docs/metadata/qwen36-27b-mtp-installed-integrity-audit-2026-10-21.json": "9168545d5861e95e17d5e0c059450e5d4f193c888c788633d693a7eb0bec2a0e",
+    "docs/metadata/qwen36-27b-mtp-installed-reliability-2026-10-21.json": "edb6ac84604eb80308cd0fc06a5466893206614504eb97286f529dbabb3835af",
+    "docs/metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json": "9756deea0e7f4aec643653c825ed5b66c5542528fcf13ee3e9536d777d8a32c6",
+    "docs/metadata/qwen36-27b-mtp-package-api-2026-10-20.json": "d2f4be6e10a8237d8a17247fae48e49b5a9e177be35defff78c4c8994b1d0622",
+    "docs/metadata/qwen36-27b-mtp-package-host-2026-10-20.json": "11544fc2f81010e958f5ed9497ad82ae803da258b03b496e581e8070f3dffef1",
+    "docs/metadata/qwen36-27b-whole-core-service-production-2026-09-28.json": "bbf5a74cd7fedd4752590ac901571dcc00209e5f49b4bf2ba83c4bcf7c0f9629"
+  },
+  "numerical_source_bridge": {
+    "path": ".q3x-work/mtp-package-20261020/package-numerical-source-audit.json",
+    "sha256": "c909682bef9b31e5301c6e3f2202216222478300653ed5e58de4dff343517877"
+  },
+  "limitations": [
+    "Cap2 short floor margin only0.2832percentage points.",
+    "200% speedup not achieved; acceptance depends on workload.",
+    "MTP adds0.54\u20130.57s Prefill at8K and2.60\u20132.63s at40K; total time improves on pinned workloads.",
+    "Native historical full token IDs unavailable; separate numerical/state and response-contract evidence is used explicitly.",
+    "Public capability is four C-Eval subjects/98cases, not the52subject benchmark.",
+    "Soak uses P513/O16 with1s idle, not continuous maximum-load saturation or indefinite uptime.",
+    "Same-process MTP-owner reconstruction unqualified; fatal recovery uses fresh process.",
+    "60K/130K capacity and2s/4s Prefill goals remain separate future non-MTP work; release_qualified remains false.",
+    "Two historical static archives were rebuilt; see integrity-audit disposition."
+  ],
+  "remaining": [],
+  "goal_achieved": true,
+  "documentation_sha256": {
+    "README.md": "473a7f064027e26512538ad3f97158f068b65f93cd5b695d6f15ca675e6be5ea",
+    "docs/CURRENT_STATUS.md": "a8827b292e7e9c7662360d6a5e964c8eab5e7d79414fdce7cf7a7780bda01448",
+    "docs/ROADMAP.md": "492fa49e96ac72945cc7872c8dd3253719c34685f082728eeec342d580d3ab1b",
+    "docs/DOCUMENT_REGISTRY.md": "6f271e9ab5e1852acfd5d127e4831fcabb1ca4a0d352975d02ba2147ccacaa5b"
+  },
+  "workspace_closeout": {
+    "source_and_build_definitions_unchanged_since": "65e13db5019bf1ddd9e6a2fa92fc85c253998cc7",
+    "active_mtp_or_native_server_processes": 0,
+    "existing_worktrees_preserved": true,
+    "retained_evidence_under_repository": true,
+    "available_disk": "382GiB reported by df -h",
+    "temporary_api_keys": "Per-process cleanup records pass; no live qualification process remains."
+  },
+  "completion_scope": "Requested fixed-cap MTP milestone achieved at the50%lower bound across all predeclared buckets; upper200%not claimed. Commit containing this record is the delivery-selection revision; installed binary source remains65e13db."
+}

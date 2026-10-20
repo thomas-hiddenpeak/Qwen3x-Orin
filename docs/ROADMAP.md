@@ -19,7 +19,26 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-20 complete GDN owner composition — selected; installation next
+## 2026-10-21 MTP delivery — complete
+
+The [final requirement audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
+closes the independently installed cap 2/3 MTP milestone. The six-process
+same-workload comparison passes the >=1.5x Decode floor in all three pinned
+buckets; installed API, capability, capacity, two-hour reuse and fresh-process
+recovery pass. [Current Status](CURRENT_STATUS.md#installed-mtp-delivery-complete)
+owns joint Prefill/TTFT/Decode/total metrics, exact binaries and scope limits.
+
+No additional measurement or optimization is selected for this milestone.
+Ordinary non-MTP stays the default; optional MTP deployment uses the separate
+executable package. Future business-prompt draft-length scans and the retained
+non-MTP long-term targets are separate work, not outstanding gates for this
+completed MTP delivery. The observed gain is 50.28%–73.02%, not 200% or a
+universal prompt guarantee.
+
+The dated sections below retain architecture decisions and their then-current
+next steps. They do not reactivate completed gates or rejected lineages.
+
+## 2026-10-20 complete GDN owner composition — historical delivery sequence
 
 The [v127 design](metadata/qwen36-27b-mtp-gdn-owner-design-2026-10-20.json)
 selects complete GDN prefix ownership coupled with the previously admitted

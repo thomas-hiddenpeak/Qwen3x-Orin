@@ -86,7 +86,18 @@ are external. Each row is one observation, with 60-second capacity spacing.
 
 ## MTP development status
 
-### Installed MTP performance gate complete; delivery qualification active
+### Installed MTP delivery complete
+
+The [final delivery audit](metadata/qwen36-27b-mtp-delivery-complete-2026-10-21.json)
+selects both independent executable-only MTP packages for the bounded service
+milestone. Clean source `65e13db` binds cap 2 SHA256
+`74e7bb29383c6d62aa22c0ad746a1b2a8ca32821f32488e82795f45035cb04cf`
+and cap 3 SHA256
+`c4ab7583b1907ddfc4ded1ff3aa7696091610ffd211fb52cd70b39c87c7324ac`.
+They are installed under `.q3x-work/install/mtp-package-20261020-cap2/` and
+`.q3x-work/install/mtp-package-20261020-cap3/`. Ordinary non-MTP remains the
+default; no running deployment is switched. Full future-product
+`release_qualified` remains false.
 
 The [exact installed six-process comparison](metadata/qwen36-27b-mtp-installed-repeat-2026-10-20.json)
 passes both fixed caps across all three pinned API buckets, with no retries.
@@ -138,10 +149,17 @@ verifies 4,419 retained raw-file hashes and both installed executables. Two
 historical mutable static archives were rebuilt; their original linked test
 executable and logs remain intact. The record states this reproduction limit
 without substituting current archives for historical inputs. All eight delivery
-processes are complete. Final requirement reconciliation and documentation
-selection remain open; ordinary non-MTP production is unchanged.
+processes are complete. The final audit closes this MTP delivery scope.
+Numerical authority remains independently qualified native references plus
+complete same-input state/transaction checks; historical native output IDs
+are unavailable, so response equality is not presented as native-ID equality.
+No 200% gain, universal speedup, full 52-subject capability, same-process owner
+recreation or future 60K/130K service qualification is claimed.
 
-### v127 independent-process architecture selection
+### Historical v127 architecture and packaging stages
+
+The following records the completed intermediate stages; their pending wording
+is historical. Installed delivery status is owned by the section above.
 
 The [completed N-C2-C3-C3-C2-N selection](metadata/qwen36-27b-mtp-gdn-owner-repeat-2026-10-20.json)
 passes all six fresh processes without retries. Both caps preserve exact full
